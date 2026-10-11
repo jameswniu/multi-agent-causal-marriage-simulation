@@ -1,0 +1,1243 @@
+{
+ "days": 60,
+ "couples": [
+  0,
+  1,
+  2,
+  3,
+  4,
+  5,
+  6
+ ],
+ "arms": [
+  "control",
+  "treatment",
+  "control",
+  "treatment",
+  "control",
+  "treatment",
+  null
+ ],
+ "origin": [
+  "initial",
+  "initial",
+  "initial",
+  "initial",
+  "initial",
+  "initial",
+  "remarriage"
+ ],
+ "states": [
+  "MMMMMM-",
+  "MMMMMM-",
+  "MMMMMM-",
+  "MMMMMM-",
+  "MMMMMM-",
+  "MMMCMM-",
+  "MMMCMM-",
+  "MMMCMM-",
+  "MCMCMM-",
+  "MCMCMM-",
+  "MCMCMC-",
+  "MMMCMC-",
+  "MMMCMC-",
+  "MMMMMC-",
+  "MMMMMS-",
+  "MMCMMS-",
+  "MMMMMS-",
+  "MMMMMS-",
+  "MMMMMS-",
+  "MMMMMS-",
+  "MMMCMS-",
+  "MMMCMS-",
+  "MMMCMM-",
+  "MMMCMM-",
+  "MMMCMM-",
+  "MCMCMM-",
+  "MCMCMM-",
+  "MCMCMM-",
+  "MCMCMM-",
+  "MCMCMM-",
+  "MCMSMM-",
+  "MCMSMM-",
+  "MMMSMM-",
+  "MMMSCM-",
+  "MMMSCM-",
+  "MMMSCM-",
+  "MMMSCM-",
+  "MMMSCM-",
+  "MMMSCM-",
+  "MMMSCM-",
+  "MMCSCM-",
+  "MMCSCM-",
+  "MMCSCM-",
+  "MMMSCM-",
+  "MCMSCM-",
+  "MCMDCM-",
+  "MCMDCM-",
+  "MCMDCM-",
+  "MCMDMM-",
+  "MCMDMM-",
+  "MCMDMMT",
+  "MCMDMMT",
+  "MCMDMMT",
+  "MMMDMMT",
+  "MMMDMMT",
+  "MMMDMMT",
+  "MMMDMMT",
+  "MMMDMMT",
+  "MMMDMMM",
+  "MMMDMMM"
+ ],
+ "legend": {
+  "M": "married",
+  "C": "married, in conflict",
+  "S": "separated",
+  "D": "divorced",
+  "T": "dating",
+  "B": "broken up",
+  "-": "not formed yet"
+ },
+ "counts": [
+  {
+   "day": 0,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 1,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 2,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 3,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 4,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 5,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 6,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 7,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 8,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 1,
+    "conflict": 2,
+    "separated": 0,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 9,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 1,
+    "conflict": 2,
+    "separated": 0,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 10,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 0,
+    "conflict": 3,
+    "separated": 0,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 11,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 1,
+    "conflict": 2,
+    "separated": 0,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 12,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 1,
+    "conflict": 2,
+    "separated": 0,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 13,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 14,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 0,
+    "separated": 1,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 15,
+   "control": {
+    "married": 2,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 0,
+    "separated": 1,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 16,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 0,
+    "separated": 1,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 17,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 0,
+    "separated": 1,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 18,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 0,
+    "separated": 1,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 19,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 0,
+    "separated": 1,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 20,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 1,
+    "conflict": 1,
+    "separated": 1,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 21,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 1,
+    "conflict": 1,
+    "separated": 1,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 22,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 23,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 24,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 25,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 1,
+    "conflict": 2,
+    "separated": 0,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 26,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 1,
+    "conflict": 2,
+    "separated": 0,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 27,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 1,
+    "conflict": 2,
+    "separated": 0,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 28,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 1,
+    "conflict": 2,
+    "separated": 0,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 29,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 1,
+    "conflict": 2,
+    "separated": 0,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 30,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 1,
+    "conflict": 1,
+    "separated": 1,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 31,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 1,
+    "conflict": 1,
+    "separated": 1,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 32,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 0,
+    "separated": 1,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 33,
+   "control": {
+    "married": 2,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 0,
+    "separated": 1,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 34,
+   "control": {
+    "married": 2,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 0,
+    "separated": 1,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 35,
+   "control": {
+    "married": 2,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 0,
+    "separated": 1,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 36,
+   "control": {
+    "married": 2,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 0,
+    "separated": 1,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 37,
+   "control": {
+    "married": 2,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 0,
+    "separated": 1,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 38,
+   "control": {
+    "married": 2,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 0,
+    "separated": 1,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 39,
+   "control": {
+    "married": 2,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 0,
+    "separated": 1,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 40,
+   "control": {
+    "married": 1,
+    "conflict": 2,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 0,
+    "separated": 1,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 41,
+   "control": {
+    "married": 1,
+    "conflict": 2,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 0,
+    "separated": 1,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 42,
+   "control": {
+    "married": 1,
+    "conflict": 2,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 0,
+    "separated": 1,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 43,
+   "control": {
+    "married": 2,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 0,
+    "separated": 1,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 44,
+   "control": {
+    "married": 2,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 1,
+    "conflict": 1,
+    "separated": 1,
+    "divorced": 0
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 45,
+   "control": {
+    "married": 2,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 1,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 1
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 46,
+   "control": {
+    "married": 2,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 1,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 1
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 47,
+   "control": {
+    "married": 2,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 1,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 1
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 48,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 1,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 1
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 49,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 1,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 1
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 0
+   }
+  },
+  {
+   "day": 50,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 1,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 1
+   },
+   "remarriage": {
+    "dating": 1,
+    "married": 0
+   }
+  },
+  {
+   "day": 51,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 1,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 1
+   },
+   "remarriage": {
+    "dating": 1,
+    "married": 0
+   }
+  },
+  {
+   "day": 52,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 1,
+    "conflict": 1,
+    "separated": 0,
+    "divorced": 1
+   },
+   "remarriage": {
+    "dating": 1,
+    "married": 0
+   }
+  },
+  {
+   "day": 53,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 1
+   },
+   "remarriage": {
+    "dating": 1,
+    "married": 0
+   }
+  },
+  {
+   "day": 54,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 1
+   },
+   "remarriage": {
+    "dating": 1,
+    "married": 0
+   }
+  },
+  {
+   "day": 55,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 1
+   },
+   "remarriage": {
+    "dating": 1,
+    "married": 0
+   }
+  },
+  {
+   "day": 56,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 1
+   },
+   "remarriage": {
+    "dating": 1,
+    "married": 0
+   }
+  },
+  {
+   "day": 57,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 1
+   },
+   "remarriage": {
+    "dating": 1,
+    "married": 0
+   }
+  },
+  {
+   "day": 58,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 1
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 1
+   }
+  },
+  {
+   "day": 59,
+   "control": {
+    "married": 3,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 0
+   },
+   "treatment": {
+    "married": 2,
+    "conflict": 0,
+    "separated": 0,
+    "divorced": 1
+   },
+   "remarriage": {
+    "dating": 0,
+    "married": 1
+   }
+  }
+ ]
+}

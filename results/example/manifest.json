@@ -1,0 +1,370 @@
+{
+  "arm_override": null,
+  "config": {
+    "arm_override": null,
+    "assignment": {
+      "block_size": 10,
+      "mode": "couple",
+      "treatment_fraction": 0.5
+    },
+    "days": 365,
+    "dynamics": {
+      "accept_forgive": 1.5,
+      "accept_grudge": -0.5,
+      "accept_intensity": -1.5,
+      "accept_intercept": -0.6,
+      "accept_trust": 2.5,
+      "affect_baseline_agree": 0.25,
+      "affect_closeness_gap_weight": 0.3,
+      "affect_grudge_weight": 0.35,
+      "affect_inertia_base": 0.45,
+      "affect_inertia_neuro": 0.3,
+      "affect_noise_sd": 0.08,
+      "affect_pos_weight": 0.3,
+      "affect_stress_weight": 0.3,
+      "disappointment_intensity": 0.3,
+      "disappointment_weekly_rate": 0.15,
+      "escalation_step": 0.15,
+      "fade_threshold": 0.08,
+      "influence_neg": 0.4,
+      "influence_neg_below_threshold": 0.8,
+      "influence_pos": 0.25,
+      "intensity_base": 0.3,
+      "intensity_decay": 0.92,
+      "intensity_neuro": 0.2,
+      "intensity_sd": 0.1,
+      "intensity_stress": 0.3,
+      "negativity_threshold": -0.35,
+      "onset_affect": -1.2,
+      "onset_agree": -0.8,
+      "onset_grudge": 0.3,
+      "onset_intercept": -4.4,
+      "onset_neuro": 1.0,
+      "onset_stress": 1.6,
+      "onset_trust": -1.4,
+      "outside_encounter_prob": 0.02,
+      "positive_episode_intensity": 0.12,
+      "rejection_episode_intensity": 0.3,
+      "sat_affect": 1.5,
+      "sat_memory": 1.0,
+      "sat_trust": 4.0,
+      "separation_days_to_divorce": 60,
+      "stress_decay": 0.7,
+      "stress_neuro_weight": 0.15,
+      "stress_shock_mean": 0.5,
+      "stress_shock_prob": 0.06,
+      "trust_affect_weight": 0.12,
+      "trust_gain_reconcile": 0.05,
+      "trust_hit_escalate": 0.02,
+      "trust_hit_rejection": 0.02,
+      "trust_hit_separate": 0.12,
+      "trust_hit_withdraw": 0.015,
+      "trust_neg_weight": 0.2,
+      "trust_pos_weight": 0.08,
+      "trust_rate": 0.04,
+      "withdraw_episode_intensity": 0.25
+    },
+    "market": {
+      "anchor_discount": 0.05,
+      "cooldown_days": 90,
+      "dating_min_days": 30,
+      "initial_threshold": 0.75,
+      "marry_hazard_base": 0.004,
+      "marry_hazard_commit": 0.01,
+      "marry_hazard_compat": 0.02,
+      "marry_network_weight": 0.0,
+      "meet_per_day": 2,
+      "relax_rate_mean": 0.004,
+      "relax_rate_sd": 0.002,
+      "threshold_floor": 0.35
+    },
+    "memory": {
+      "capacity": 200,
+      "control": {
+        "conflict_half_life_days": 14.0,
+        "load_saturation": 1.5,
+        "positive_half_life_days": 20.0,
+        "repair_half_life_days": 30.0
+      },
+      "prune_every_days": 7,
+      "prune_threshold": 0.01,
+      "treatment": {
+        "conflict_half_life_days": 90.0,
+        "load_saturation": 1.5,
+        "positive_half_life_days": 20.0,
+        "repair_half_life_days": 30.0
+      }
+    },
+    "n_couples": 1000,
+    "name": "retention-90d",
+    "policy": {
+      "aff_affect": 0.8,
+      "aff_base": -0.4,
+      "aff_closeness": 0.6,
+      "aff_extraversion": 0.8,
+      "aff_stress": 0.8,
+      "aff_trust": 1.0,
+      "esc_affect": 1.0,
+      "esc_base": -1.4,
+      "esc_engage": 0.8,
+      "esc_negmem": 0.25,
+      "esc_neuro": 1.2,
+      "esc_partner_escalated": 0.5,
+      "esc_stress": 1.0,
+      "esc_trust": 1.2,
+      "hold_avoidant": 0.8,
+      "hold_base": 0.6,
+      "hold_consc": 0.3,
+      "leave_base": 0.2,
+      "leave_commit": 2.5,
+      "leave_dating_bonus": 1.2,
+      "leave_days": 0.05,
+      "leave_intensity": 1.2,
+      "leave_negmem": 0.7,
+      "leave_network": 0.0,
+      "leave_outside_option": 1.0,
+      "leave_posmem": 1.0,
+      "leave_satisfaction": 2.5,
+      "leave_trust": 2.0,
+      "rep_agree": 1.0,
+      "rep_base": -0.3,
+      "rep_days": 0.08,
+      "rep_forgive": 1.0,
+      "rep_intensity": 1.5,
+      "rep_negmem": 1.0,
+      "rep_partner_repaired": 1.2,
+      "rep_posmem": 0.8,
+      "rep_trust": 1.0,
+      "sep_hold_base": 0.5,
+      "sep_leave_base": -1.2,
+      "sep_reunite_base": 0.2,
+      "temperature": 0.7,
+      "wd_avoidant": 1.4,
+      "wd_base": -0.8,
+      "wd_intensity": 0.8,
+      "wd_neuro": 0.6,
+      "wd_partner_escalated": 0.6
+    },
+    "population": {
+      "agreeableness": {
+        "mean": 0.55,
+        "sd": 0.16
+      },
+      "assortative_mixing": 0.35,
+      "base_trust": {
+        "mean": 0.6,
+        "sd": 0.15
+      },
+      "closeness_pref": {
+        "mean": 0.55,
+        "sd": 0.18
+      },
+      "commitment": {
+        "mean": 0.65,
+        "sd": 0.15
+      },
+      "conflict_engagement": {
+        "mean": 0.5,
+        "sd": 0.2
+      },
+      "conscientiousness": {
+        "mean": 0.55,
+        "sd": 0.16
+      },
+      "extraversion": {
+        "mean": 0.5,
+        "sd": 0.18
+      },
+      "forgiveness": {
+        "mean": 0.55,
+        "sd": 0.18
+      },
+      "history_conflict_per_year": 3.0,
+      "history_positive_per_year": 6.0,
+      "network_k": 6,
+      "network_rewire_p": 0.1,
+      "neuroticism": {
+        "mean": 0.45,
+        "sd": 0.18
+      },
+      "openness": {
+        "mean": 0.5,
+        "sd": 0.18
+      },
+      "prior_divorce_prob": 0.18,
+      "prior_relationships": {
+        "mean": 2.0,
+        "sd": 1.5
+      },
+      "years_married": {
+        "mean": 6.0,
+        "sd": 4.0
+      }
+    },
+    "seeds": {
+      "assignment": 22,
+      "dynamics": 33,
+      "population": 11
+    },
+    "shocks": []
+  },
+  "days": 365,
+  "determinism_hash": "edd6134bd4967ed62790df46815648e0e3d523265aa9456f00db95bc34a20a93",
+  "engine": "loveworld-engine",
+  "engine_version": "0.1.0",
+  "evidence_class": "simulation",
+  "files": {
+    "agents.parquet": {
+      "rows": 2000,
+      "sha256": "ad55f304561e1c090f9b7516184f3aebaa72cb8afc0f80cf7bb2c0e878eb06ec"
+    },
+    "conflicts.parquet": {
+      "rows": 11005,
+      "sha256": "c06b946acd1b79acd4b47e448b2e219e8c77a1e754b5c0ee0cd4d4129a5727fa"
+    },
+    "couples.parquet": {
+      "rows": 1142,
+      "sha256": "e06f2be28541ac6d998e382cf7a46457991f5f681c50c174f4d8700f55838c9c"
+    },
+    "daily.parquet": {
+      "rows": 348586,
+      "sha256": "8bb65b3a18b85d27ed04be3dff44554cfc2a7c04d64cbf171264e40f722073bc"
+    },
+    "decisions.parquet": {
+      "rows": 230620,
+      "sha256": "f9a392bb8dae7665ed9abe953f533a02d6233e2cc09f400304a90b862a907536"
+    },
+    "episodes.parquet": {
+      "rows": 555979,
+      "sha256": "d69224987fbbf941698b7daeff86c53f5edd1e3d3126074848fa70bc2b4ea464"
+    },
+    "events.parquet": {
+      "rows": 177359,
+      "sha256": "3a0bd60c2b0d47d1df3c9873e94da002bfe710fb9eea07f76a6798028d7ca5e3"
+    },
+    "interventions.parquet": {
+      "rows": 8000,
+      "sha256": "ae15d158455ea38d3598722d3b4373e212db89fcc2048c3f6472c80d1a9c2eef"
+    }
+  },
+  "generated_at_unix": 1791701686,
+  "n_couples": 1000,
+  "name": "retention-90d",
+  "policy_spec": {
+    "contexts": {
+      "calm": {
+        "affiliate": "aff_base + aff_extraversion*extraversion + aff_trust*trust + aff_affect*affect - aff_stress*stress + aff_closeness*closeness_pref",
+        "neutral": "0"
+      },
+      "conflict": {
+        "escalate": "esc_base + esc_neuro*neuroticism + esc_engage*conflict_engagement + esc_negmem*neg_load + esc_stress*stress - esc_trust*trust + esc_partner_escalated*[partner escalated] - esc_affect*affect",
+        "hold": "hold_base + hold_avoidant*(1-conflict_engagement) + hold_consc*conscientiousness",
+        "leave": "leave_base - leave_commit*commitment - leave_trust*trust + leave_negmem*neg_load - leave_posmem*pos_load + leave_intensity*intensity + leave_days*min(days,30) - leave_satisfaction*satisfaction + leave_network*divorced_friend_share + leave_outside_option*outside_option + leave_dating_bonus*[dating]",
+        "repair": "rep_base + rep_agree*agreeableness + rep_forgive*forgiveness + rep_trust*trust + rep_posmem*pos_load - rep_negmem*neg_load + rep_partner_repaired*[partner repaired] - rep_intensity*intensity + rep_days*min(days,30)",
+        "withdraw": "wd_base + wd_avoidant*(1-conflict_engagement) + wd_neuro*neuroticism + wd_intensity*intensity + wd_partner_escalated*[partner escalated]"
+      },
+      "separated": {
+        "hold": "sep_hold_base + hold_avoidant*(1-conflict_engagement)",
+        "leave (finalise)": "sep_leave_base + (conflict leave formula with min(days,60) and without leave_base)",
+        "repair (reunite)": "sep_reunite_base + rep_agree*agreeableness + rep_forgive*forgiveness + rep_trust*trust + rep_posmem*pos_load - rep_negmem*neg_load + rep_partner_repaired*[partner repaired]"
+      }
+    },
+    "kind": "rule_based_softmax",
+    "sampling": {
+      "rule": "softmax over utilities",
+      "temperature": 0.7
+    },
+    "visibility": {
+      "never_sees": [
+        "treatment arm",
+        "partner's trust",
+        "partner's memory",
+        "partner's utilities"
+      ],
+      "sees": [
+        "own personality",
+        "own preferences",
+        "own trust",
+        "own affect",
+        "own stress",
+        "own satisfaction",
+        "own retained negative and positive memory about the partner",
+        "shared conflict intensity and duration",
+        "partner's last observable action",
+        "share of divorced network neighbours",
+        "today's outside option surplus"
+      ]
+    },
+    "weights": {
+      "aff_affect": 0.8,
+      "aff_base": -0.4,
+      "aff_closeness": 0.6,
+      "aff_extraversion": 0.8,
+      "aff_stress": 0.8,
+      "aff_trust": 1.0,
+      "esc_affect": 1.0,
+      "esc_base": -1.4,
+      "esc_engage": 0.8,
+      "esc_negmem": 0.25,
+      "esc_neuro": 1.2,
+      "esc_partner_escalated": 0.5,
+      "esc_stress": 1.0,
+      "esc_trust": 1.2,
+      "hold_avoidant": 0.8,
+      "hold_base": 0.6,
+      "hold_consc": 0.3,
+      "leave_base": 0.2,
+      "leave_commit": 2.5,
+      "leave_dating_bonus": 1.2,
+      "leave_days": 0.05,
+      "leave_intensity": 1.2,
+      "leave_negmem": 0.7,
+      "leave_network": 0.0,
+      "leave_outside_option": 1.0,
+      "leave_posmem": 1.0,
+      "leave_satisfaction": 2.5,
+      "leave_trust": 2.0,
+      "rep_agree": 1.0,
+      "rep_base": -0.3,
+      "rep_days": 0.08,
+      "rep_forgive": 1.0,
+      "rep_intensity": 1.5,
+      "rep_negmem": 1.0,
+      "rep_partner_repaired": 1.2,
+      "rep_posmem": 0.8,
+      "rep_trust": 1.0,
+      "sep_hold_base": 0.5,
+      "sep_leave_base": -1.2,
+      "sep_reunite_base": 0.2,
+      "temperature": 0.7,
+      "wd_avoidant": 1.4,
+      "wd_base": -0.8,
+      "wd_intensity": 0.8,
+      "wd_neuro": 0.6,
+      "wd_partner_escalated": 0.6
+    }
+  },
+  "seeds": {
+    "assignment": 22,
+    "dynamics": 33,
+    "population": 11
+  },
+  "summary": {
+    "control": {
+      "conflicts": 3863,
+      "couples": 500,
+      "divorced": 8,
+      "separated": 4
+    },
+    "decisions": 230620,
+    "events": 177359,
+    "remarriage_couples_formed": 142,
+    "remarriages": 9,
+    "treatment": {
+      "conflicts": 6999,
+      "couples": 500,
+      "divorced": 107,
+      "separated": 54
+    }
+  }
+}

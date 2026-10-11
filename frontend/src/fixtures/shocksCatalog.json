@@ -1,0 +1,127 @@
+{
+ "kinds": [
+  {
+   "kind": "job_loss",
+   "label": "Job loss",
+   "blurb": "One partner loses their job: stress jumps on the start day and stays raised until the end day.",
+   "member_applies": true,
+   "magnitude": {
+    "min": 0.2,
+    "max": 3.0,
+    "default": 1.0,
+    "unit": "stress"
+   },
+   "default_start_day": 90,
+   "default_end_day": 210
+  },
+  {
+   "kind": "financial_crisis",
+   "label": "Financial crisis",
+   "blurb": "Money trouble for the household: both partners carry extra daily stress between the start and end days.",
+   "member_applies": false,
+   "magnitude": {
+    "min": 0.2,
+    "max": 3.0,
+    "default": 1.0,
+    "unit": "stress"
+   },
+   "default_start_day": 120,
+   "default_end_day": 240
+  },
+  {
+   "kind": "temptation",
+   "label": "Temptation",
+   "blurb": "One partner keeps meeting attractive alternatives: more outside encounters, and better matched ones, until the end day.",
+   "member_applies": true,
+   "magnitude": {
+    "min": 0.02,
+    "max": 0.6,
+    "default": 0.2,
+    "unit": "daily probability"
+   },
+   "default_start_day": 60,
+   "default_end_day": 180
+  },
+  {
+   "kind": "intimacy_mismatch",
+   "label": "Intimacy mismatch",
+   "blurb": "One partner starts wanting much more or less closeness; the gap wears on affect and the one who wants more may store disappointment each week.",
+   "member_applies": true,
+   "magnitude": {
+    "min": -0.5,
+    "max": 0.5,
+    "default": 0.3,
+    "unit": "closeness shift"
+   },
+   "default_start_day": 30,
+   "default_end_day": null
+  },
+  {
+   "kind": "daily_texts",
+   "label": "Daily texts",
+   "blurb": "One partner sends affection every day: the other stores a small positive memory and feels a little better each day.",
+   "member_applies": true,
+   "magnitude": {
+    "min": 0.2,
+    "max": 3.0,
+    "default": 1.0,
+    "unit": "warmth"
+   },
+   "default_start_day": 0,
+   "default_end_day": null
+  },
+  {
+   "kind": "anniversary",
+   "label": "Anniversary",
+   "blurb": "On the start day and every year after, both partners store a strong positive memory and trust rises.",
+   "member_applies": false,
+   "magnitude": {
+    "min": 0.2,
+    "max": 2.0,
+    "default": 1.0,
+    "unit": "warmth"
+   },
+   "default_start_day": 180,
+   "default_end_day": null
+  },
+  {
+   "kind": "date_nights",
+   "label": "Date nights",
+   "blurb": "Every seventh day both partners store a positive memory of an evening together.",
+   "member_applies": false,
+   "magnitude": {
+    "min": 0.2,
+    "max": 2.0,
+    "default": 1.0,
+    "unit": "warmth"
+   },
+   "default_start_day": 0,
+   "default_end_day": null
+  },
+  {
+   "kind": "trait_shift",
+   "label": "Trait shift",
+   "blurb": "One partner's trait moves by the magnitude on the start day (for example 0.3 more neurotic) and stays there.",
+   "member_applies": true,
+   "magnitude": {
+    "min": -0.5,
+    "max": 0.5,
+    "default": 0.3,
+    "unit": "trait units"
+   },
+   "default_start_day": 30,
+   "default_end_day": null,
+   "traits": [
+    "neuroticism",
+    "agreeableness",
+    "conscientiousness",
+    "openness",
+    "extraversion",
+    "forgiveness",
+    "commitment",
+    "closeness_pref",
+    "conflict_engagement"
+   ]
+  }
+ ]
+}

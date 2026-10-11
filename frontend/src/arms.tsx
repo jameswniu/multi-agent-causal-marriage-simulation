@@ -1,0 +1,224 @@
+// Plain-words labels for the two arms, derived from the experiment: the memory change and the
+// shocks aimed at the treatment arm, with the technical words in small text. Shared through a
+// context so every page and chart reads the same words.
+import { createContext, useContext, type ReactNode } from 'react';
+import { getExperiment, getShocksCatalog } from './api';
+import { useAsync } from './useAsync';
+import type { Arm, ExperimentListItem, ShockKind, ShockSpec, TreatmentSpec } from './types';
+
+export interface ArmLabel {
+  /** What a first-time viewer reads: "Forgets fights in 2 weeks". */
+  plain: string;
+  /** The technical word in small text: "control, 14-day memory half-life". */
+  small: string;
+}
+
+export type ArmLabels = Record<Arm, ArmLabel>;
+
+/** A memory parameter that really differs between the arms. */
+export interface MemorySpec {
+  parameter: string;
+  control_value: number;
+  treatment_value: number;
+}
+
+/** Everything that differs between the arms, plus what everyone lives through. */
+export interface Intervention {
+  memory: MemorySpec | null;
+  treatmentShocks: ShockSpec[];
+  worldShocks: ShockSpec[];
+}
+
+export type Catalog = Record<string, ShockKind>;
+
+/** Days to a rounded human span: under 7 stays days, under 60 rounds to weeks, 60 and up to months. */
+export function humanDuration(days: number): string {
+  if (!Number.isFinite(days) || days <= 0) return `${days} days`;
+  if (days < 7) return `${Math.round(days)} ${Math.round(days) === 1 ? 'day' : 'days'}`;
+  if (days < 60) {
+    const w = Math.max(1, Math.round(days / 7));
+    return `${w} ${w === 1 ? 'week' : 'weeks'}`;
+  }
+  const m = Math.max(2, Math.round(days / 30));
+  return `${m} months`;
+}
+
+function fmtDays(x: number): string {
+  return Number.isInteger(x) ? String(x) : x.toFixed(1);
+}
+
+export function hasMemoryChange(spec: TreatmentSpec | null | undefined): spec is TreatmentSpec & MemorySpec {
+  return !!spec && spec.parameter !== 'none' && typeof spec.control_value === 'number' && typeof spec.treatment_value === 'number';
+}
+
+/** Split an experiment's shocks by target. */
+export function interventionOf(spec: TreatmentSpec | null | undefined, shocks: ShockSpec[] | null | undefined): Intervention {
+  const list = shocks ?? [];
+  return {
+    memory: hasMemoryChange(spec) ? { parameter: spec.parameter, control_value: spec.control_value, treatment_value: spec.treatment_value } : null,
+    treatmentShocks: list.filter((s) => s.target === 'treatment'),
+    worldShocks: list.filter((s) => s.target === 'all'),
+  };
+}
+
+function kindWords(kind: string): string {
+  return kind.replace(/_/g, ' ');
+}
+
+function upperFirst(s: string): string {
+  return s.length ? s[0].toUpperCase() + s.slice(1) : s;
+}
+
+/** "One partner loses their job on day 60": the catalog blurb before its colon, lowercased first letter kept, plus the day. */
+export function shockWords(s: ShockSpec, catalog: Catalog | null | undefined): string {
+  if (s.trait) {
+    const sign = s.magnitude > 0 ? '+' : '';
+    return `One partner's ${s.trait.replace(/_/g, ' ')} shifts by ${sign}${s.magnitude} on day ${s.start_day}`;
+  }
+  const k = catalog?.[s.kind];
+  const base = k ? k.blurb.split(/[:;.]/)[0].trim() : upperFirst(kindWords(s.kind));
+  return `${base} on day ${s.start_day}`;
+}
+
+/** "job loss" for the control side: the catalog label lowercased, or the kind in words; a trait shift names the trait. */
+export function shockShort(s: ShockSpec, catalog: Catalog | null | undefined): string {
+  const k = catalog?.[s.kind];
+  const base = (k ? k.label : kindWords(s.kind)).toLowerCase();
+  return s.trait ? `${base} (${s.trait.replace(/_/g, ' ')})` : base;
+}
+
+/** Memory words for one arm, by the values: the longer half-life "holds onto", the shorter "forgets". */
+export function memoryWords(mem: MemorySpec, arm: Arm): string {
+  const own = arm === 'control' ? mem.control_value : mem.treatment_value;
+  const other = arm === 'control' ? mem.treatment_value : mem.control_value;
+  if (mem.parameter !== 'conflict_half_life_days') return `${arm === 'control' ? 'Control' : 'Treatment'}, ${mem.parameter.replace(/_/g, ' ')} ${fmtDays(own)}`;
+  if (own === other) return `Memory half-life is ${fmtDays(own)} days`;
+  return own > other ? `Holds onto fights for ${humanDuration(own)}` : `Forgets fights in ${humanDuration(own)}`;
+}
+
+function joinWords(parts: string[]): string {
+  return parts.join(', ');
+}
+
+function lowerFirst(s: string): string {
+  return s.length ? s[0].toLowerCase() + s.slice(1) : s;
+}
+
+export const DEFAULT_LABELS: ArmLabels = {
+  control: { plain: 'Control', small: 'control' },
+  treatment: { plain: 'Treatment', small: 'treatment' },
+};
+
+export function armLabelsFor(iv: Intervention, catalog: Catalog | null | undefined): ArmLabels {
+  const mem = iv.memory;
+  const memControl = mem ? memoryWords(mem, 'control') : '';
+  const memTreatment = mem ? memoryWords(mem, 'treatment') : '';
+  const smallMem = mem && mem.parameter === 'conflict_half_life_days' ? [`${fmtDays(mem.control_value)}-day memory half-life`, `${fmtDays(mem.treatment_value)}-day memory half-life`] : mem ? [`${mem.parameter} ${fmtDays(mem.control_value)}`, `${mem.parameter} ${fmtDays(mem.treatment_value)}`] : ['', ''];
+  const shocks = iv.treatmentShocks;
+  const shockControl = shocks.length ? `No ${joinWords(shocks.map((s) => shockShort(s, catalog)))}` : '';
+  const shockTreatment = shocks.length ? joinWords(shocks.map((s, i) => (i === 0 ? shockWords(s, catalog) : lowerFirst(shockWords(s, catalog))))) : '';
+  const smallShocks = shocks.length ? shocks.map((s) => `${kindWords(s.kind)} day ${s.start_day}`).join(', ') : '';
+  if (!mem && !shocks.length) return DEFAULT_LABELS;
+  const plainControl = [memControl, shockControl ? (memControl ? lowerFirst(shockControl) : shockControl) : ''].filter(Boolean).join(', ');
+  const plainTreatment = [memTreatment, shockTreatment ? (memTreatment ? lowerFirst(shockTreatment) : shockTreatment) : ''].filter(Boolean).join(', ');
+  return {
+    control: { plain: plainControl, small: ['control', smallMem[0], smallShocks ? `no ${smallShocks}` : ''].filter(Boolean).join(', ') },
+    treatment: { plain: plainTreatment, small: ['treatment', smallMem[1], smallShocks].filter(Boolean).join(', ') },
+  };
+}
+
+/** Convenience for a bare memory spec (no shocks, no catalog). */
+export function armLabels(spec: TreatmentSpec | null | undefined, shocks?: ShockSpec[] | null, catalog?: Catalog | null): ArmLabels {
+  return armLabelsFor(interventionOf(spec, shocks), catalog);
+}
+
+/** The sentence for the Overview "What differs" tile and the World framing. */
+export function whatDiffers(iv: Intervention, catalog: Catalog | null | undefined): string {
+  const mem = iv.memory;
+  const memWords =
+    mem && mem.parameter === 'conflict_half_life_days'
+      ? `how long a fight stays in memory, ${fmtDays(mem.control_value)} days versus ${fmtDays(mem.treatment_value)}`
+      : mem
+        ? `${mem.parameter.replace(/_/g, ' ')}, ${fmtDays(mem.control_value)} versus ${fmtDays(mem.treatment_value)}`
+        : '';
+  const shockWordsAll = iv.treatmentShocks.map((s, i) => (i === 0 ? lowerFirst(shockWords(s, catalog)) : lowerFirst(shockWords(s, catalog))));
+  let text: string;
+  if (mem && shockWordsAll.length) text = `Only ${memWords}, and ${joinWords(shockWordsAll)}.`;
+  else if (mem) text = `Only ${memWords}`;
+  else if (shockWordsAll.length) text = `Only this, ${joinWords(shockWordsAll)}. Memory is identical in both arms.`;
+  else text = 'Nothing differs between the arms (a placebo run).';
+  const world = iv.worldShocks.map((s) => lowerFirst(shockWords(s, catalog)));
+  if (!mem && !shockWordsAll.length && world.length) return `Nothing differs between the arms. Everyone lives through ${joinWords(world)}.`;
+  if (world.length) text += `${text.endsWith('.') ? '' : '.'} Everyone also lives through ${joinWords(world)}.`;
+  return text;
+}
+
+/** "how long a fight stayed in memory" or "this, one partner loses their job on day 60", for the takeaway; null when nothing differs. */
+export function differenceClause(iv: Intervention, catalog: Catalog | null | undefined): string | null {
+  const shocks = iv.treatmentShocks.map((s) => lowerFirst(shockWords(s, catalog)));
+  const mem = iv.memory ? (iv.memory.parameter === 'conflict_half_life_days' ? 'how long a fight stayed in memory' : iv.memory.parameter.replace(/_/g, ' ')) : '';
+  if (mem && shocks.length) return `${mem}, and this, ${joinWords(shocks)}`;
+  if (shocks.length) return `this, ${joinWords(shocks)}`;
+  if (mem) return mem;
+  return null;
+}
+
+/** "everyone lived through every seventh day ..." for a run whose only intervention is a world shock; null otherwise. */
+export function sharedClause(iv: Intervention, catalog: Catalog | null | undefined): string | null {
+  if (!iv.worldShocks.length) return null;
+  return `everyone lived through ${joinWords(iv.worldShocks.map((s) => lowerFirst(shockWords(s, catalog))))}`;
+}
+
+/** Short summary for the experiment dropdown: "memory 14 to 90" or "job loss on day 60". */
+export function interventionSummary(item: ExperimentListItem, catalog?: Catalog | null): string {
+  const parts: string[] = [];
+  const mem = item.intervention?.memory;
+  if (mem) {
+    for (const [param, pair] of Object.entries(mem)) {
+      const name = param === 'conflict_half_life_days' ? 'memory' : param.replace(/_/g, ' ');
+      parts.push(`${name} ${fmtDays(pair[0])} to ${fmtDays(pair[1])}`);
+    }
+  }
+  for (const s of item.intervention?.shocks ?? []) {
+    const who = s.target === 'all' ? 'everyone: ' : '';
+    parts.push(`${who}${shockShort(s, catalog)} on day ${s.start_day}`);
+  }
+  return parts.length ? parts.join(', ') : 'no intervention';
+}
+
+export interface ArmContext {
+  labels: ArmLabels;
+  intervention: Intervention;
+  catalog: Catalog | null;
+  nCouples: number | null;
+}
+
+const EMPTY: ArmContext = { labels: DEFAULT_LABELS, intervention: { memory: null, treatmentShocks: [], worldShocks: [] }, catalog: null, nCouples: null };
+
+const Ctx = createContext<ArmContext>(EMPTY);
+
+export function toCatalog(kinds: ShockKind[] | undefined | null): Catalog | null {
+  if (!kinds) return null;
+  const out: Catalog = {};
+  kinds.forEach((k) => {
+    out[k.kind] = k;
+  });
+  return out;
+}
+
+export function ArmLabelsProvider({ children }: { children: ReactNode }) {
+  const { data } = useAsync(() => Promise.all([getExperiment().catch(() => null), getShocksCatalog().catch(() => null)]), []);
+  const exp = data?.[0]?.summary?.experiment;
+  const catalog = toCatalog(data?.[1]?.kinds);
+  const intervention = interventionOf(exp?.treatment, exp?.shocks);
+  const value: ArmContext = { labels: armLabelsFor(intervention, catalog), intervention, catalog, nCouples: exp?.n_couples ?? data?.[0]?.manifest.n_couples ?? null };
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+}
+
+export function useArmLabels(): ArmLabels {
+  return useContext(Ctx).labels;
+}
+
+export function useArmContext(): ArmContext {
+  return useContext(Ctx);
+}

@@ -1,0 +1,94 @@
+{
+ "kind": "rule_based_softmax",
+ "visibility": {
+  "sees": [
+   "own personality",
+   "own preferences",
+   "own trust",
+   "own affect",
+   "own stress",
+   "own satisfaction",
+   "own retained negative and positive memory about the partner",
+   "shared conflict intensity and duration",
+   "partner's last observable action",
+   "share of divorced network neighbours",
+   "today's outside option surplus"
+  ],
+  "never_sees": [
+   "treatment arm",
+   "partner's trust",
+   "partner's memory",
+   "partner's utilities"
+  ]
+ },
+ "sampling": {
+  "rule": "softmax over utilities",
+  "temperature": 0.7
+ },
+ "contexts": {
+  "calm": {
+   "affiliate": "aff_base + aff_extraversion*extraversion + aff_trust*trust + aff_affect*affect - aff_stress*stress + aff_closeness*closeness_pref",
+   "neutral": "0"
+  },
+  "conflict": {
+   "repair": "rep_base + rep_agree*agreeableness + rep_forgive*forgiveness + rep_trust*trust + rep_posmem*pos_load - rep_negmem*neg_load + rep_partner_repaired*[partner repaired] - rep_intensity*intensity + rep_days*min(days,30)",
+   "hold": "hold_base + hold_avoidant*(1-conflict_engagement) + hold_consc*conscientiousness",
+   "escalate": "esc_base + esc_neuro*neuroticism + esc_engage*conflict_engagement + esc_negmem*neg_load + esc_stress*stress - esc_trust*trust + esc_partner_escalated*[partner escalated] - esc_affect*affect",
+   "withdraw": "wd_base + wd_avoidant*(1-conflict_engagement) + wd_neuro*neuroticism + wd_intensity*intensity + wd_partner_escalated*[partner escalated]",
+   "leave": "leave_base - leave_commit*commitment - leave_trust*trust + leave_negmem*neg_load - leave_posmem*pos_load + leave_intensity*intensity + leave_days*min(days,30) - leave_satisfaction*satisfaction + leave_network*divorced_friend_share + leave_outside_option*outside_option + leave_dating_bonus*[dating]"
+  },
+  "separated": {
+   "repair (reunite)": "sep_reunite_base + rep_agree*agreeableness + rep_forgive*forgiveness + rep_trust*trust + rep_posmem*pos_load - rep_negmem*neg_load + rep_partner_repaired*[partner repaired]",
+   "hold": "sep_hold_base + hold_avoidant*(1-conflict_engagement)",
+   "leave (finalise)": "sep_leave_base + (conflict leave formula with min(days,60) and without leave_base)"
+  }
+ },
+ "weights": {
+  "temperature": 0.7,
+  "aff_base": -0.4,
+  "aff_extraversion": 0.8,
+  "aff_trust": 1.0,
+  "aff_affect": 0.8,
+  "aff_stress": 0.8,
+  "aff_closeness": 0.6,
+  "rep_base": -0.3,
+  "rep_agree": 1.2,
+  "rep_forgive": 1.2,
+  "rep_trust": 1.2,
+  "rep_posmem": 0.8,
+  "rep_negmem": 1.0,
+  "rep_partner_repaired": 1.2,
+  "rep_intensity": 1.5,
+  "rep_days": 0.08,
+  "hold_base": 0.6,
+  "hold_avoidant": 0.8,
+  "hold_consc": 0.3,
+  "esc_base": -1.4,
+  "esc_neuro": 1.2,
+  "esc_engage": 0.8,
+  "esc_negmem": 0.6,
+  "esc_stress": 1.0,
+  "esc_trust": 1.2,
+  "esc_partner_escalated": 0.5,
+  "esc_affect": 1.0,
+  "wd_base": -0.8,
+  "wd_avoidant": 1.4,
+  "wd_neuro": 0.6,
+  "wd_intensity": 0.8,
+  "wd_partner_escalated": 0.6,
+  "leave_base": -1.5,
+  "leave_commit": 2.5,
+  "leave_trust": 2.0,
+  "leave_negmem": 1.4,
+  "leave_posmem": 1.0,
+  "leave_intensity": 1.2,
+  "leave_days": 0.05,
+  "leave_satisfaction": 2.5,
+  "leave_network": 0.0,
+  "leave_outside_option": 1.0,
+  "leave_dating_bonus": 1.2,
+  "sep_reunite_base": 0.2,
+  "sep_hold_base": 0.5,
+  "sep_leave_base": -1.2
+ }
+}

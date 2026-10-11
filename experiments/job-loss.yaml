@@ -1,0 +1,12 @@
+# One partner in every treatment couple loses their job on day 60: a stress jump that fades over
+# four months. Memory is identical in both arms, so the effect measured is the job loss alone.
+name: job-loss
+n_couples: 1000
+days: 365
+seeds: {population: 11, assignment: 22, dynamics: 33}
+treatment:
+  shocks:
+    - {kind: job_loss, member: random, start_day: 60, magnitude: 1.5}
+control: {}
+engine: {}
+analysis: {n_boot: 2000, n_perm: 2000, seed: 7}

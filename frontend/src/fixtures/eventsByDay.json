@@ -1,0 +1,590 @@
+{
+ "0": [
+  {
+   "day": 0,
+   "seq": 0,
+   "couple_id": 0,
+   "agent_id": 0,
+   "kind": "intervention_applied",
+   "from_state": null,
+   "to_state": null,
+   "value": 14.0
+  },
+  {
+   "day": 0,
+   "seq": 1,
+   "couple_id": 0,
+   "agent_id": 1,
+   "kind": "intervention_applied",
+   "from_state": null,
+   "to_state": null,
+   "value": 14.0
+  },
+  {
+   "day": 0,
+   "seq": 2,
+   "couple_id": 1,
+   "agent_id": 2,
+   "kind": "intervention_applied",
+   "from_state": null,
+   "to_state": null,
+   "value": 90.0
+  },
+  {
+   "day": 0,
+   "seq": 3,
+   "couple_id": 1,
+   "agent_id": 3,
+   "kind": "intervention_applied",
+   "from_state": null,
+   "to_state": null,
+   "value": 90.0
+  },
+  {
+   "day": 0,
+   "seq": 4,
+   "couple_id": 2,
+   "agent_id": 4,
+   "kind": "intervention_applied",
+   "from_state": null,
+   "to_state": null,
+   "value": 14.0
+  },
+  {
+   "day": 0,
+   "seq": 5,
+   "couple_id": 2,
+   "agent_id": 5,
+   "kind": "intervention_applied",
+   "from_state": null,
+   "to_state": null,
+   "value": 14.0
+  },
+  {
+   "day": 0,
+   "seq": 6,
+   "couple_id": 3,
+   "agent_id": 6,
+   "kind": "intervention_applied",
+   "from_state": null,
+   "to_state": null,
+   "value": 90.0
+  },
+  {
+   "day": 0,
+   "seq": 7,
+   "couple_id": 3,
+   "agent_id": 7,
+   "kind": "intervention_applied",
+   "from_state": null,
+   "to_state": null,
+   "value": 90.0
+  },
+  {
+   "day": 0,
+   "seq": 8,
+   "couple_id": 4,
+   "agent_id": 8,
+   "kind": "intervention_applied",
+   "from_state": null,
+   "to_state": null,
+   "value": 14.0
+  },
+  {
+   "day": 0,
+   "seq": 9,
+   "couple_id": 4,
+   "agent_id": 9,
+   "kind": "intervention_applied",
+   "from_state": null,
+   "to_state": null,
+   "value": 14.0
+  },
+  {
+   "day": 0,
+   "seq": 10,
+   "couple_id": 5,
+   "agent_id": 10,
+   "kind": "intervention_applied",
+   "from_state": null,
+   "to_state": null,
+   "value": 90.0
+  },
+  {
+   "day": 0,
+   "seq": 11,
+   "couple_id": 5,
+   "agent_id": 11,
+   "kind": "intervention_applied",
+   "from_state": null,
+   "to_state": null,
+   "value": 90.0
+  }
+ ],
+ "5": [
+  {
+   "day": 5,
+   "seq": 0,
+   "couple_id": 3,
+   "agent_id": null,
+   "kind": "conflict_started",
+   "from_state": null,
+   "to_state": null,
+   "value": 0.48
+  }
+ ],
+ "6": [
+  {
+   "day": 6,
+   "seq": 0,
+   "couple_id": 3,
+   "agent_id": 6,
+   "kind": "escalated",
+   "from_state": null,
+   "to_state": null,
+   "value": 0.63
+  }
+ ],
+ "7": [
+  {
+   "day": 7,
+   "seq": 0,
+   "couple_id": 3,
+   "agent_id": 7,
+   "kind": "escalated",
+   "from_state": null,
+   "to_state": null,
+   "value": 0.78
+  }
+ ],
+ "8": [
+  {
+   "day": 8,
+   "seq": 0,
+   "couple_id": 1,
+   "agent_id": null,
+   "kind": "conflict_started",
+   "from_state": null,
+   "to_state": null,
+   "value": 0.27
+  },
+  {
+   "day": 8,
+   "seq": 1,
+   "couple_id": 3,
+   "agent_id": 6,
+   "kind": "escalated",
+   "from_state": null,
+   "to_state": null,
+   "value": 0.93
+  }
+ ],
+ "9": [
+  {
+   "day": 9,
+   "seq": 0,
+   "couple_id": 1,
+   "agent_id": 2,
+   "kind": "escalated",
+   "from_state": null,
+   "to_state": null,
+   "value": 0.42
+  },
+  {
+   "day": 9,
+   "seq": 1,
+   "couple_id": 3,
+   "agent_id": 7,
+   "kind": "escalated",
+   "from_state": null,
+   "to_state": null,
+   "value": 1
+  }
+ ],
+ "10": [
+  {
+   "day": 10,
+   "seq": 0,
+   "couple_id": 1,
+   "agent_id": null,
+   "kind": "reconciled",
+   "from_state": null,
+   "to_state": null,
+   "value": 3
+  },
+  {
+   "day": 10,
+   "seq": 1,
+   "couple_id": 5,
+   "agent_id": null,
+   "kind": "conflict_started",
+   "from_state": null,
+   "to_state": null,
+   "value": 0.51
+  }
+ ],
+ "11": [
+  {
+   "day": 11,
+   "seq": 0,
+   "couple_id": 5,
+   "agent_id": 10,
+   "kind": "escalated",
+   "from_state": null,
+   "to_state": null,
+   "value": 0.66
+  }
+ ],
+ "12": [
+  {
+   "day": 12,
+   "seq": 0,
+   "couple_id": 3,
+   "agent_id": null,
+   "kind": "reconciled",
+   "from_state": null,
+   "to_state": null,
+   "value": 8
+  },
+  {
+   "day": 12,
+   "seq": 1,
+   "couple_id": 5,
+   "agent_id": 11,
+   "kind": "escalated",
+   "from_state": null,
+   "to_state": null,
+   "value": 0.81
+  }
+ ],
+ "13": [
+  {
+   "day": 13,
+   "seq": 0,
+   "couple_id": 5,
+   "agent_id": 10,
+   "kind": "escalated",
+   "from_state": null,
+   "to_state": null,
+   "value": 0.96
+  }
+ ],
+ "14": [
+  {
+   "day": 14,
+   "seq": 0,
+   "couple_id": 5,
+   "agent_id": 10,
+   "kind": "separated",
+   "from_state": "married",
+   "to_state": "separated",
+   "value": null
+  }
+ ],
+ "15": [
+  {
+   "day": 15,
+   "seq": 0,
+   "couple_id": 2,
+   "agent_id": null,
+   "kind": "conflict_started",
+   "from_state": null,
+   "to_state": null,
+   "value": 0.18
+  },
+  {
+   "day": 15,
+   "seq": 1,
+   "couple_id": 2,
+   "agent_id": null,
+   "kind": "reconciled",
+   "from_state": null,
+   "to_state": null,
+   "value": 1
+  }
+ ],
+ "20": [
+  {
+   "day": 20,
+   "seq": 0,
+   "couple_id": 3,
+   "agent_id": null,
+   "kind": "conflict_started",
+   "from_state": null,
+   "to_state": null,
+   "value": 0.54
+  }
+ ],
+ "21": [
+  {
+   "day": 21,
+   "seq": 0,
+   "couple_id": 3,
+   "agent_id": 6,
+   "kind": "escalated",
+   "from_state": null,
+   "to_state": null,
+   "value": 0.69
+  }
+ ],
+ "22": [
+  {
+   "day": 22,
+   "seq": 0,
+   "couple_id": 3,
+   "agent_id": 7,
+   "kind": "escalated",
+   "from_state": null,
+   "to_state": null,
+   "value": 0.84
+  },
+  {
+   "day": 22,
+   "seq": 1,
+   "couple_id": 5,
+   "agent_id": null,
+   "kind": "reunited",
+   "from_state": "separated",
+   "to_state": "married",
+   "value": 8
+  }
+ ],
+ "23": [
+  {
+   "day": 23,
+   "seq": 0,
+   "couple_id": 3,
+   "agent_id": 6,
+   "kind": "escalated",
+   "from_state": null,
+   "to_state": null,
+   "value": 0.99
+  }
+ ],
+ "24": [
+  {
+   "day": 24,
+   "seq": 0,
+   "couple_id": 3,
+   "agent_id": 7,
+   "kind": "escalated",
+   "from_state": null,
+   "to_state": null,
+   "value": 1
+  }
+ ],
+ "25": [
+  {
+   "day": 25,
+   "seq": 0,
+   "couple_id": 1,
+   "agent_id": null,
+   "kind": "conflict_started",
+   "from_state": null,
+   "to_state": null,
+   "value": 0.42
+  },
+  {
+   "day": 25,
+   "seq": 1,
+   "couple_id": 3,
+   "agent_id": 6,
+   "kind": "escalated",
+   "from_state": null,
+   "to_state": null,
+   "value": 1
+  }
+ ],
+ "26": [
+  {
+   "day": 26,
+   "seq": 0,
+   "couple_id": 1,
+   "agent_id": 2,
+   "kind": "escalated",
+   "from_state": null,
+   "to_state": null,
+   "value": 0.57
+  }
+ ],
+ "27": [
+  {
+   "day": 27,
+   "seq": 0,
+   "couple_id": 1,
+   "agent_id": 3,
+   "kind": "escalated",
+   "from_state": null,
+   "to_state": null,
+   "value": 0.72
+  }
+ ],
+ "28": [
+  {
+   "day": 28,
+   "seq": 0,
+   "couple_id": 1,
+   "agent_id": 2,
+   "kind": "escalated",
+   "from_state": null,
+   "to_state": null,
+   "value": 0.87
+  }
+ ],
+ "30": [
+  {
+   "day": 30,
+   "seq": 0,
+   "couple_id": 3,
+   "agent_id": 6,
+   "kind": "separated",
+   "from_state": "married",
+   "to_state": "separated",
+   "value": null
+  }
+ ],
+ "31": [
+  {
+   "day": 31,
+   "seq": 0,
+   "couple_id": 1,
+   "agent_id": null,
+   "kind": "reconciled",
+   "from_state": null,
+   "to_state": null,
+   "value": 7
+  }
+ ],
+ "33": [
+  {
+   "day": 33,
+   "seq": 0,
+   "couple_id": 4,
+   "agent_id": null,
+   "kind": "conflict_started",
+   "from_state": null,
+   "to_state": null,
+   "value": 0.24
+  }
+ ],
+ "34": [
+  {
+   "day": 34,
+   "seq": 0,
+   "couple_id": 4,
+   "agent_id": 8,
+   "kind": "escalated",
+   "from_state": null,
+   "to_state": null,
+   "value": 0.39
+  }
+ ],
+ "40": [
+  {
+   "day": 40,
+   "seq": 0,
+   "couple_id": 2,
+   "agent_id": null,
+   "kind": "conflict_started",
+   "from_state": null,
+   "to_state": null,
+   "value": 0.3
+  }
+ ],
+ "41": [
+  {
+   "day": 41,
+   "seq": 0,
+   "couple_id": 2,
+   "agent_id": 4,
+   "kind": "escalated",
+   "from_state": null,
+   "to_state": null,
+   "value": 0.45
+  }
+ ],
+ "42": [
+  {
+   "day": 42,
+   "seq": 0,
+   "couple_id": 2,
+   "agent_id": null,
+   "kind": "reconciled",
+   "from_state": null,
+   "to_state": null,
+   "value": 3
+  }
+ ],
+ "44": [
+  {
+   "day": 44,
+   "seq": 0,
+   "couple_id": 1,
+   "agent_id": null,
+   "kind": "conflict_started",
+   "from_state": null,
+   "to_state": null,
+   "value": 0.21
+  }
+ ],
+ "45": [
+  {
+   "day": 45,
+   "seq": 0,
+   "couple_id": 3,
+   "agent_id": 7,
+   "kind": "divorced",
+   "from_state": "separated",
+   "to_state": "divorced",
+   "value": 15
+  }
+ ],
+ "47": [
+  {
+   "day": 47,
+   "seq": 0,
+   "couple_id": 4,
+   "agent_id": null,
+   "kind": "conflict_faded",
+   "from_state": null,
+   "to_state": null,
+   "value": null
+  }
+ ],
+ "50": [
+  {
+   "day": 50,
+   "seq": 0,
+   "couple_id": 6,
+   "agent_id": null,
+   "kind": "matched",
+   "from_state": null,
+   "to_state": "dating",
+   "value": 0.71
+  }
+ ],
+ "52": [
+  {
+   "day": 52,
+   "seq": 0,
+   "couple_id": 1,
+   "agent_id": null,
+   "kind": "conflict_faded",
+   "from_state": null,
+   "to_state": null,
+   "value": null
+  }
+ ],
+ "58": [
+  {
+   "day": 58,
+   "seq": 0,
+   "couple_id": 6,
+   "agent_id": null,
+   "kind": "married",
+   "from_state": "dating",
+   "to_state": "married",
+   "value": 0.71
+  }
+ ]
+}

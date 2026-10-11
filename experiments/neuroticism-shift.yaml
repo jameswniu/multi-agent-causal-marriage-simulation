@@ -1,0 +1,11 @@
+# One partner in every treatment couple becomes 0.3 more neurotic (on a 0 to 1 scale) on day 0.
+name: neuroticism-shift
+n_couples: 1000
+days: 365
+seeds: {population: 11, assignment: 22, dynamics: 33}
+treatment:
+  shocks:
+    - {kind: trait_shift, trait: neuroticism, member: random, start_day: 0, magnitude: 0.3}
+control: {}
+engine: {}
+analysis: {n_boot: 2000, n_perm: 2000, seed: 7}

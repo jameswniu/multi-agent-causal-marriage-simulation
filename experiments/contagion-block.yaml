@@ -1,0 +1,19 @@
+# Network contagion switched on (divorced neighbours raise the leave utility, married
+# neighbours raise the marriage hazard), with block randomisation so that treatment is assigned to
+# whole network neighbourhoods. Spillovers between arms are reduced, not removed; compare with the
+# example to see how much interference the network adds.
+name: contagion-block
+n_couples: 1000
+days: 365
+seeds: {population: 11, assignment: 22, dynamics: 33}
+treatment:
+  conflict_half_life_days: 90
+control: {}
+engine:
+  assignment: {mode: block, block_size: 10}
+  policy: {leave_network: 1.0}
+  market: {marry_network_weight: 0.02}
+analysis:
+  n_boot: 2000
+  n_perm: 2000
+  seed: 7

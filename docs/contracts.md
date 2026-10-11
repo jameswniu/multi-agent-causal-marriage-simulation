@@ -1,0 +1,375 @@
+# LoveWorld contracts
+
+Three layers, one direction of dependency: the Rust engine writes Parquet, the Python package
+reads Parquet and writes `summary.json`, the FastAPI layer serves both to the React dashboard.
+This file is the contract between them. Change it before changing a consumer.
+
+## 1. Engine CLI (Rust, done)
+
+Binary: `target/release/loveworld-engine` (built by `cargo build --release`).
+
+```
+loveworld-engine run --config <json|-> --out <dir> [--overwrite] [--arm-override control|treatment] [--name X]
+loveworld-engine replay --manifest <dir>/manifest.json [--out <dir>]      # exit 0 iff every table hash matches
+loveworld-engine policy-spec [--config <json>]                              # weights + formulas, JSON
+loveworld-engine assign --config <json>                                     # ["control","treatment",...] by couple id
+loveworld-engine default-config                                             # every parameter with defaults
+```
+
+`run` prints the manifest summary as one JSON line on stdout and timing on stderr.
+`run` holds an exclusive `.<dir>.lock` next to `--out` for the whole call (a held lock fails the run,
+a stale one is reported, never stolen), repairs any publication an earlier run left interrupted there,
+stages the whole output in a hidden sibling `.<dir>.tmp-<pid>-<n>` and publishes it by rename once every
+file is written. An existing `--out` is replaced only when it is empty or holds a `manifest.json`, and it
+survives any failure: it is renamed to `.<dir>.old-<pid>-<n>` carrying a `.loveworld-swap.json` marker and
+removed only once the new run is in place. The lock, marker and names are the Python runner's, so either
+side recovers what the other left behind.
+Config JSON may be partial; missing fields take defaults. Seeds: `seeds.population`,
+`seeds.assignment`, `seeds.dynamics`. Treatment arm memory params: `memory.treatment`.
+
+### Output directory
+
+`manifest.json` (one per run): engine_version, evidence_class="simulation", name, n_couples, days,
+seeds, arm_override, config (full), policy_spec, files{name:{rows,sha256}}, determinism_hash,
+summary, generated_at_unix.
+
+`config.json`: the full effective config.
+
+`agents.parquet`, one row per agent of the initial couples (two per couple):
+
+```
+agent_id i64, couple_id i64, arm str,
+neuroticism, agreeableness, conscientiousness, openness, extraversion f64 in [0,1],
+forgiveness, commitment, closeness_pref, conflict_engagement f64 in [0,1],
+prior_relationships i32, prior_divorces i32, years_married f64, base_trust f64, relax_rate f64,
+initial_episodes i32,
+conflict_half_life_days, repair_half_life_days, positive_half_life_days f64   (post-intervention),
+divorces_in_sim i32, marriages_in_sim i32, final_trust f64, final_memory_size i32
+```
+
+`couples.parquet`, one row per couple (initial and remarriage):
+
+```
+couple_id i64, agent_a i64, agent_b i64,
+arm str nullable            (null for remarriage couples),
+origin str                  {initial, remarriage},
+formed_day i32              (negative for initial couples: days before day 0),
+married_day i32 nullable, compatibility f64,
+final_state str             {dating, married, separated, divorced, broken_up},
+ended_day i32 nullable, years_married_at_start f64
+```
+
+`events.parquet`, one row per event:
+
+```
+day i32, seq i32 (order within day), couple_id i64, agent_id i64 nullable (the actor),
+kind str, from_state str nullable, to_state str nullable, value f64 nullable
+```
+
+Event kinds: intervention_applied, outside_encounter, conflict_started, escalated, withdrew,
+repair_attempted, repair_rejected, reconciled, conflict_faded, separated, reunited, divorced,
+broke_up, matched, married. State transitions carry from_state and to_state.
+
+`daily.parquet`, one row per couple-day while the couple is active, plus the day it ends:
+
+```
+day i32, couple_id i64, state str, in_conflict bool, conflict_days i32, intensity f64,
+positive_episode bool,
+trust_a, trust_b, affect_a, affect_b, satisfaction_a, satisfaction_b,
+neg_a, neg_b, pos_a, pos_b, stress_a, stress_b f64
+```
+
+`decisions.parquet`, one row per agent decision in conflict or separation:
+
+```
+day i32, couple_id i64, agent_id i64, context str {conflict, separated}, action str, p_chosen f64,
+u_repair, u_hold, u_escalate, u_withdraw, u_leave f64 nullable,
+trust, affect, neg_load, pos_load, intensity f64, conflict_days i32, partner_last str nullable
+```
+
+`interventions.parquet`, one row per agent and parameter:
+
+```
+day i32, couple_id i64, agent_id i64, arm str, parameter str, control_value f64, applied_value f64
+```
+
+`episodes.parquet`, one row per memory episode stored or amplified (columns in section 6).
+
+`conflicts.parquet`, one row per conflict episode:
+
+```
+couple_id i64, started_day i32, ended_day i32 nullable,
+outcome str {reconciled, faded, separated, breakup, open_at_end},
+peak_intensity f64, escalations i32, repair_attempts i32,
+duration_days i32 nullable   (= ended_day - started_day + 1)
+```
+
+Day 0 is the first simulated day. `daily.day` runs 0..days-1. Initial couples start Married.
+`neg_*` and `pos_*` in `daily` are the saturated loads the agents act on (see memory.load_saturation).
+
+## 2. Python package (`python/`, package `loveworld`, managed by uv)
+
+```
+loveworld run <experiment.yaml> [--out results/<name>] [--overwrite]   # build engine config, run engine, run analyze
+loveworld analyze <results_dir>                                          # write <results_dir>/summary.json, print table
+loveworld placebo <experiment.yaml> [--out ...]                           # same experiment with treatment params := control params
+loveworld twins <experiment.yaml> [--out ...]                             # arm-override both ways on the same seeds, paired effects
+loveworld replay <results_dir>                                            # engine replay, exit non-zero on mismatch
+loveworld serve <results_dir> [--port 8765]                              # FastAPI + built dashboard
+loveworld build-engine                                                    # cargo build --release
+```
+
+`run`, `placebo` and `twins` publish through a staging directory under a per-target lock
+(`.<name>.lock`, reported rather than stolen when stale). A run that dies between its two publication
+renames leaves `.<name>.old-<pid>` carrying a `.loveworld-swap.json` marker; the next run of any
+experiment in that root, and `serve` at startup in root mode, restores it (target missing) or removes
+it (target present again). Nothing without that marker is ever deleted.
+
+Experiment YAML (`experiments/example.yaml`):
+
+```yaml
+name: retention-90d
+n_couples: 1000
+days: 365
+seeds: {population: 11, assignment: 22, dynamics: 33}
+treatment:                      # the one intervention; everything else identical across arms
+  conflict_half_life_days: 90   # control value comes from the engine default unless overridden below
+control: {}                     # optional overrides of the control memory params
+engine: {}                      # optional overrides of any other engine config key (dynamics, policy, market, assignment)
+analysis:
+  n_boot: 2000
+  n_perm: 2000
+  seed: 7
+```
+
+The package writes the effective engine config to `<results_dir>/config.json` via the engine.
+
+### `summary.json` (written by `analyze`)
+
+```json
+{
+  "evidence_class": "simulation",
+  "disclaimer": "Findings describe simulated agents under an explicit rule-based policy; they are not evidence about human relationships.",
+  "experiment": {"name": "...", "n_couples": 1000, "days": 365, "seeds": {},
+                  "treatment": {"parameter": "conflict_half_life_days", "control_value": 14.0, "treatment_value": 90.0},
+                  "determinism_hash": "..."},
+  "arms": {"control": {"couples": 500, "agents": 1000}, "treatment": {"couples": 500, "agents": 1000}},
+  "outcomes": [
+    {"name": "divorce_rate", "label": "Divorced within the year", "unit": "share of couples", "type": "binary", "level": "couple",
+     "n_control": 500, "n_treatment": 500, "control_mean": 0.05, "treatment_mean": 0.09,
+     "ate": 0.04, "ci_low": 0.01, "ci_high": 0.07, "ci_level": 0.95, "ci_method": "bootstrap_percentile", "n_boot": 2000,
+     "p_permutation": 0.01, "n_perm": 2000, "conditional_on_post_treatment": false, "note": ""}
+  ],
+  "balance": [{"covariate": "neuroticism", "control_mean": 0.45, "treatment_mean": 0.46, "smd": 0.02}],
+  "curves": {
+    "survival": {"day": [], "control": [], "treatment": []},
+    "trust": {"day": [], "control_mean": [], "control_lo": [], "control_hi": [], "treatment_mean": [], "treatment_lo": [], "treatment_hi": []},
+    "in_conflict": {"day": [], "control": [], "treatment": []},
+    "neg_load": {"day": [], "control": [], "treatment": []}
+  },
+  "distributions": {
+    "recovery_days": {"bins": [], "control": [], "treatment": []},
+    "conflicts_per_couple": {"bins": [], "control": [], "treatment": []}
+  },
+  "governance": {"placebo": null, "twins": null}
+}
+```
+
+Outcome names (fixed): divorce_rate, separation_rate, days_married (days until divorce or end),
+final_trust (mean of both members on the couple's last logged day), mean_trust (mean over couple-days),
+conflict_rate (conflicts per couple-year), escalations_per_conflict (conditional),
+reconciliation_rate (share of conflicts reconciled; conditional), recovery_days (mean duration of
+reconciled conflicts; conditional), remarriage_rate (agent level among divorced agents; conditional).
+Conditional outcomes carry `conditional_on_post_treatment: true`.
+
+Placebo and twins runs write their own results dir and `summary.json`; `analyze` on the main run
+links them under `governance` when present at `<results_dir>/../<name>-placebo` and `-twins`.
+Twins summary adds `"paired": [{"name": ..., "mean_diff": ..., "ci_low": ..., "ci_high": ..., "n_pairs": ...}]`.
+
+## 3. HTTP API (FastAPI, `loveworld serve`)
+
+All responses JSON. Numbers are plain floats; nulls allowed where the table is nullable.
+
+```
+GET /api/experiment        -> {"manifest": <manifest.json>, "summary": <summary.json or null>}
+GET /api/ate               -> summary.outcomes (array)
+GET /api/curves            -> summary.curves
+GET /api/distributions     -> summary.distributions
+GET /api/policy            -> manifest.policy_spec
+GET /api/couples?arm=&state=&origin=&limit=100&offset=0&sort=couple_id
+                           -> {"total": n, "items": [couples.parquet rows]}
+GET /api/couples/{id}      -> {"couple": row, "agents": [agent row a, agent row b], "daily": [daily rows for the couple],
+                               "events": [event rows], "conflicts": [conflict rows], "decisions": [decision rows]}
+GET /api/agents/{id}       -> {"agent": agent row, "couples": [couple rows the agent belonged to], "events": [event rows where agent_id = id],
+                               "daily": [{"day", "couple_id", "trust", "affect", "satisfaction", "neg", "pos", "stress", "state"}]}
+GET /api/health            -> {"ok": true}
+```
+
+Static dashboard is served at `/` from `frontend/dist`. Dev mode: Vite on 5173 proxies `/api` to 8765.
+
+## 4. Frontend (`frontend/`, Vite + React 18 + TypeScript + Recharts)
+
+Pages (left nav): Overview (banner "Simulated evidence", experiment card, ATE table with CIs, forest plot),
+Comparisons (survival, trust band, in-conflict share, negative load, recovery and conflict histograms),
+Couples (filterable table, click to timeline: state Gantt, trust and affect lines for both members,
+conflict shading, event markers, decision table), Agents (search by id, trait radar, memory loads over time,
+events), Policy (weights table and formulas), Governance (placebo and twins results, balance table).
+Build with `npm run build` into `frontend/dist`. Tests with Vitest and Testing Library against fixture JSON
+in `frontend/src/fixtures/`.
+
+## 5. World replay (added after the first draft; both layers implement it)
+
+API addition:
+
+```
+GET /api/world             -> {"days": 365,
+                               "couples": [couple_id, ...]            (initial couples first by id, then remarriage couples),
+                               "arms": ["control"|"treatment"|null, ...] (same order),
+                               "origin": ["initial"|"remarriage", ...],
+                               "states": ["MMCM...", ...]              (one string per day, one char per couple, same order),
+                               "legend": {"M": "married", "C": "married, in conflict", "S": "separated", "D": "divorced",
+                                          "T": "dating", "B": "broken up", "-": "not formed yet"},
+                               "counts": [{"day": 0, "control": {"married": n, "conflict": n, "separated": n, "divorced": n},
+                                           "treatment": {...}, "remarriage": {"dating": n, "married": n}}, ...]}
+GET /api/events?day=N      -> {"day": N, "items": [event rows of that day, in seq order]}
+GET /api/events?from=A&to=B -> {"items": [event rows with A <= day <= B]}   (cap 5000 rows)
+```
+
+`states` is built from daily.parquet: a couple's char on a day is `C` when state is married and
+in_conflict is true, otherwise the state's letter; a couple with no daily row that day is `-` before
+its formed_day and keeps its terminal letter (`D` or `B`) after it ends.
+
+Twins mode (the same couple under both arms, side by side). Source: the twins run named in
+`summary.governance.twins.path` (absolute, or relative to the results dir), with subdirectories
+`control` and `treatment`, each a full engine output; fallback `<results>/../<name>-twins`.
+
+```
+GET /api/twins/world
+  -> {"available": true, "days": N,
+      "couples": [initial couple ids 0..n_couples-1 in order],
+      "states_control": ["MMC..." per day], "states_treatment": ["MMC..." per day]   (aligned index by index),
+      "diverged": [number of couples whose letter differs that day, per day],
+      "counts_control": [{"married", "conflict", "separated", "divorced"} per day],
+      "counts_treatment": [same],
+      "legend": {same as /api/world},
+      "paired": summary.governance.twins.paired, "path": "<twins dir>"}
+  -> {"available": false, "reason": "..."} with HTTP 200 when no twins run exists
+GET /api/twins/couples/{id}
+  -> {"control": <same shape as /api/couples/{id}, from the control twin run>,
+      "treatment": <same, from the treatment twin run>}
+  -> 404 when twins are absent or the id is unknown
+```
+
+State letters follow the `/api/world` rules, computed over the initial couples only. Both daily
+tables are loaded once, lazily on the first twins request, and cached.
+
+Frontend addition, page "World" (first item in the nav): a day scrubber with play, pause, speed
+(1x, 10x, 50x days per second) and keyboard arrows; two tile grids side by side, control and
+treatment, one tile per initial couple coloured by legend state with a short pulse on the day a
+tile changes; a third smaller strip for remarriage couples; running counters per arm; an event
+ticker listing the current day's events in plain words (couple id, kind, value); click a tile to
+open that couple's detail page. Must stay smooth at 50x with 1,000 tiles (render tiles as a single
+canvas or CSS grid of divs with className changes only; no per-tile React re-render per day).
+
+## 6. Experiment picker, on-demand runs and shocks (added 2026-10-10 late)
+
+### Shocks (engine)
+
+A shock is a scheduled stressor applied to one arm or to everyone. The engine config gains a
+`shocks` list; each entry has this shape.
+
+```
+{"kind": "job_loss" | "financial_crisis" | "temptation" | "intimacy_mismatch",
+ "target": "treatment" | "control" | "all",
+ "member": "a" | "b" | "random",        (ignored by financial_crisis, which hits both)
+ "start_day": 90, "end_day": 210,        (end_day null means to the end of the run)
+ "magnitude": 1.0}                        (kind-specific, see below)
+```
+
+What each kind does, in engine terms (every application is logged as an `interventions.parquet`
+row with parameter = kind and applied_value = magnitude, and as an event `shock_<kind>`):
+
+- job_loss: on start_day the member's stress jumps by `magnitude` and then carries an extra
+  `0.1 * magnitude` of daily stress until end_day (default start_day + 120).
+- financial_crisis: both members of every targeted couple carry `0.3 * magnitude` extra daily
+  stress from start_day to end_day.
+- temptation: the member's daily outside-encounter probability becomes `magnitude` (a probability,
+  default 0.2) and encountered candidates are drawn 0.1 more compatible, from start_day to end_day.
+- intimacy_mismatch: on start_day the member's closeness preference moves by `magnitude` (plus or
+  minus, clamped to [0, 1]); a new dynamics term lowers affect by the couple's closeness gap, and
+  each week the partner who wants more closeness may store a `disappointment` episode (negative,
+  conflict class) with probability proportional to the gap.
+
+`target: treatment` is an intervention (the treatment arm gets it, control does not).
+`target: all` is a world event that hits both arms equally, so the memory treatment is tested under
+stress. Remarriage couples have no arm and only receive `all` shocks.
+
+Experiment YAML gains `treatment.shocks` (a list, target forced to treatment) and `world.shocks`
+(a list, target forced to all). The engine config's own `shocks` key is not allowed under `engine:`.
+
+### Serving many experiments
+
+`loveworld serve <dir>` accepts either one results dir (with summary.json) or a results root; every
+child dir with a summary.json is an experiment, and `-placebo` and `-twins` dirs attach to their
+parent by name and are not listed on their own. Every existing endpoint accepts
+`?experiment=<name>` (default: the single experiment, or the first by name).
+
+```
+GET  /api/experiments      -> {"default": name, "items": [{"name", "dir", "n_couples", "days", "seeds",
+                               "intervention": {"memory": {parameter: [control, treatment]} | null, "shocks": [...]},
+                               "divorce_control", "divorce_treatment", "generated_at_unix"}]}
+GET  /api/shocks/catalog   -> {"kinds": [{"kind", "label", "blurb", "member_applies", "magnitude": {"min","max","default","unit"},
+                               "default_start_day", "default_end_day"}]}
+POST /api/experiments/run  -> body {"name"?, "n_couples"? (<= 2000), "days"? (<= 730), "seeds"?,
+                               "treatment": {"conflict_half_life_days"?, ..., "shocks"?: [...]},
+                               "control"?, "world"?: {"shocks": [...]}, "engine"?, "analysis"?: {"n_boot" (<= 500), "n_perm" (<= 500)},
+                               "overwrite"?: false}
+                              runs the engine and the analysis synchronously (about ten seconds at 1,000 x 365)
+                              -> {"name", "dir", "summary"}; 409 if the name exists and overwrite is false; 400 on validation errors
+```
+
+### Frontend
+
+A top-bar experiment select (persisted in the URL as `?experiment=`) feeds every page. A
+"New experiment" panel (its own route) offers a name, couples, days, the memory half-life for the
+treatment arm (default equal to control, so a shock-only experiment is possible), a shock picker
+built from `/api/shocks/catalog` (kind, which partner, start and end day, magnitude slider, and
+whether it hits the treatment arm only or everyone), and a Run button that posts to
+`/api/experiments/run`, shows progress, and selects the new experiment on success.
+
+Positive kinds, same shape, same logging:
+
+- daily_texts: from start_day to end_day the member sends affection every day; the partner stores a
+  `positive` episode of intensity `0.05 * magnitude` and gains `0.02 * magnitude` affect that day.
+- anniversary: on start_day and every 365 days after it, both members store a `positive` episode of
+  intensity `0.5 * magnitude` and trust rises by `0.02 * magnitude` (member is ignored).
+- date_nights: every seventh day from start_day to end_day, both members store a `positive` episode
+  of intensity `0.15 * magnitude`.
+
+### Episodes table and the developer log
+
+The engine writes one more table, `episodes.parquet`, one row per memory episode stored or amplified
+during the run (history episodes seeded before day 0 are included with their negative day).
+
+```
+day i32, couple_id i64, agent_id i64, partner_id i64, kind str, intensity f64,
+source str   {history, conflict, escalation, withdrawal, rejection, reconciliation, separation,
+              divorce, affiliation, shock:<kind>, disappointment},
+amplified bool   (true when an existing episode was raised rather than a new one stored)
+```
+
+`/api/couples/{id}` and `/api/agents/{id}` gain an `"episodes"` list (rows for that couple, or for
+that agent). The dashboard shows a collapsed "Under the hood" panel on the couple and agent pages
+(a details element, closed by default). Opened, it lists the days in order and, per day and per
+member, the episodes stored with kind and intensity, the retained negative and positive load, trust
+and affect with their change from the previous day, stress, the decision with its probabilities, and
+any shock applied that day. A day filter and a member filter sit at the top; nothing renders while
+the panel is closed, so the page stays fast.
+
+An eighth kind, trait_shift, takes an extra field `trait` (one of neuroticism, agreeableness,
+conscientiousness, openness, extraversion, forgiveness, commitment, closeness_pref,
+conflict_engagement) and on start_day moves the member's trait by `magnitude` (plus or minus,
+clamped to [0, 1]); its intervention row's parameter reads `trait_shift:<trait>`. The catalog entry
+carries `"traits": [...]` so the picker can offer them. Any correlation the dashboard shows between a
+baseline trait and an outcome within one arm is descriptive and must be labelled as such; the causal
+version is this shock.

@@ -1,0 +1,30 @@
+[package]
+name = "loveworld-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Headless Bevy ECS simulation engine for LoveWorld: married agent couples, episodic memory, explicit decision policy, Parquet event logs."
+
+[[bin]]
+name = "loveworld-engine"
+path = "src/main.rs"
+
+[lib]
+name = "loveworld_engine"
+path = "src/lib.rs"
+
+[dependencies]
+bevy_ecs = { version = "0.20", default-features = false, features = ["std"] }
+rand = { version = "0.10", default-features = false, features = ["std"] }
+rand_chacha = "0.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+clap = { version = "4.6", features = ["derive"] }
+arrow = { version = "60", default-features = false }
+parquet = { version = "60", default-features = false, features = ["arrow", "snap"] }
+sha2 = "0.11"
+anyhow = "1.0"
+thiserror = "2.0"
+
+[dev-dependencies]
+tempfile = "3"

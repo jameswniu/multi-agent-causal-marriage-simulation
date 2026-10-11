@@ -1,0 +1,208 @@
+{
+  "name": "retention-90d",
+  "n_couples": 1000,
+  "days": 365,
+  "seeds": {
+    "population": 11,
+    "assignment": 22,
+    "dynamics": 33
+  },
+  "assignment": {
+    "mode": "couple",
+    "treatment_fraction": 0.5,
+    "block_size": 10
+  },
+  "memory": {
+    "control": {
+      "conflict_half_life_days": 14.0,
+      "repair_half_life_days": 30.0,
+      "positive_half_life_days": 20.0,
+      "load_saturation": 1.5
+    },
+    "treatment": {
+      "conflict_half_life_days": 90.0,
+      "repair_half_life_days": 30.0,
+      "positive_half_life_days": 20.0,
+      "load_saturation": 1.5
+    },
+    "prune_threshold": 0.01,
+    "capacity": 200,
+    "prune_every_days": 7
+  },
+  "population": {
+    "neuroticism": {
+      "mean": 0.45,
+      "sd": 0.18
+    },
+    "agreeableness": {
+      "mean": 0.55,
+      "sd": 0.16
+    },
+    "conscientiousness": {
+      "mean": 0.55,
+      "sd": 0.16
+    },
+    "openness": {
+      "mean": 0.5,
+      "sd": 0.18
+    },
+    "extraversion": {
+      "mean": 0.5,
+      "sd": 0.18
+    },
+    "forgiveness": {
+      "mean": 0.55,
+      "sd": 0.18
+    },
+    "commitment": {
+      "mean": 0.65,
+      "sd": 0.15
+    },
+    "closeness_pref": {
+      "mean": 0.55,
+      "sd": 0.18
+    },
+    "conflict_engagement": {
+      "mean": 0.5,
+      "sd": 0.2
+    },
+    "assortative_mixing": 0.35,
+    "prior_relationships": {
+      "mean": 2.0,
+      "sd": 1.5
+    },
+    "prior_divorce_prob": 0.18,
+    "years_married": {
+      "mean": 6.0,
+      "sd": 4.0
+    },
+    "base_trust": {
+      "mean": 0.6,
+      "sd": 0.15
+    },
+    "history_positive_per_year": 6.0,
+    "history_conflict_per_year": 3.0,
+    "network_k": 6,
+    "network_rewire_p": 0.1
+  },
+  "dynamics": {
+    "stress_shock_prob": 0.06,
+    "stress_shock_mean": 0.5,
+    "stress_decay": 0.7,
+    "stress_neuro_weight": 0.15,
+    "affect_inertia_base": 0.45,
+    "affect_inertia_neuro": 0.3,
+    "influence_pos": 0.25,
+    "influence_neg": 0.4,
+    "negativity_threshold": -0.35,
+    "influence_neg_below_threshold": 0.8,
+    "affect_baseline_agree": 0.25,
+    "affect_grudge_weight": 0.35,
+    "affect_pos_weight": 0.3,
+    "affect_stress_weight": 0.3,
+    "affect_noise_sd": 0.08,
+    "trust_rate": 0.04,
+    "trust_pos_weight": 0.08,
+    "trust_neg_weight": 0.2,
+    "trust_affect_weight": 0.12,
+    "trust_hit_escalate": 0.02,
+    "trust_hit_withdraw": 0.015,
+    "trust_hit_rejection": 0.02,
+    "trust_gain_reconcile": 0.05,
+    "trust_hit_separate": 0.12,
+    "sat_trust": 4.0,
+    "sat_affect": 1.5,
+    "sat_memory": 1.0,
+    "onset_intercept": -4.4,
+    "onset_stress": 1.6,
+    "onset_neuro": 1.0,
+    "onset_grudge": 0.3,
+    "onset_trust": -1.4,
+    "onset_affect": -1.2,
+    "onset_agree": -0.8,
+    "intensity_base": 0.3,
+    "intensity_stress": 0.3,
+    "intensity_neuro": 0.2,
+    "intensity_sd": 0.1,
+    "escalation_step": 0.15,
+    "intensity_decay": 0.92,
+    "fade_threshold": 0.08,
+    "accept_intercept": -0.6,
+    "accept_trust": 2.5,
+    "accept_forgive": 1.5,
+    "accept_grudge": -0.5,
+    "accept_intensity": -1.5,
+    "positive_episode_intensity": 0.12,
+    "withdraw_episode_intensity": 0.25,
+    "rejection_episode_intensity": 0.3,
+    "affect_closeness_gap_weight": 0.3,
+    "disappointment_weekly_rate": 0.15,
+    "disappointment_intensity": 0.3,
+    "separation_days_to_divorce": 60,
+    "outside_encounter_prob": 0.02
+  },
+  "policy": {
+    "temperature": 0.7,
+    "aff_base": -0.4,
+    "aff_extraversion": 0.8,
+    "aff_trust": 1.0,
+    "aff_affect": 0.8,
+    "aff_stress": 0.8,
+    "aff_closeness": 0.6,
+    "rep_base": -0.3,
+    "rep_agree": 1.0,
+    "rep_forgive": 1.0,
+    "rep_trust": 1.0,
+    "rep_posmem": 0.8,
+    "rep_negmem": 1.0,
+    "rep_partner_repaired": 1.2,
+    "rep_intensity": 1.5,
+    "rep_days": 0.08,
+    "hold_base": 0.6,
+    "hold_avoidant": 0.8,
+    "hold_consc": 0.3,
+    "esc_base": -1.4,
+    "esc_neuro": 1.2,
+    "esc_engage": 0.8,
+    "esc_negmem": 0.25,
+    "esc_stress": 1.0,
+    "esc_trust": 1.2,
+    "esc_partner_escalated": 0.5,
+    "esc_affect": 1.0,
+    "wd_base": -0.8,
+    "wd_avoidant": 1.4,
+    "wd_neuro": 0.6,
+    "wd_intensity": 0.8,
+    "wd_partner_escalated": 0.6,
+    "leave_base": 0.2,
+    "leave_commit": 2.5,
+    "leave_trust": 2.0,
+    "leave_negmem": 0.7,
+    "leave_posmem": 1.0,
+    "leave_intensity": 1.2,
+    "leave_days": 0.05,
+    "leave_satisfaction": 2.5,
+    "leave_network": 0.0,
+    "leave_outside_option": 1.0,
+    "leave_dating_bonus": 1.2,
+    "sep_reunite_base": 0.2,
+    "sep_hold_base": 0.5,
+    "sep_leave_base": -1.2
+  },
+  "market": {
+    "meet_per_day": 2,
+    "initial_threshold": 0.75,
+    "threshold_floor": 0.35,
+    "relax_rate_mean": 0.004,
+    "relax_rate_sd": 0.002,
+    "anchor_discount": 0.05,
+    "cooldown_days": 90,
+    "dating_min_days": 30,
+    "marry_hazard_base": 0.004,
+    "marry_hazard_compat": 0.02,
+    "marry_hazard_commit": 0.01,
+    "marry_network_weight": 0.0
+  },
+  "arm_override": null,
+  "shocks": []
+}

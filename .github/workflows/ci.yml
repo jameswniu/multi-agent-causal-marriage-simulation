@@ -1,0 +1,45 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  engine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release
+      - run: cargo test --release
+      - run: cargo clippy --release --all-targets -- -D warnings
+      - run: cargo fmt --all -- --check
+      - uses: actions/upload-artifact@v4
+        with:
+          name: engine
+          path: target/release/loveworld-engine
+  python:
+    needs: engine
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: engine
+          path: target/release
+      - run: chmod +x target/release/loveworld-engine
+      - uses: astral-sh/setup-uv@v5
+      - run: cd python && uv sync
+      - run: cd python && uv run ruff check . && uv run mypy loveworld
+      - run: cd python && uv run pytest -q
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: cd frontend && npm ci
+      - run: cd frontend && npm run lint && npm test -- --run && npm run build

@@ -1,0 +1,83 @@
+{
+ "total": 6,
+ "items": [
+  {
+   "couple_id": 0,
+   "agent_a": 0,
+   "agent_b": 1,
+   "arm": "control",
+   "origin": "initial",
+   "formed_day": -828,
+   "married_day": -828,
+   "compatibility": 0.55,
+   "final_state": "married",
+   "ended_day": null,
+   "years_married_at_start": 2.27
+  },
+  {
+   "couple_id": 1,
+   "agent_a": 2,
+   "agent_b": 3,
+   "arm": "treatment",
+   "origin": "initial",
+   "formed_day": -4423,
+   "married_day": -4423,
+   "compatibility": 0.818,
+   "final_state": "married",
+   "ended_day": null,
+   "years_married_at_start": 12.12
+  },
+  {
+   "couple_id": 2,
+   "agent_a": 4,
+   "agent_b": 5,
+   "arm": "control",
+   "origin": "initial",
+   "formed_day": -1817,
+   "married_day": -1817,
+   "compatibility": 0.632,
+   "final_state": "married",
+   "ended_day": null,
+   "years_married_at_start": 4.98
+  },
+  {
+   "couple_id": 3,
+   "agent_a": 6,
+   "agent_b": 7,
+   "arm": "treatment",
+   "origin": "initial",
+   "formed_day": -1708,
+   "married_day": -1708,
+   "compatibility": 0.596,
+   "final_state": "divorced",
+   "ended_day": 45,
+   "years_married_at_start": 4.68
+  },
+  {
+   "couple_id": 4,
+   "agent_a": 8,
+   "agent_b": 9,
+   "arm": "control",
+   "origin": "initial",
+   "formed_day": -4832,
+   "married_day": -4832,
+   "compatibility": 0.644,
+   "final_state": "married",
+   "ended_day": null,
+   "years_married_at_start": 13.24
+  },
+  {
+   "couple_id": 5,
+   "agent_a": 10,
+   "agent_b": 11,
+   "arm": "treatment",
+   "origin": "initial",
+   "formed_day": -2182,
+   "married_day": -2182,
+   "compatibility": 0.789,
+   "final_state": "married",
+   "ended_day": null,
+   "years_married_at_start": 5.98
+  }
+ ]
+}

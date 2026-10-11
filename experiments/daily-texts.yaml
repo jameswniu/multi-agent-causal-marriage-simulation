@@ -1,0 +1,11 @@
+# One partner in every treatment couple sends a kind message every day of the year.
+name: daily-texts
+n_couples: 1000
+days: 365
+seeds: {population: 11, assignment: 22, dynamics: 33}
+treatment:
+  shocks:
+    - {kind: daily_texts, member: random, start_day: 0, magnitude: 1.0}
+control: {}
+engine: {}
+analysis: {n_boot: 2000, n_perm: 2000, seed: 7}

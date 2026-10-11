@@ -1,0 +1,972 @@
+{
+ "available": true,
+ "days": 60,
+ "couples": [
+  0,
+  1,
+  2,
+  3,
+  4,
+  5
+ ],
+ "states_control": [
+  "MMMMMM",
+  "MMMMMM",
+  "MMMMMM",
+  "MMMMMM",
+  "MMMMMM",
+  "MMMCMM",
+  "MMMCMM",
+  "MMMCMM",
+  "MCMCMM",
+  "MCMCMM",
+  "MCMCMC",
+  "MMMCMC",
+  "MMMCMC",
+  "MMMMMM",
+  "MMMMMM",
+  "MMCMMM",
+  "MMMMMM",
+  "MMMMMM",
+  "MMMMMM",
+  "MMMMMM",
+  "MMMCMM",
+  "MMMCMM",
+  "MMMCMM",
+  "MMMCMM",
+  "MMMCMM",
+  "MCMCMM",
+  "MCMCMM",
+  "MCMMMM",
+  "MCMMMM",
+  "MCMMMM",
+  "MCMMMM",
+  "MCMMMM",
+  "MMMMMM",
+  "MMMMCM",
+  "MMMMCM",
+  "MMMMCM",
+  "MMMMCM",
+  "MMMMCM",
+  "MMMMCM",
+  "MMMMCM",
+  "MMCMCM",
+  "MMCMCM",
+  "MMCMCM",
+  "MMMMCM",
+  "MCMMCM",
+  "MCMMCM",
+  "MCMMCM",
+  "MCMMCM",
+  "MCMMMM",
+  "MCMMMM",
+  "MCMMMM",
+  "MCMMMM",
+  "MCMMMM",
+  "MMMMMM",
+  "MMMMMM",
+  "MMMMMM",
+  "MMMMMM",
+  "MMMMMM",
+  "MMMMMM",
+  "MMMMMM"
+ ],
+ "states_treatment": [
+  "MMMMMM",
+  "MMMMMM",
+  "MMMMMM",
+  "MMMMMM",
+  "MMMMMM",
+  "MMMCMM",
+  "MMMCMM",
+  "MMMCMM",
+  "MCMCMM",
+  "MCMCMM",
+  "MCMCMC",
+  "MMMCMC",
+  "MMMCMC",
+  "MMMMMC",
+  "MMMMMS",
+  "MMCMMS",
+  "MMCMMS",
+  "MMCMMS",
+  "MMCMMS",
+  "MMCMMS",
+  "MMMCMS",
+  "MMMCMS",
+  "MMMCMM",
+  "MMMCMM",
+  "MMMCMM",
+  "MCMCMM",
+  "MCMCMM",
+  "MCMCMM",
+  "MCMCMM",
+  "MCMCMM",
+  "MCMSMM",
+  "MCMSMM",
+  "MMMSMM",
+  "MMMSCM",
+  "MMMSCM",
+  "MMMSCM",
+  "CMMSCM",
+  "CMMSCM",
+  "CMMSCM",
+  "CMMSCM",
+  "CMCSCM",
+  "CMCSCM",
+  "MMCSCM",
+  "MMCSCM",
+  "MCCSSM",
+  "MCCDSM",
+  "MCCDSM",
+  "MCMDSM",
+  "MCMDSM",
+  "MCMDSM",
+  "MCMDSM",
+  "MCMDSM",
+  "MCMDSM",
+  "MMMDSM",
+  "MMMDSM",
+  "MMMDSM",
+  "MMMDSM",
+  "MMMDSM",
+  "MMMDDM",
+  "MMMDDM"
+ ],
+ "diverged": [
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  1,
+  1,
+  1,
+  2,
+  2,
+  2,
+  2,
+  1,
+  1,
+  0,
+  0,
+  0,
+  0,
+  0,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  1,
+  2,
+  3,
+  3,
+  3,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2
+ ],
+ "counts_control": [
+  {
+   "married": 6,
+   "conflict": 0,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 6,
+   "conflict": 0,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 6,
+   "conflict": 0,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 6,
+   "conflict": 0,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 6,
+   "conflict": 0,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 2,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 2,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 3,
+   "conflict": 3,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 2,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 2,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 6,
+   "conflict": 0,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 6,
+   "conflict": 0,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 6,
+   "conflict": 0,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 6,
+   "conflict": 0,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 6,
+   "conflict": 0,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 6,
+   "conflict": 0,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 2,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 2,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 6,
+   "conflict": 0,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 2,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 2,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 2,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 2,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 2,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 2,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 2,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 6,
+   "conflict": 0,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 6,
+   "conflict": 0,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 6,
+   "conflict": 0,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 6,
+   "conflict": 0,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 6,
+   "conflict": 0,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 6,
+   "conflict": 0,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 6,
+   "conflict": 0,
+   "separated": 0,
+   "divorced": 0
+  }
+ ],
+ "counts_treatment": [
+  {
+   "married": 6,
+   "conflict": 0,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 6,
+   "conflict": 0,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 6,
+   "conflict": 0,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 6,
+   "conflict": 0,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 6,
+   "conflict": 0,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 2,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 2,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 3,
+   "conflict": 3,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 2,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 2,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 0,
+   "separated": 1,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 1,
+   "separated": 1,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 1,
+   "separated": 1,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 1,
+   "separated": 1,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 1,
+   "separated": 1,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 1,
+   "separated": 1,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 1,
+   "separated": 1,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 1,
+   "separated": 1,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 1,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 2,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 2,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 2,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 2,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 2,
+   "separated": 0,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 1,
+   "separated": 1,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 1,
+   "separated": 1,
+   "divorced": 0
+  },
+  {
+   "married": 5,
+   "conflict": 0,
+   "separated": 1,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 1,
+   "separated": 1,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 1,
+   "separated": 1,
+   "divorced": 0
+  },
+  {
+   "married": 4,
+   "conflict": 1,
+   "separated": 1,
+   "divorced": 0
+  },
+  {
+   "married": 3,
+   "conflict": 2,
+   "separated": 1,
+   "divorced": 0
+  },
+  {
+   "married": 3,
+   "conflict": 2,
+   "separated": 1,
+   "divorced": 0
+  },
+  {
+   "married": 3,
+   "conflict": 2,
+   "separated": 1,
+   "divorced": 0
+  },
+  {
+   "married": 3,
+   "conflict": 2,
+   "separated": 1,
+   "divorced": 0
+  },
+  {
+   "married": 2,
+   "conflict": 3,
+   "separated": 1,
+   "divorced": 0
+  },
+  {
+   "married": 2,
+   "conflict": 3,
+   "separated": 1,
+   "divorced": 0
+  },
+  {
+   "married": 3,
+   "conflict": 2,
+   "separated": 1,
+   "divorced": 0
+  },
+  {
+   "married": 3,
+   "conflict": 2,
+   "separated": 1,
+   "divorced": 0
+  },
+  {
+   "married": 2,
+   "conflict": 2,
+   "separated": 2,
+   "divorced": 0
+  },
+  {
+   "married": 2,
+   "conflict": 2,
+   "separated": 1,
+   "divorced": 1
+  },
+  {
+   "married": 2,
+   "conflict": 2,
+   "separated": 1,
+   "divorced": 1
+  },
+  {
+   "married": 3,
+   "conflict": 1,
+   "separated": 1,
+   "divorced": 1
+  },
+  {
+   "married": 3,
+   "conflict": 1,
+   "separated": 1,
+   "divorced": 1
+  },
+  {
+   "married": 3,
+   "conflict": 1,
+   "separated": 1,
+   "divorced": 1
+  },
+  {
+   "married": 3,
+   "conflict": 1,
+   "separated": 1,
+   "divorced": 1
+  },
+  {
+   "married": 3,
+   "conflict": 1,
+   "separated": 1,
+   "divorced": 1
+  },
+  {
+   "married": 3,
+   "conflict": 1,
+   "separated": 1,
+   "divorced": 1
+  },
+  {
+   "married": 4,
+   "conflict": 0,
+   "separated": 1,
+   "divorced": 1
+  },
+  {
+   "married": 4,
+   "conflict": 0,
+   "separated": 1,
+   "divorced": 1
+  },
+  {
+   "married": 4,
+   "conflict": 0,
+   "separated": 1,
+   "divorced": 1
+  },
+  {
+   "married": 4,
+   "conflict": 0,
+   "separated": 1,
+   "divorced": 1
+  },
+  {
+   "married": 4,
+   "conflict": 0,
+   "separated": 1,
+   "divorced": 1
+  },
+  {
+   "married": 4,
+   "conflict": 0,
+   "separated": 0,
+   "divorced": 2
+  },
+  {
+   "married": 4,
+   "conflict": 0,
+   "separated": 0,
+   "divorced": 2
+  }
+ ],
+ "paired": [
+  {
+   "name": "divorce_rate",
+   "label": "Divorced within the year",
+   "mean_diff": 0.066,
+   "ci_low": 0.0468,
+   "ci_high": 0.0852,
+   "n_pairs": 1000
+  },
+  {
+   "name": "separation_rate",
+   "label": "Separated at year end",
+   "mean_diff": 0.014,
+   "ci_low": 0.005,
+   "ci_high": 0.023,
+   "n_pairs": 1000
+  },
+  {
+   "name": "days_married",
+   "label": "Days married in the window",
+   "mean_diff": -14.4,
+   "ci_low": -19.05,
+   "ci_high": -9.75,
+   "n_pairs": 1000
+  },
+  {
+   "name": "final_trust",
+   "label": "Trust on the last day",
+   "mean_diff": -0.201,
+   "ci_low": -0.2172,
+   "ci_high": -0.1848,
+   "n_pairs": 1000
+  },
+  {
+   "name": "mean_trust",
+   "label": "Mean trust over the year",
+   "mean_diff": -0.143,
+   "ci_low": -0.1562,
+   "ci_high": -0.1298,
+   "n_pairs": 1000
+  },
+  {
+   "name": "conflict_rate",
+   "label": "Conflicts per couple-year",
+   "mean_diff": 3.65,
+   "ci_low": 3.263,
+   "ci_high": 4.037,
+   "n_pairs": 1000
+  }
+ ]
+}

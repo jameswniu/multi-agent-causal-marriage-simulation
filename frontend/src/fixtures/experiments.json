@@ -1,0 +1,97 @@
+{
+ "default": "retention-90d",
+ "items": [
+  {
+   "name": "retention-90d",
+   "dir": "results/retention-90d",
+   "n_couples": 1000,
+   "days": 365,
+   "seeds": {
+    "population": 11,
+    "assignment": 22,
+    "dynamics": 33
+   },
+   "intervention": {
+    "memory": {
+     "conflict_half_life_days": [
+      14.0,
+      90.0
+     ]
+    },
+    "shocks": []
+   },
+   "divorce_control": 0.052,
+   "divorce_treatment": 0.118,
+   "generated_at_unix": 1791695000
+  },
+  {
+   "name": "job-loss-everyone",
+   "dir": "results/job-loss-everyone",
+   "n_couples": 1000,
+   "days": 365,
+   "seeds": {
+    "population": 11,
+    "assignment": 22,
+    "dynamics": 33
+   },
+   "intervention": {
+    "memory": {
+     "conflict_half_life_days": [
+      14.0,
+      90.0
+     ]
+    },
+    "shocks": [
+     {
+      "kind": "job_loss",
+      "target": "all",
+      "member": "random",
+      "start_day": 90,
+      "end_day": 210,
+      "magnitude": 1.0
+     }
+    ]
+   },
+   "divorce_control": 0.071,
+   "divorce_treatment": 0.154,
+   "generated_at_unix": 1791699000
+  },
+  {
+   "name": "job-loss-api",
+   "dir": "results/job-loss-api",
+   "n_couples": 1000,
+   "days": 365,
+   "seeds": {
+    "population": 11,
+    "assignment": 22,
+    "dynamics": 33
+   },
+   "intervention": {
+    "memory": null,
+    "shocks": [
+     {
+      "kind": "job_loss",
+      "target": "treatment",
+      "member": "random",
+      "start_day": 60,
+      "end_day": 210,
+      "magnitude": 1.5,
+      "trait": null
+     },
+     {
+      "kind": "date_nights",
+      "target": "all",
+      "member": "random",
+      "start_day": 0,
+      "end_day": null,
+      "magnitude": 1.0,
+      "trait": null
+     }
+    ]
+   },
+   "divorce_control": 0.016,
+   "divorce_treatment": 0.04,
+   "generated_at_unix": 1791701000
+  }
+ ]
+}

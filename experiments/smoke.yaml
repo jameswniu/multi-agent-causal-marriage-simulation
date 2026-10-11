@@ -1,0 +1,14 @@
+# Tiny experiment for tests and quick checks.
+name: smoke
+n_couples: 40
+days: 60
+seeds:
+  population: 11
+  assignment: 22
+  dynamics: 33
+treatment:
+  conflict_half_life_days: 90
+analysis:
+  n_boot: 200
+  n_perm: 200
+  seed: 7

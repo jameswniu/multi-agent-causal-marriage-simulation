@@ -1,0 +1,21 @@
+# Rust
+/target/
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+python/dist/
+# Results (the committed example lives in results/example)
+/results/*
+!/results/example/
+!/results/.gitkeep
+# OS
+.DS_Store
+# The committed example keeps the small tables; regenerate the big ones with `make example`
+/results/example/daily.parquet
+/results/example/decisions.parquet
+/results/example/episodes.parquet

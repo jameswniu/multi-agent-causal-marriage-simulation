@@ -1,0 +1,17 @@
+# The example experiment: does retaining conflict memories longer change how simulated
+# marriages fare over a year? One parameter differs between arms; everything else is identical.
+name: retention-90d
+n_couples: 1000
+days: 365
+seeds:
+  population: 11      # who the agents are (traits, histories, social network)
+  assignment: 22      # which couples are treated
+  dynamics: 33        # every stochastic event during the year
+treatment:
+  conflict_half_life_days: 90   # control keeps the engine default (14 days unless overridden under control:)
+control: {}
+engine: {}
+analysis:
+  n_boot: 2000
+  n_perm: 2000
+  seed: 7
