@@ -150,8 +150,16 @@ colleagues, 2025), and the separation of an agent's private state from what its 
 follows Love First, Know Later (Shang and colleagues, 2025). An optional network term follows the
 Wedding Ring model (Billari and colleagues, 2007).
 
-What those systems do not do, and this one does, is run a randomised intervention on memory inside
-one persistent population with a placebo check, counterfactual twins and bit-exact replay.
+Where this sits is written up in [docs/prior-art.md](docs/prior-art.md), a review of eighteen marriage,
+divorce and kinship simulations from 2005 to 2026 in which every finding was checked against its source
+by two independent readers. In that record no model gives couples a conflict process with separation and
+reunion, none gives agents a memory that decays, and none randomises an intervention inside one
+population; the nearest, Grow, Schnor and Van Bavel (2017), MADAM and SOCSIM, run marriage, divorce and
+remarriage in one population and dissolve marriages by trade-up or hazard rate. The claim is the first
+combination in this domain, not the invention of the tools: common random numbers, placebo runs and
+seeded replay are standard simulation methodology. Those earlier models are also fitted to census,
+survey or register data, and this one is not. The 14 and 90 day half-lives are design parameters; no
+human study in the reviewed record measures how long people hold on to a conflict.
 
 ## Roadmap
 
@@ -171,7 +179,7 @@ frontend/      Vite + React + TypeScript dashboard
 experiments/   example.yaml, retention-45d.yaml, contagion-block.yaml, job-loss.yaml, daily-texts.yaml,
                neuroticism-shift.yaml, crisis-under-retention.yaml, smoke.yaml
 results/       run outputs; results/example keeps the small tables and summary of the example run
-docs/          design.md (model and causal design), contracts.md (schemas, CLI, API)
+docs/          design.md (model and causal design), contracts.md (schemas, CLI, API), prior-art.md (what came before)
 ```
 
 ## License

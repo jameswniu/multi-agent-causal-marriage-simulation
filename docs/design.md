@@ -177,7 +177,10 @@ few days, trust drifting near 0.7, and one to two divorces per hundred couples p
 treatment value in the example (a 90-day conflict half-life against 14 days) produces a large
 effect in this world. That size is a property of these rules, chiefly the loop from retained grudge
 to more frequent and less repairable conflicts, and not a claim about people. The sensitivity to
-the half-life is visible by editing one line of the experiment file.
+the half-life is visible by editing one line of the experiment file. No human study in the reviewed
+record (see [prior-art.md](prior-art.md)) measures how long people retain a conflict or manipulates
+that retention, so the 14 and 90 day values are design parameters, and the sign and size of the
+effect are simulation results.
 
 ## Prior art and what was borrowed
 
@@ -191,6 +194,18 @@ relationship state. Shang and colleagues, Love First, Know Later (arXiv 2512.118
 separation of private agent state from the observable environment. None of these runs a randomised
 intervention with a placebo and counterfactual twins inside one persistent population, which is
 the contribution here.
+
+The wider record is in [prior-art.md](prior-art.md): eighteen marriage, divorce and kinship
+simulations from 2005 to 2026, each read against its source by two independent checks. Marriage,
+divorce and remarriage in one persistent population has company (MADAM, Grow and colleagues 2017,
+SOCSIM, Jarynowski and Nyczka 2018), and a dating state appears in Grow and Van Bavel (2015, 2017).
+What has no verified prior is a conflict process at the agent level with separation and reunion,
+agent memory that decays, a randomised arm inside one population, common-random-number twins and
+hash-verified replay. The nearest controlled counterfactual is Hammel (2005), who restarted every
+run from the same population but with fresh random numbers and noted that controlling that
+variation would sharpen the result. Two caveats bound the claim: those tools are standard
+simulation methodology outside this domain, and the earlier models are fitted to real data where
+this one is set by hand.
 
 ## Roadmap
 
