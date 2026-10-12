@@ -132,14 +132,33 @@ export function changedSinceTranslation(s: ShockForm): boolean {
   return !!s.translation && !sameShock(rowSpec(s), s.translation.initial);
 }
 
+/** How a run is checked: a fork keeps its parent's population and memory, and public mode names runs and caps them. */
+export interface RunRules {
+  /** The server names the run (public mode), so the name field is not checked. */
+  nameAssigned?: boolean;
+  /** Forking a world: its couples, days and memory come from the parent, and it needs at least one shock. */
+  fork?: boolean;
+  /** Why the parent's couples and days are not known yet (the list is loading, or it is not listed); blocks a fork. */
+  parentProblem?: string | null;
+  maxCouples?: number;
+  maxDays?: number;
+}
+
 /** Every problem with the form, in plain words; an empty list means it can run. */
-export function validateRun(form: RunForm, kinds: ShockKind[], effects?: EffectCatalog | null): string[] {
+export function validateRun(form: RunForm, kinds: ShockKind[], effects?: EffectCatalog | null, rules: RunRules = {}): string[] {
   const errors: string[] = [];
   const name = form.name.trim();
-  if (!NAME_PATTERN.test(name)) errors.push('Name must start with a letter or digit and use only letters, digits, dashes and underscores (up to 64 characters).');
-  if (!isInt(form.nCouples) || form.nCouples < 1 || form.nCouples > MAX_COUPLES) errors.push(`Couples must be a whole number from 1 to ${MAX_COUPLES.toLocaleString()}.`);
-  if (!isInt(form.days) || form.days < 1 || form.days > MAX_DAYS) errors.push(`Days must be a whole number from 1 to ${MAX_DAYS}.`);
-  if (!Number.isFinite(form.treatmentHalfLife) || form.treatmentHalfLife <= 0) errors.push('The treatment memory half-life must be a positive number of days.');
+  const maxCouples = rules.maxCouples ?? MAX_COUPLES;
+  const maxDays = rules.maxDays ?? MAX_DAYS;
+  if (!rules.nameAssigned && !NAME_PATTERN.test(name)) errors.push('Name must start with a letter or digit and use only letters, digits, dashes and underscores (up to 64 characters).');
+  if (rules.fork) {
+    if (rules.parentProblem) errors.push(rules.parentProblem);
+    if (form.shocks.length === 0) errors.push('Add at least one shock: a forked world differs from its parent only by the shocks you add.');
+  } else {
+    if (!isInt(form.nCouples) || form.nCouples < 1 || form.nCouples > maxCouples) errors.push(`Couples must be a whole number from 1 to ${maxCouples.toLocaleString()}.`);
+    if (!isInt(form.days) || form.days < 1 || form.days > maxDays) errors.push(`Days must be a whole number from 1 to ${maxDays}.`);
+    if (!Number.isFinite(form.treatmentHalfLife) || form.treatmentHalfLife <= 0) errors.push('The treatment memory half-life must be a positive number of days.');
+  }
   const lastDay = isInt(form.days) ? form.days - 1 : null;
   form.shocks.forEach((s, i) => {
     const k = kinds.find((x) => x.kind === s.kind);

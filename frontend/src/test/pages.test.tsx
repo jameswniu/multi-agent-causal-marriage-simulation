@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { canvasStats, resetCanvasStats } from './setup';
 import * as mock from './mockApi';
 import App from '../App';
+import { jobPolling } from '../jobs';
 import { BANNER_TEXT } from '../components/Banner';
 
 vi.mock('../api', () => import('./mockApi'));
@@ -486,12 +487,161 @@ describe('plain-words shocks', () => {
     spy.mockRestore();
   });
 
-  it('the World page links to the box, and the box takes the cursor', async () => {
-    at('/');
-    const link = await screen.findByTestId('what-if');
+  it('Shock this world opens the box on a fork of the world being watched, with the cursor in it', async () => {
+    at('/?experiment=job-loss-everyone');
+    const link = await screen.findByTestId('shock-this-world');
+    expect(link).toHaveTextContent('Shock this world');
     expect(link.getAttribute('href')).toContain('/new?describe=1');
+    expect(link.getAttribute('href')).toContain('experiment=job-loss-everyone');
     fireEvent.click(link);
     const box = await screen.findByLabelText('Describe what happens');
     await waitFor(() => expect(document.activeElement).toBe(box));
+    expect((screen.getByTestId('start-from') as HTMLSelectElement).value).toBe('job-loss-everyone');
+    expect(screen.getByTestId('fork-note')).toHaveTextContent('Forking job-loss-everyone');
+  });
+});
+
+describe('forked worlds and the run queue', () => {
+  const TEXT = 'He loses his job in month three for four months';
+
+  it('forks the world in the URL by default, sends only shocks, and opens the comparison with its parent', async () => {
+    const spy = vi.spyOn(mock, 'forkExperiment');
+    const fresh = vi.spyOn(mock, 'runExperiment');
+    at('/new?experiment=retention-90d');
+    await screen.findByRole('heading', { name: 'New experiment' });
+    await waitFor(() => expect((screen.getByTestId('start-from') as HTMLSelectElement).value).toBe('retention-90d'));
+    expect(screen.getByTestId('fork-note')).toHaveTextContent('Forking retention-90d: 1,000 couples for 365 days');
+    expect(screen.queryByLabelText('Couples')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Treatment conflict half-life')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Overwrite if the name exists/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('run'));
+    expect(await screen.findByTestId('validation-errors')).toHaveTextContent('Add at least one shock');
+    fireEvent.change(screen.getByLabelText('Describe what happens'), { target: { value: TEXT } });
+    fireEvent.click(screen.getByTestId('translate'));
+    await screen.findByTestId('translation-card');
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'retention-90d-fork' } });
+    fireEvent.click(screen.getByTestId('run'));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(fresh).not.toHaveBeenCalled();
+    const body = spy.mock.calls[0][0];
+    expect(body.parent).toBe('retention-90d');
+    expect(body.name).toBe('retention-90d-fork');
+    expect(body.shocks[0]).toMatchObject({ kind: 'job_loss', target: 'treatment', start_day: 60, end_day: 180 });
+    expect(body.translations).toEqual([{ translation_id: 'tr-job', shock_index: 0 }]);
+    expect(Object.keys(body).sort()).toEqual(['name', 'parent', 'shocks', 'translations']);
+    await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/overview?experiment=retention-90d-fork'));
+    const versus = await screen.findByTestId('versus-parent');
+    expect(versus).toHaveTextContent('Forked from retention-90d');
+    expect(versus).toHaveTextContent('One partner loses their job');
+    expect(within(versus).getByRole('table', { name: 'Difference from the parent world' })).toBeInTheDocument();
+    expect(within(versus).getAllByText('0.0%').length).toBeGreaterThan(0);
+    spy.mockRestore();
+    fresh.mockRestore();
+  });
+
+  it('will not fork a world whose couples and days it could not load, and says why instead of guessing', async () => {
+    const list = vi.spyOn(mock, 'listExperiments').mockRejectedValueOnce(new Error('offline'));
+    const fork = vi.spyOn(mock, 'forkExperiment');
+    at('/new?experiment=retention-90d');
+    await screen.findByRole('heading', { name: 'New experiment' });
+    expect(await screen.findByTestId('fork-note')).toHaveTextContent('The list of worlds did not load, so the couples and days of retention-90d are unknown');
+    fireEvent.click(screen.getByTestId('run'));
+    expect(await screen.findByTestId('validation-errors')).toHaveTextContent('reload the page to fork it');
+    expect(fork).not.toHaveBeenCalled();
+    list.mockRestore();
+    fork.mockRestore();
+  });
+
+  it('can start from a fresh population instead', async () => {
+    const spy = vi.spyOn(mock, 'runExperiment');
+    const fork = vi.spyOn(mock, 'forkExperiment');
+    at('/new?experiment=retention-90d');
+    await screen.findByRole('heading', { name: 'New experiment' });
+    await waitFor(() => expect((screen.getByTestId('start-from') as HTMLSelectElement).value).toBe('retention-90d'));
+    fireEvent.change(screen.getByTestId('start-from'), { target: { value: '' } });
+    expect(screen.getByLabelText('Couples')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'fresh-one' } });
+    fireEvent.click(screen.getByTestId('run'));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(fork).not.toHaveBeenCalled();
+    expect(spy.mock.calls[0][0].name).toBe('fresh-one');
+    spy.mockRestore();
+    fork.mockRestore();
+  });
+
+  it('says when a run is waiting its turn, then opens it when the queue gets to it', async () => {
+    const queued = { job_id: 'job-q', kind: 'run' as const, name: 'queued-one', state: 'queued' as const, position: 2, error: null, created: 0, started: null, finished: null };
+    const run = vi.spyOn(mock, 'runExperiment').mockResolvedValueOnce(queued);
+    const job = vi.spyOn(mock, 'getJob').mockResolvedValueOnce({ ...queued, state: 'done', position: null, finished: 1 });
+    at('/new');
+    await screen.findByRole('heading', { name: 'New experiment' });
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'queued-one' } });
+    fireEvent.click(screen.getByTestId('run'));
+    expect(await screen.findByTestId('progress')).toHaveTextContent('Waiting its turn, number 2 in line');
+    await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/overview?experiment=queued-one'), { timeout: 3000 });
+    expect(job).toHaveBeenCalledWith('job-q');
+    run.mockRestore();
+    job.mockRestore();
+  });
+
+  it('shows a failed job as a clear error with a retry', async () => {
+    const queued = { job_id: 'job-f', kind: 'run' as const, name: 'doomed', state: 'running' as const, position: null, error: null, created: 0, started: 0, finished: null };
+    const run = vi.spyOn(mock, 'runExperiment').mockResolvedValueOnce(queued);
+    const job = vi.spyOn(mock, 'getJob').mockResolvedValueOnce({ ...queued, state: 'failed', error: 'the engine stopped after 120 seconds' });
+    at('/new');
+    await screen.findByRole('heading', { name: 'New experiment' });
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'doomed' } });
+    fireEvent.click(screen.getByTestId('run'));
+    expect(await screen.findByTestId('run-error', {}, { timeout: 3000 })).toHaveTextContent('the engine stopped after 120 seconds');
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    run.mockRestore();
+    job.mockRestore();
+  });
+
+  it('when status checks keep failing, says the run may still finish and checks the same job again', async () => {
+    const saved = { ...jobPolling };
+    jobPolling.pollMs = 1;
+    jobPolling.maxMisses = 2;
+    const queued = { job_id: 'job-l', kind: 'run' as const, name: 'patient', state: 'running' as const, position: null, error: null, created: 0, started: 0, finished: null };
+    const run = vi.spyOn(mock, 'runExperiment').mockResolvedValueOnce(queued);
+    const job = vi
+      .spyOn(mock, 'getJob')
+      .mockRejectedValueOnce(new Error('Failed to fetch'))
+      .mockRejectedValueOnce(new Error('Failed to fetch'))
+      .mockResolvedValueOnce({ ...queued, state: 'done', finished: 1 });
+    at('/new');
+    await screen.findByRole('heading', { name: 'New experiment' });
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'patient' } });
+    fireEvent.click(screen.getByTestId('run'));
+    expect(await screen.findByTestId('run-lost', {}, { timeout: 3000 })).toHaveTextContent('it may still finish');
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+    await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/overview?experiment=patient'), { timeout: 3000 });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(job).toHaveBeenCalledTimes(3);
+    Object.assign(jobPolling, saved);
+    run.mockRestore();
+    job.mockRestore();
+  });
+
+  it('in public mode hides the name and overwrite, applies the caps, and lets the server name the run', async () => {
+    mock.setHealth({ public: true, limits: { max_couples: 1000, max_days: 365 } });
+    const spy = vi.spyOn(mock, 'runExperiment');
+    at('/new');
+    await screen.findByRole('heading', { name: 'New experiment' });
+    await screen.findByText('This run gets a name of its own and stays visible to you for a day.');
+    expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Overwrite if the name exists/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Couples \(up to 1,000\)/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Days'), { target: { value: '500' } });
+    fireEvent.click(screen.getByTestId('run'));
+    expect(await screen.findByTestId('validation-errors')).toHaveTextContent('Days must be a whole number from 1 to 365');
+    fireEvent.change(screen.getByLabelText('Days'), { target: { value: '200' } });
+    fireEvent.click(screen.getByTestId('run'));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    const body = spy.mock.calls[0][0];
+    expect('name' in body).toBe(false);
+    expect('overwrite' in body).toBe(false);
+    spy.mockRestore();
   });
 });

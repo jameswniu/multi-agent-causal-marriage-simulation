@@ -12,7 +12,7 @@ import twinsWorld from '../fixtures/twinsWorld.json';
 import experiments from '../fixtures/experiments.json';
 import experimentShockOnly from '../fixtures/experimentShockOnly.json';
 import shocksCatalog from '../fixtures/shocksCatalog.json';
-import type { AgentDetailResponse, CoupleDetailResponse, CouplesQuery, EventRow, ExperimentResponse, ExperimentsResponse, PolicySpec, RunRequest, RunResponse, ShocksCatalog, Summary, TranslateResponse, TwinsWorldResponse, WorldResponse } from '../types';
+import type { AgentDetailResponse, CoupleDetailResponse, CouplesQuery, EventRow, ExperimentResponse, ExperimentsResponse, ForkRequest, HealthResponse, JobResponse, ParentRecord, PolicySpec, RunRequest, ShockSpec, ShocksCatalog, Summary, TranslateResponse, TwinsWorldResponse, WorldResponse } from '../types';
 
 const exp = experiment as unknown as ExperimentResponse;
 const summary = exp.summary as Summary;
@@ -21,7 +21,19 @@ const agents = agentDetails as unknown as Record<string, AgentDetailResponse>;
 const byDay = eventsByDay as unknown as Record<string, EventRow[]>;
 
 let current: string | null = null;
-export const getExperiment = async () => (current === 'job-loss-api' ? (experimentShockOnly as unknown as ExperimentResponse) : exp);
+/** Forks the mock has run, by name: their parent record, so a fork's Overview can show the comparison. */
+let forks: Record<string, ParentRecord> = {};
+let health: HealthResponse = { ok: true, experiments: [], public: false };
+export const getExperiment = async (): Promise<ExperimentResponse> => {
+  if (current === 'job-loss-api') return experimentShockOnly as unknown as ExperimentResponse;
+  if (current && forks[current]) return { ...exp, manifest: { ...exp.manifest, name: current }, parent: forks[current] };
+  return exp;
+};
+export const getHealth = async () => health;
+/** Test hook: make the mock server public (fixed names, caps) or local again. */
+export function setHealth(next: Partial<HealthResponse>): void {
+  health = { ...health, ...next };
+}
 export const getAte = async () => summary.outcomes;
 export const getCurves = async () => summary.curves;
 export const getDistributions = async () => summary.distributions;
@@ -55,6 +67,9 @@ export function resetMockState(): void {
   extraExperiments = [];
   listCalls.count = 0;
   current = null;
+  forks = {};
+  jobs = {};
+  health = { ok: true, experiments: [], public: false };
 }
 export const listExperiments = async () => {
   listCalls.count += 1;
@@ -98,13 +113,57 @@ export const translateShock = async (text: string, days: number): Promise<Transl
   }
   return { ...base, translation_id: 'tr-job', status: 'ok', spec, words: `One partner loses their job (a random partner, treatment arm), days 60 to ${spec.end_day}, magnitude 1.5 (stress)` };
 };
-export const runExperiment = async (body: RunRequest): Promise<RunResponse> => {
+let jobs: Record<string, JobResponse> = {};
+let jobSeq = 0;
+function addListed(name: string, n: number, d: number, parent: string | null): void {
+  extraExperiments = [...extraExperiments, { name, dir: `results/${name}`, n_couples: n, days: d, seeds: { population: 11, assignment: 22, dynamics: 33 },
+    intervention: { memory: null, shocks: [] }, divorce_control: null, divorce_treatment: null, generated_at_unix: 0, parent }];
+}
+function finishedJob(kind: 'run' | 'fork', name: string): JobResponse {
+  jobSeq += 1;
+  const job: JobResponse = { job_id: `job-${jobSeq}`, kind, name, state: 'done', position: null, error: null, created: 0, started: 0, finished: 0 };
+  jobs[job.job_id] = job;
+  return job;
+}
+/** Runs finish at once in the mock; the page still reads the job it gets back. */
+export const runExperiment = async (body: RunRequest): Promise<JobResponse> => {
   await new Promise((r) => setTimeout(r, 30));
-  if (!body.name) throw new Error('400 name is required (/experiments/run)');
-  extraExperiments = [...extraExperiments, { name: body.name, dir: `results/${body.name}`, n_couples: body.n_couples ?? 1000, days: body.days ?? 365, seeds: { population: 11, assignment: 22, dynamics: 33 },
-    intervention: { memory: null, shocks: [] }, divorce_control: null, divorce_treatment: null, generated_at_unix: 0 }];
-  return { name: body.name, dir: `results/${body.name}`, summary };
+  const name = body.name ?? (health.public ? `v-0123456789ab-2026101${jobSeq}-000000` : '');
+  if (!name) throw new Error('400 name is required (/experiments/run)');
+  addListed(name, body.n_couples ?? 1000, body.days ?? 365, null);
+  return finishedJob('run', name);
 };
+/** A fork lands as a new listed world whose Overview carries a zero-difference comparison with its parent. */
+export const forkExperiment = async (body: ForkRequest): Promise<JobResponse> => {
+  await new Promise((r) => setTimeout(r, 30));
+  const name = body.name ?? `${body.parent}-fork`;
+  addListed(name, 1000, 365, body.parent);
+  const rows = summary.outcomes.slice(0, 3).map((o) => ({ name: o.name, mean_diff: 0, ci_low: 0, ci_high: 0, n_pairs: 1000, share_changed: 0 }));
+  forks[name] = {
+    parent: body.parent,
+    parent_determinism_hash: exp.manifest.determinism_hash,
+    parent_engine_version: exp.manifest.engine_version,
+    // As the server writes them: a custom shock carries no magnitude, as in a summary's shock list.
+    appended_shocks: body.shocks.map((s) => ({ ...s, trait: s.trait ?? null }) as ShockSpec),
+    comparison: { comparable: true, n_couples: 1000, arms: { all: rows, control: rows, treatment: rows } },
+  };
+  return finishedJob('fork', name);
+};
+export const getJob = async (id: string): Promise<JobResponse> => {
+  const job = jobs[id];
+  if (!job) throw new Error(`404 unknown job (/jobs/${id})`);
+  return job;
+};
+export class ApiError extends Error {
+  status: number;
+  path: string;
+  constructor(status: number, path: string, message: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.path = path;
+  }
+}
 export const setCurrentExperiment = (name: string | null) => {
   current = name;
 };

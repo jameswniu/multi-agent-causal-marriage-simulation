@@ -266,6 +266,30 @@ export interface Manifest {
 export interface ExperimentResponse {
   manifest: Manifest;
   summary: Summary | null;
+  /** A forked world's record of its parent and the couple-by-couple comparison; absent or null otherwise. */
+  parent?: ParentRecord | null;
+}
+
+/** One outcome's child-minus-parent difference over identical couples, with a cluster bootstrap interval. */
+export interface PairedRow {
+  name: string;
+  mean_diff: number | null;
+  ci_low: number | null;
+  ci_high: number | null;
+  n_pairs: number;
+  share_changed: number | null;
+}
+
+export type ParentComparison =
+  | { comparable: true; n_couples: number; arms: Record<'all' | 'control' | 'treatment', PairedRow[]> }
+  | { comparable: false; reason: string };
+
+export interface ParentRecord {
+  parent: string;
+  parent_determinism_hash: string;
+  parent_engine_version: string;
+  appended_shocks: ShockSpec[];
+  comparison: ParentComparison;
 }
 
 export interface CouplesQuery {
@@ -379,6 +403,8 @@ export interface ExperimentListItem {
   divorce_control: number | null;
   divorce_treatment: number | null;
   generated_at_unix: number;
+  /** The world this one was forked from, when it is a fork. */
+  parent?: string | null;
 }
 
 export interface ExperimentsResponse {
@@ -500,6 +526,39 @@ export interface RunResponse {
   name: string;
   dir: string;
   summary: Summary;
+}
+
+export type JobState = 'queued' | 'running' | 'done' | 'failed';
+
+/** A queued engine run, as POST run, POST fork and GET /api/jobs/{id} report it. */
+export interface JobResponse {
+  job_id: string;
+  kind: 'run' | 'fork';
+  name: string;
+  state: JobState;
+  /** Place in line while queued (1 is next), else null. */
+  position: number | null;
+  error: string | null;
+  created: number;
+  started: number | null;
+  finished: number | null;
+}
+
+/** POST /api/experiments/fork: the parent's world with these shocks appended and nothing else changed. */
+export interface ForkRequest {
+  parent: string;
+  name?: string;
+  shocks: (RunShock & { target: 'treatment' | 'all' })[];
+  translations?: RunTranslation[];
+}
+
+export interface HealthResponse {
+  ok: boolean;
+  experiments: string[];
+  /** Public mode: fixed names, no overwrite, capped runs, visitors see only their own runs. */
+  public?: boolean;
+  limits?: { max_couples: number; max_days: number };
+  turnstile_site_key?: string | null;
 }
 
 /** The sealed record of a marriage that ended in divorce, one per member (newer engines). */

@@ -1,3 +1,5 @@
+// The Overview page: one experiment's setup, its average treatment effects with intervals and the
+// run manifest, plus, for a forked world, the couple-by-couple comparison with the world it came from.
 import { getExperiment } from '../api';
 import { useAsync } from '../useAsync';
 import Banner from '../components/Banner';
@@ -8,6 +10,7 @@ import ChartFrame from '../components/ChartFrame';
 import { ErrorBox, Loading } from '../components/Status';
 import { fmtShare, safeFixed, shortHash } from '../format';
 import { useArmContext, whatDiffers } from '../arms';
+import VersusParent from '../components/VersusParent';
 
 export default function Overview() {
   const { data, error, loading } = useAsync(getExperiment, []);
@@ -33,6 +36,7 @@ export default function Overview() {
         {divorce ? <StatTile label="Divorced within the year" value={`${fmtShare(divorce.control_mean)} vs ${fmtShare(divorce.treatment_mean)}`} sub={`${labels.control.plain} vs ${labels.treatment.plain}`} /> : null}
         {trust ? <StatTile label="Trust on the last day" value={`${safeFixed(trust.control_mean, 2)} vs ${safeFixed(trust.treatment_mean, 2)}`} sub={`${labels.control.plain} vs ${labels.treatment.plain}, 0 to 1`} /> : null}
       </div>
+      {data.parent ? <VersusParent record={data.parent} outcomes={summary?.outcomes ?? []} catalog={arms.catalog} /> : null}
       {summary ? (
         <>
           <h2>Average treatment effects</h2>

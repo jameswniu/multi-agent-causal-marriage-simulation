@@ -1,16 +1,20 @@
-// The New experiment page. A visitor sets up a run of the couples simulation (how many couples, how
-// many days, how long the treatment arm remembers a fight, and any shocks), can describe a shock in
-// plain words for the server to translate into an editable row, then runs it and opens the result.
-import { useEffect, useMemo, useRef, useState } from 'react';
+// The New experiment page. A visitor either forks the world they were watching (same couples, seeds
+// and settings, with shocks added) or sets up a fresh run of the couples simulation (how many couples,
+// how many days, how long the treatment arm remembers a fight, and any shocks). A shock can be described
+// in plain words for the server to translate into an editable row. The run waits its turn on the
+// server's queue, and the page opens the result when it is done.
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { getExperiment, getShocksCatalog, runExperiment, translateShock } from '../api';
-import type { EffectCadence, EffectCatalog, EffectSpec, EffectWho, RunRequest, RunShock, RunTranslation, ShockKind, ShockMember, TranslateResponse } from '../types';
+import { forkExperiment, getExperiment, getHealth, getShocksCatalog, runExperiment, translateShock } from '../api';
+import { JobContactLostError, waitForJob } from '../jobs';
+import type { EffectCadence, EffectCatalog, EffectSpec, EffectWho, ForkRequest, JobResponse, RunRequest, RunShock, RunTranslation, ShockKind, ShockMember, TranslateResponse } from '../types';
 import { useAsync } from '../useAsync';
 import { useExperiment } from '../experiment';
 import { useExpNavigate } from '../nav';
 import { ErrorBox, Loading } from '../components/Status';
 import { effectWords, humanDuration, shockWords, toCatalog } from '../arms';
-import { changedSinceTranslation, isTraitKind, rowSpec, validateRun, type RunForm, type ShockForm } from '../validation';
+import { changedSinceTranslation, isTraitKind, rowSpec, validateRun, type RunForm, type RunRules, type ShockForm } from '../validation';
+import { mountTurnstile } from '../turnstile';
 
 let nextId = 1;
 
@@ -69,44 +73,72 @@ export function rowFromTranslation(res: TranslateResponse, text: string, kinds: 
   return row;
 }
 
-/** The request body: the trait rides along only for a trait kind; the target decides treatment versus world. */
-export function buildRequest(form: RunForm, kinds: ShockKind[]): RunRequest {
-  const strip = (s: ShockForm): RunShock => {
-    if (s.kind === 'custom') {
-      const out: RunShock = { kind: 'custom', member: s.member, start_day: s.start_day, end_day: s.end_day, label: (s.label ?? '').trim(), effects: (s.effects ?? []).map((e) => ({ ...e })) };
-      return s.description ? { ...out, description: s.description } : out;
-    }
-    const k = kinds.find((x) => x.kind === s.kind);
-    const base: RunShock = { kind: s.kind, member: s.member, start_day: s.start_day, end_day: s.end_day, magnitude: s.magnitude };
-    return isTraitKind(k) ? { ...base, trait: s.trait } : base;
-  };
-  const treatmentShocks = form.shocks.filter((s) => s.target === 'treatment').map(strip);
-  const worldShocks = form.shocks.filter((s) => s.target === 'all').map(strip);
+/** One shock as the server takes it: the trait rides along only for a trait kind, and a custom shock carries its label and effects. */
+function shockFields(s: ShockForm, kinds: ShockKind[]): RunShock {
+  if (s.kind === 'custom') {
+    const out: RunShock = { kind: 'custom', member: s.member, start_day: s.start_day, end_day: s.end_day, label: (s.label ?? '').trim(), effects: (s.effects ?? []).map((e) => ({ ...e })) };
+    return s.description ? { ...out, description: s.description } : out;
+  }
+  const k = kinds.find((x) => x.kind === s.kind);
+  const base: RunShock = { kind: s.kind, member: s.member, start_day: s.start_day, end_day: s.end_day, magnitude: s.magnitude };
+  return isTraitKind(k) ? { ...base, trait: s.trait } : base;
+}
+
+/** Treatment shocks first, then world shocks: the order the server counts shock_index in. */
+function orderedShocks(form: RunForm): ShockForm[] {
+  return [...form.shocks.filter((s) => s.target === 'treatment'), ...form.shocks.filter((s) => s.target === 'all')];
+}
+
+function translationPointers(ordered: ShockForm[]): RunTranslation[] {
+  return ordered.flatMap((s, i) => (s.translation ? [{ translation_id: s.translation.id, shock_index: i }] : []));
+}
+
+/** The request body: the target decides treatment versus world. A server that names runs gets no name. */
+export function buildRequest(form: RunForm, kinds: ShockKind[], opts: { nameAssigned?: boolean } = {}): RunRequest {
+  const treatmentShocks = form.shocks.filter((s) => s.target === 'treatment').map((s) => shockFields(s, kinds));
+  const worldShocks = form.shocks.filter((s) => s.target === 'all').map((s) => shockFields(s, kinds));
   const req: RunRequest = {
-    name: form.name.trim(),
+    ...(opts.nameAssigned ? {} : { name: form.name.trim() }),
     n_couples: form.nCouples,
     days: form.days,
     treatment: { conflict_half_life_days: form.treatmentHalfLife, ...(treatmentShocks.length ? { shocks: treatmentShocks } : {}) },
     analysis: { n_boot: 500, n_perm: 500 },
-    overwrite: form.overwrite,
+    ...(opts.nameAssigned ? {} : { overwrite: form.overwrite }),
   };
   if (worldShocks.length) req.world = { shocks: worldShocks };
-  // The server parses treatment shocks first and world shocks second; shock_index counts in that order.
-  const ordered = [...form.shocks.filter((s) => s.target === 'treatment'), ...form.shocks.filter((s) => s.target === 'all')];
-  const translations: RunTranslation[] = ordered.flatMap((s, i) => (s.translation ? [{ translation_id: s.translation.id, shock_index: i }] : []));
+  const translations = translationPointers(orderedShocks(form));
+  if (translations.length) req.translations = translations;
+  return req;
+}
+
+/** A fork of `parent`: only the shocks travel, each with its own target; everything else is the parent's. */
+export function buildForkRequest(form: RunForm, kinds: ShockKind[], parent: string, opts: { nameAssigned?: boolean } = {}): ForkRequest {
+  const ordered = orderedShocks(form);
+  const req: ForkRequest = {
+    parent,
+    ...(opts.nameAssigned ? {} : { name: form.name.trim() }),
+    shocks: ordered.map((s) => ({ ...shockFields(s, kinds), target: s.target === 'all' ? 'all' : 'treatment' })),
+  };
+  const translations = translationPointers(ordered);
   if (translations.length) req.translations = translations;
   return req;
 }
 
 type TranslateState = { kind: 'idle' } | { kind: 'working' } | { kind: 'unsupported'; message: string } | { kind: 'error'; message: string };
 
-type Status = { kind: 'idle' } | { kind: 'running'; started: number } | { kind: 'error'; message: string } | { kind: 'done'; name: string };
+type Status =
+  | { kind: 'idle' }
+  | { kind: 'running'; started: number; job?: JobResponse }
+  | { kind: 'error'; message: string }
+  | { kind: 'lost'; job: JobResponse; message: string }
+  | { kind: 'done'; name: string };
 
 export default function NewExperiment() {
   const navigate = useExpNavigate();
   const exp = useExperiment();
   const catalog = useAsync(getShocksCatalog, []);
   const current = useAsync(() => getExperiment().catch(() => null), []);
+  const health = useAsync(() => getHealth().catch(() => null), []);
   const controlHalfLife = current.data?.summary?.experiment.treatment.control_value ?? 14;
   const [name, setName] = useState(() => `exp-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}`);
   const [nCouples, setNCouples] = useState(1000);
@@ -120,13 +152,42 @@ export default function NewExperiment() {
   const [describeText, setDescribeText] = useState('');
   const [translateState, setTranslateState] = useState<TranslateState>({ kind: 'idle' });
   const [params] = useSearchParams();
+  // Start from the world the visitor was watching (the experiment in the URL), or a fresh population.
+  const [startFrom, setStartFrom] = useState<string>(() => params.get('experiment') ?? '');
   const describeRef = useRef<HTMLTextAreaElement>(null);
+  const turnstileRef = useRef<HTMLDivElement>(null);
   const kinds = useMemo(() => catalog.data?.kinds ?? [], [catalog.data]);
   const catalogMap = useMemo(() => toCatalog(kinds), [kinds]);
   const halfLife = treatmentHalfLife ?? controlHalfLife;
-  const form = useMemo<RunForm>(() => ({ name, nCouples, days, treatmentHalfLife: halfLife, shocks, overwrite }), [name, nCouples, days, halfLife, shocks, overwrite]);
+  const isPublic = health.data?.public === true;
+  const forking = startFrom !== '';
+  const parentItem = exp.items.find((i) => i.name === startFrom);
+  const runCouples = forking ? (parentItem?.n_couples ?? nCouples) : nCouples;
+  const runDays = forking ? (parentItem?.days ?? days) : days;
+  // A fork is checked against its parent's days, so it waits until the parent is in the list.
+  const parentProblem = !forking || parentItem
+    ? null
+    : exp.loading
+      ? 'The list of worlds is still loading; wait a moment, then run.'
+      : exp.error
+        ? `The list of worlds did not load, so the couples and days of ${startFrom} are unknown; reload the page to fork it.`
+        : `${startFrom} is not a world you can start from here; pick another under Start from.`;
+  const rules = useMemo<RunRules>(
+    () => ({ nameAssigned: isPublic, fork: forking, parentProblem, maxCouples: health.data?.limits?.max_couples, maxDays: health.data?.limits?.max_days }),
+    [isPublic, forking, parentProblem, health.data],
+  );
+  // Until the server says whether this is public mode (and so whether a bot check guards POSTs), nothing is sent.
+  const settling = health.loading;
+  const form = useMemo<RunForm>(() => ({ name, nCouples: runCouples, days: runDays, treatmentHalfLife: halfLife, shocks, overwrite }), [name, runCouples, runDays, halfLife, shocks, overwrite]);
   const effectCatalog = catalog.data?.effects ?? null;
-  const errors = useMemo(() => validateRun(form, kinds, effectCatalog), [form, kinds, effectCatalog]);
+  const errors = useMemo(() => validateRun(form, kinds, effectCatalog, rules), [form, kinds, effectCatalog, rules]);
+  const siteKey = health.data?.turnstile_site_key ?? null;
+
+  // Public mode puts a bot check in front of POSTs when the server names a site key. A layout effect, so the
+  // check counts as on its way before the page can be clicked, and a POST made meanwhile waits for its token.
+  useLayoutEffect(() => {
+    if (siteKey && turnstileRef.current) void mountTurnstile(turnstileRef.current, siteKey).catch(() => undefined);
+  }, [siteKey]);
 
   useEffect(() => {
     if (status.kind !== 'running') return;
@@ -155,7 +216,7 @@ export default function NewExperiment() {
     if (!text || translateState.kind === 'working') return;
     setTranslateState({ kind: 'working' });
     try {
-      const res = await translateShock(text, days);
+      const res = await translateShock(text, runDays);
       const row = rowFromTranslation(res, text, kinds);
       if (!row) {
         setTranslateState({ kind: 'unsupported', message: res.message ?? res.rationale ?? 'That description is not one of the shock kinds.' });
@@ -169,24 +230,41 @@ export default function NewExperiment() {
     }
   };
 
-  /** Validate, run, refresh the experiment list, then open the new experiment. Shared by the Run and Try again buttons. */
+  /** Wait for a queued job, then refresh the list and open it. Lost contact keeps the job, so checking again never re-runs it. */
+  const follow = async (accepted: JobResponse, started: number) => {
+    try {
+      const job = await waitForJob(accepted, (j) => setStatus({ kind: 'running', started, job: j }));
+      // A list that fails to refresh does not undo a finished run; the page still opens it.
+      await exp.refresh().catch(() => []);
+      setStatus({ kind: 'done', name: job.name });
+      navigate('/overview', job.name);
+    } catch (err) {
+      if (err instanceof JobContactLostError) setStatus({ kind: 'lost', job: err.job, message: err.message });
+      else setStatus({ kind: 'error', message: err instanceof Error ? err.message : String(err) });
+    }
+  };
+
+  /** Validate, queue the run (a fork or a fresh one), and follow it. Shared by the Run and Try again buttons. */
   const run = async () => {
-    const problems = validateRun(form, kinds, effectCatalog);
+    const problems = validateRun(form, kinds, effectCatalog, rules);
     if (problems.length) {
       setShowErrors(true);
       return;
     }
     setShowErrors(false);
-    setStatus({ kind: 'running', started: Date.now() });
+    const started = Date.now();
+    setStatus({ kind: 'running', started });
     setElapsed(0);
+    let accepted: JobResponse;
     try {
-      const res = await runExperiment(buildRequest(form, kinds));
-      await exp.refresh();
-      setStatus({ kind: 'done', name: res.name });
-      navigate('/overview', res.name);
+      accepted = forking
+        ? await forkExperiment(buildForkRequest(form, kinds, startFrom, { nameAssigned: isPublic }))
+        : await runExperiment(buildRequest(form, kinds, { nameAssigned: isPublic }));
     } catch (err) {
       setStatus({ kind: 'error', message: err instanceof Error ? err.message : String(err) });
+      return;
     }
+    await follow(accepted, started);
   };
 
   if (catalog.error) return <ErrorBox message={catalog.error} />;
@@ -197,7 +275,7 @@ export default function NewExperiment() {
     <div>
       <h1>New experiment</h1>
       <p className="muted">
-        Every run starts from the same population and randomizes couples into two arms. Choose how long a fight stays in memory for the treatment arm, add shocks that hit only the treatment arm or everyone, and run. The engine and the analysis take about ten seconds at 1,000 couples for a year.
+        Start from the world you were watching to see what a shock does to the very same couples, or from a fresh population that is randomized into two arms. Add shocks that hit only the treatment arm or everyone, and run. The engine and the analysis take about ten seconds at 1,000 couples for a year, and runs take turns on the server.
       </p>
       <form
         className="card"
@@ -210,25 +288,55 @@ export default function NewExperiment() {
       >
         <div className="form-grid">
           <label>
-            Name
-            <input type="text" value={name} onChange={(e) => setName(e.target.value)} aria-label="Name" />
+            Start from
+            <select value={startFrom} onChange={(e) => setStartFrom(e.target.value)} aria-label="Start from" data-testid="start-from">
+              <option value="">A fresh population</option>
+              {exp.items.map((i) => (
+                <option key={i.name} value={i.name}>
+                  {i.name}
+                  {i.parent ? ` (a fork of ${i.parent})` : ''}
+                </option>
+              ))}
+              {startFrom && !parentItem ? <option value={startFrom}>{startFrom}</option> : null}
+            </select>
+            <span className="muted">{forking ? 'The same couples, seeds and settings, with your shocks added.' : 'A new population, randomized into two arms.'}</span>
           </label>
-          <label>
-            Couples (up to 2,000)
-            <input type="number" min={1} max={2000} step={1} value={nCouples} onChange={(e) => setNCouples(Number(e.target.value))} aria-label="Couples" />
-          </label>
-          <label>
-            Days (up to 730)
-            <input type="number" min={1} max={730} step={1} value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="Days" />
-          </label>
-          <label>
-            Treatment arm memory half-life for fights, in days
-            <input type="number" min={1} max={3650} step="any" value={halfLife} onChange={(e) => setTreatmentHalfLife(Number(e.target.value))} aria-label="Treatment conflict half-life" />
-            <span className="muted">
-              Control keeps {controlHalfLife} days ({humanDuration(controlHalfLife)}). Equal values make a shock-only experiment.
-            </span>
-          </label>
+          {isPublic ? null : (
+            <label>
+              Name
+              <input type="text" value={name} onChange={(e) => setName(e.target.value)} aria-label="Name" />
+            </label>
+          )}
+          {forking ? null : (
+            <>
+              <label>
+                Couples (up to {(health.data?.limits?.max_couples ?? 2000).toLocaleString()})
+                <input type="number" min={1} max={health.data?.limits?.max_couples ?? 2000} step={1} value={nCouples} onChange={(e) => setNCouples(Number(e.target.value))} aria-label="Couples" />
+              </label>
+              <label>
+                Days (up to {health.data?.limits?.max_days ?? 730})
+                <input type="number" min={1} max={health.data?.limits?.max_days ?? 730} step={1} value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="Days" />
+              </label>
+              <label>
+                Treatment arm memory half-life for fights, in days
+                <input type="number" min={1} max={3650} step="any" value={halfLife} onChange={(e) => setTreatmentHalfLife(Number(e.target.value))} aria-label="Treatment conflict half-life" />
+                <span className="muted">
+                  Control keeps {controlHalfLife} days ({humanDuration(controlHalfLife)}). Equal values make a shock-only experiment.
+                </span>
+              </label>
+            </>
+          )}
         </div>
+        {forking && parentProblem ? (
+          <p className="muted" data-testid="fork-note">
+            {parentProblem}
+          </p>
+        ) : forking ? (
+          <p className="muted" data-testid="fork-note">
+            Forking {startFrom}: {runCouples.toLocaleString()} couples for {runDays} days, with its memory settings and every earlier shock kept. Nothing changes but the shocks below, so its Overview can compare each couple with the same couple in {startFrom}.
+          </p>
+        ) : null}
+        {isPublic ? <p className="muted">This run gets a name of its own and stays visible to you for a day.</p> : null}
         <h2>Shocks</h2>
         <p className="muted">A shock is a scheduled stressor. "Only the treatment arm" makes it part of the intervention; "everyone" tests the memory treatment under the same stress on both sides.</p>
         <div className="describe" data-testid="describe">
@@ -251,7 +359,7 @@ export default function NewExperiment() {
             />
           </label>
           <div className="filters">
-            <button type="button" onClick={() => void translate()} disabled={!describeText.trim() || translateState.kind === 'working'} data-testid="translate">
+            <button type="button" onClick={() => void translate()} disabled={!describeText.trim() || translateState.kind === 'working' || settling || parentProblem !== null} data-testid="translate">
               {translateState.kind === 'working' ? 'Translating...' : 'Translate'}
             </button>
             <span className="muted">
@@ -391,9 +499,11 @@ export default function NewExperiment() {
           <button type="button" onClick={addShock} disabled={kinds.length === 0}>
             Add shock
           </button>
-          <label>
-            <input type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} /> Overwrite if the name exists
-          </label>
+          {forking || isPublic ? null : (
+            <label>
+              <input type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} /> Overwrite if the name exists
+            </label>
+          )}
         </div>
         {showErrors && errors.length ? (
           <ul className="status error" role="alert" data-testid="validation-errors" style={{ margin: '0.75rem 0', paddingLeft: '2rem' }}>
@@ -402,13 +512,16 @@ export default function NewExperiment() {
             ))}
           </ul>
         ) : null}
+        {siteKey ? <div ref={turnstileRef} className="turnstile" data-testid="turnstile" /> : null}
         <div className="filters" style={{ marginTop: '1rem' }}>
-          <button type="submit" disabled={running} data-testid="run">
-            {running ? 'Running...' : 'Run experiment'}
+          <button type="submit" disabled={running || settling} data-testid="run">
+            {running ? 'Running...' : forking ? 'Run this world with the shocks' : 'Run experiment'}
           </button>
           {running ? (
             <span role="status" data-testid="progress">
-              Running the engine and the analysis, {elapsed}s so far. About ten seconds at 1,000 couples for a year.
+              {status.kind === 'running' && status.job?.state === 'queued'
+                ? `Waiting its turn, number ${status.job.position ?? 1} in line, ${elapsed}s so far.`
+                : `Running the engine and the analysis, ${elapsed}s so far. About ten seconds at 1,000 couples for a year.`}
             </span>
           ) : null}
         </div>
@@ -418,6 +531,16 @@ export default function NewExperiment() {
             <div>
               <button type="button" onClick={() => void run()}>
                 Try again
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {status.kind === 'lost' ? (
+          <div className="status error" role="alert" data-testid="run-lost">
+            The page {status.message}.
+            <div>
+              <button type="button" onClick={() => void follow(status.job, Date.now())}>
+                Check again
               </button>
             </div>
           </div>

@@ -311,10 +311,11 @@ export default function World() {
     <div className={loading ? 'stale' : ''}>
       <Banner />
       <h1>World replay</h1>
-      <p>
-        <ExpLink to="/new?describe=1" data-testid="what-if">
-          What if? Describe a shock in your own words
+      <p className="world-actions">
+        <ExpLink to="/new?describe=1" className="button-link" data-testid="shock-this-world">
+          Shock this world
         </ExpLink>
+        <span className="muted">Describe what happens in your own words; the same couples run again with only that added.</span>
       </p>
       <p className="framing" data-testid="framing">
         {framingSentence(nInitial, arms.intervention, arms.catalog, mode, showTown ? 'districts' : 'grids')}

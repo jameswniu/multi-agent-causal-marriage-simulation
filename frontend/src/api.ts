@@ -9,15 +9,18 @@ import type {
   EventsDayResponse,
   ExperimentResponse,
   ExperimentsResponse,
+  ForkRequest,
+  HealthResponse,
+  JobResponse,
   Outcome,
   PolicySpec,
   RunRequest,
-  RunResponse,
   ShocksCatalog,
   TranslateResponse,
   TwinsWorldResponse,
   WorldResponse,
 } from './types';
+import { takeTurnstileToken } from './turnstile';
 
 export const API_BASE = '/api';
 
@@ -56,6 +59,10 @@ async function fromFixtures<T>(path: string, init?: RequestInit): Promise<T> {
   if (p === '/experiment') return m.getExperiment() as Promise<T>;
   if (p === '/experiments') return m.listExperiments() as Promise<T>;
   if (p === '/experiments/run') return m.runExperiment(JSON.parse(String(init?.body ?? '{}')) as RunRequest) as Promise<T>;
+  if (p === '/experiments/fork') return m.forkExperiment(JSON.parse(String(init?.body ?? '{}')) as ForkRequest) as Promise<T>;
+  if (p === '/health') return m.getHealth() as Promise<T>;
+  const job = p.match(/^\/jobs\/([A-Za-z0-9-]+)$/);
+  if (job) return m.getJob(job[1]) as Promise<T>;
   if (p === '/shocks/catalog') return m.getShocksCatalog() as Promise<T>;
   if (p === '/shocks/translate') {
     const b = JSON.parse(String(init?.body ?? '{}')) as { text: string; days: number };
@@ -87,9 +94,15 @@ async function fromFixtures<T>(path: string, init?: RequestInit): Promise<T> {
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   if (USE_FIXTURES) return fromFixtures<T>(path, init);
   const full = withExperiment(path);
+  const headers: Record<string, string> = { Accept: 'application/json', ...((init?.headers as Record<string, string>) ?? {}) };
+  if (init?.method === 'POST') {
+    // Public mode's edge proxy checks this token before a POST reaches the app; locally there is none.
+    const token = await takeTurnstileToken();
+    if (token) headers['cf-turnstile-response'] = token;
+  }
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${full}`, { ...init, headers: { Accept: 'application/json', ...(init?.headers ?? {}) } });
+    res = await fetch(`${API_BASE}${full}`, { ...init, headers });
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') throw err;
     throw new ApiError(0, path, `Network error reaching ${path}: ${(err as Error).message}`);
@@ -130,9 +143,25 @@ export function translateShock(text: string, days: number): Promise<TranslateRes
   return fetchJson<TranslateResponse>('/shocks/translate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, days }) });
 }
 
-export function runExperiment(body: RunRequest): Promise<RunResponse> {
-  return fetchJson<RunResponse>('/experiments/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+/** Whether the server runs in public mode, with its caps and bot-check site key. */
+export function getHealth(): Promise<HealthResponse> {
+  return fetchJson<HealthResponse>('/health');
 }
+
+/** Queue a fresh run; the answer is its job, which finishes on the server's run queue. */
+export function runExperiment(body: RunRequest): Promise<JobResponse> {
+  return fetchJson<JobResponse>('/experiments/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+}
+
+/** Queue a fork: the parent's world with shocks appended and nothing else changed. */
+export function forkExperiment(body: ForkRequest): Promise<JobResponse> {
+  return fetchJson<JobResponse>('/experiments/fork', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+}
+
+export function getJob(id: string): Promise<JobResponse> {
+  return fetchJson<JobResponse>(`/jobs/${encodeURIComponent(id)}`);
+}
+
 
 export function getAte(): Promise<Outcome[]> {
   return fetchJson<Outcome[]>('/ate');

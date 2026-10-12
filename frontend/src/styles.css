@@ -157,6 +157,12 @@ button {
   background: var(--surface-raised); color: var(--ink); cursor: pointer;
 }
 button:disabled { opacity: 0.5; cursor: default; }
+a.button-link {
+  display: inline-block; font-size: 0.95rem; padding: 0.35rem 0.8rem; border: 1px solid var(--axis); border-radius: 6px;
+  background: var(--surface-raised); color: var(--ink); text-decoration: none; font-weight: 600;
+}
+a.button-link:hover { border-color: var(--ink-2); }
+.world-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
 .status { padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); margin: 1rem 0; }
 .status.error { border-left: 4px solid var(--critical); }
 .stale { opacity: 0.55; transition: opacity 0.2s; }
