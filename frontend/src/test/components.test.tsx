@@ -238,6 +238,18 @@ describe('pulses, probabilities, requests, async', () => {
     expect(interventionSummary(items[1])).toBe('memory 14 to 90, everyone: job loss on day 90');
     expect(interventionSummary(items[2])).toBe('job loss on day 60, everyone: date nights on day 0');
   });
+  it('labels a custom shock by the day its effects begin, not its outer start day', () => {
+    const custom = {
+      kind: 'custom', label: 'mother moves in', target: 'treatment', member: 'random', start_day: 0, end_day: null, magnitude: null, trait: null,
+      effects: [
+        { channel: 'stress', op: 'add', amount: 0.5, cadence: 'daily', who: 'member', start_day: 90, end_day: 150 },
+        { channel: 'stress', op: 'add', amount: 0.3, cadence: 'daily', who: 'partner', start_day: 95, end_day: 150 },
+      ],
+    } as unknown as ShockSpec;
+    expect(shockBrief(custom, null)).toBe('Mother moves in on day 90 (2 effects)');
+    const item = { intervention: { memory: null, shocks: [custom] } } as unknown as Parameters<typeof interventionSummary>[0];
+    expect(interventionSummary(item)).toBe('mother moves in on day 90');
+  });
 
   it('validateRun covers names, bounds, day order, magnitude and traits', () => {
     const kinds = (shocksCatalog as { kinds: ShockKind[] }).kinds;

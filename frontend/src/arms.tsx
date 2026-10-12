@@ -115,6 +115,12 @@ function isCustom(s: ShockSpec): boolean {
 }
 
 /** A custom shock's label in words, capitalised: "Mother moves in". */
+/** The day a shock first acts: a custom shock's earliest effect window, otherwise its own start day. */
+export function shockFirstDay(s: ShockSpec): number {
+  const effects = isCustom(s) ? s.effects ?? [] : [];
+  return effects.length ? Math.min(...effects.map((e) => e.start_day ?? s.start_day)) : s.start_day;
+}
+
 function customLabel(s: ShockSpec): string {
   return upperFirst((s.label ?? 'custom shock').trim());
 }
@@ -201,7 +207,7 @@ export function shockWords(s: ShockSpec, catalog: Catalog | null | undefined): s
 export function shockBrief(s: ShockSpec, catalog: Catalog | null | undefined): string {
   if (isCustom(s)) {
     const n = (s.effects ?? []).length;
-    return `${customLabel(s)} on day ${s.start_day} (${n} effect${n === 1 ? '' : 's'})`;
+    return `${customLabel(s)} on day ${shockFirstDay(s)} (${n} effect${n === 1 ? '' : 's'})`;
   }
   const unit = catalog?.[s.kind]?.magnitude.unit;
   return `${shockBase(s, catalog)} on day ${s.start_day} (${shockMagnitude(s, catalog)}${unit ? ` ${unit}` : ''})`;
@@ -245,7 +251,7 @@ export function armLabelsFor(iv: Intervention, catalog: Catalog | null | undefin
   const shocks = iv.treatmentShocks;
   const shockControl = shocks.length ? `No ${joinWords(shocks.map((s) => shockShort(s, catalog)))}` : '';
   const shockTreatment = shocks.length ? joinWords(shocks.map((s, i) => (i === 0 ? shockBrief(s, catalog) : lowerFirst(shockBrief(s, catalog))))) : '';
-  const smallShocks = shocks.length ? shocks.map((s) => `${isCustom(s) ? shockShort(s, catalog) : kindWords(s.kind)} day ${s.start_day}`).join(', ') : '';
+  const smallShocks = shocks.length ? shocks.map((s) => `${isCustom(s) ? shockShort(s, catalog) : kindWords(s.kind)} day ${shockFirstDay(s)}`).join(', ') : '';
   if (!mem && !shocks.length) return DEFAULT_LABELS;
   const plainControl = [memControl, shockControl ? (memControl ? lowerFirst(shockControl) : shockControl) : ''].filter(Boolean).join(', ');
   const plainTreatment = [memTreatment, shockTreatment ? (memTreatment ? lowerFirst(shockTreatment) : shockTreatment) : ''].filter(Boolean).join(', ');
@@ -309,7 +315,7 @@ export function interventionSummary(item: ExperimentListItem, catalog?: Catalog 
   }
   for (const s of item.intervention?.shocks ?? []) {
     const who = s.target === 'all' ? 'everyone: ' : '';
-    parts.push(`${who}${shockShort(s, catalog)} on day ${s.start_day}`);
+    parts.push(`${who}${shockShort(s, catalog)} on day ${shockFirstDay(s)}`);
   }
   return parts.length ? parts.join(', ') : 'no intervention';
 }
