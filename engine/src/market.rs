@@ -110,9 +110,8 @@ pub fn market_system(world: &mut World) {
                     },
                     Rel::new(RelState::Dating),
                     CoupleRng(rng::stream(cfg.seeds.dynamics, "couple", couple_id)),
-                    ShockState {
-                        member: vec![None; cfg.shocks.len()],
-                    },
+                    ShockState::new(cfg.shocks.len()),
+                    CoupleModifiers::default(),
                 ))
                 .id();
             for (e, partner, partner_id) in [(e_a, e_b, id_b), (e_b, e_a, id_a)] {

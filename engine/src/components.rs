@@ -37,7 +37,8 @@ pub struct Bond {
     pub partner_id: Option<u64>,
 }
 
-/// Marriage-market state (MADAM style threshold with anchoring and relaxation).
+/// Marriage-market state: an acceptance threshold that anchors on the agent's past partners and
+/// relaxes while they stay single.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Market {
     pub single_since: Option<i32>,
@@ -61,6 +62,8 @@ pub struct Modifiers {
     pub extra_stress: Vec<(f64, i32)>,
     /// (outside encounter probability, compatibility bonus, last day)
     pub outside: Vec<(f64, f64, i32)>,
+    /// (multiplier on the odds of choosing repair, last day)
+    pub repair_mult: Vec<(f64, i32)>,
 }
 
 impl Modifiers {
@@ -85,10 +88,40 @@ impl Modifiers {
             })
     }
 
+    /// Additive bias on the repair utility from every active repair multiplier: the sum of their
+    /// natural logs, so a multiplier m scales the odds of choosing repair by m. Exactly 0 when
+    /// none is active.
+    pub fn repair_bias(&self, day: i32) -> f64 {
+        self.repair_mult
+            .iter()
+            .filter(|(_, until)| day <= *until)
+            .map(|(m, _)| m.ln())
+            .sum()
+    }
+
     /// Drop entries that can no longer apply.
     pub fn expire(&mut self, day: i32) {
         self.extra_stress.retain(|(_, until)| day <= *until);
         self.outside.retain(|(_, _, until)| day <= *until);
+        self.repair_mult.retain(|(_, until)| day <= *until);
+    }
+}
+
+/// Per-couple effects of active shocks: multipliers on the couple's daily conflict onset hazard.
+#[derive(Component, Clone, Debug, Default)]
+pub struct CoupleModifiers {
+    /// (multiplier, last day)
+    pub onset_mult: Vec<(f64, i32)>,
+}
+
+impl CoupleModifiers {
+    /// Product of every active onset multiplier, exactly 1 when none is active.
+    pub fn onset_mult(&self, day: i32) -> f64 {
+        self.onset_mult
+            .iter()
+            .filter(|(_, until)| day <= *until)
+            .map(|(m, _)| *m)
+            .product()
     }
 }
 
@@ -219,10 +252,26 @@ impl Rel {
 #[derive(Component)]
 pub struct CoupleRng(pub Rng);
 
-/// Which member each shock resolved to for this couple (None until the shock first applies).
+/// Which member each shock resolved to for this couple (None until the shock first applies), and
+/// per shock a bit per effect marking the once and standing effects that have already acted.
 #[derive(Component, Clone, Debug, Default)]
 pub struct ShockState {
+    /// The member each shock landed on, once resolved.
     pub member: Vec<Option<u8>>,
+    /// Per shock, one bit per effect: the once and standing effects that have already acted.
+    pub fired: Vec<u64>,
+    /// Per shock, one bit per effect: the effects whose start has been logged.
+    pub started: Vec<u64>,
+}
+
+impl ShockState {
+    pub fn new(shocks: usize) -> Self {
+        ShockState {
+            member: vec![None; shocks],
+            fired: vec![0; shocks],
+            started: vec![0; shocks],
+        }
+    }
 }
 
 // ---------- resources ----------

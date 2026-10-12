@@ -2,7 +2,9 @@
 //! comes from the entity's own stream, so the result does not depend on ECS iteration order.
 
 use crate::components::*;
-use crate::config::{ShockKind, ShockMember, SimConfig};
+use crate::config::{
+    Cadence, EffectChannel, EffectConfig, EffectWho, ShockKind, ShockMember, SimConfig,
+};
 use crate::dynamics::{self, AffectInputs, OnsetInputs};
 use crate::intervention;
 use crate::legacy::{self, EndedBy, Ending, Legacy};
@@ -285,6 +287,8 @@ struct MemberSnapshot {
     divorced_share: f64,
     /// The commitment shift of this member's own sealed divorce, 0 without one.
     legacy_shift: f64,
+    /// Utility bias on repair from active shock multipliers, 0 without one.
+    repair_bias: f64,
 }
 
 fn snapshot_member(
@@ -309,6 +313,10 @@ fn snapshot_member(
         legacy_shift: world
             .get::<Legacy>(e)
             .and_then(|l| l.0.map(|s| s.commitment_shift))
+            .unwrap_or(0.0),
+        repair_bias: world
+            .get::<Modifiers>(e)
+            .map(|x| x.repair_bias(day))
             .unwrap_or(0.0),
     }
 }
@@ -352,6 +360,7 @@ fn decide_for(
         outside_option: outside,
         leave_available,
         legacy_shift: m.legacy_shift,
+        repair_bias: m.repair_bias,
     };
     let mut rng = world.get_mut::<AgentRng>(m.entity).expect("rng");
     policy::decide(&view, &cfg.policy, &mut rng.0)
@@ -699,6 +708,12 @@ fn couple_system(world: &mut World) {
                                 / 2.0,
                         },
                     );
+                    // Active shock multipliers on the couple's onset hazard (exactly 1 without one).
+                    let p = (p * world
+                        .get::<CoupleModifiers>(ce)
+                        .map(|x| x.onset_mult(day))
+                        .unwrap_or(1.0))
+                    .min(1.0);
                     let onset = {
                         let mut crng = world.get_mut::<CoupleRng>(ce).expect("couple rng");
                         if rng::coin(&mut crng.0, p) {
@@ -1447,12 +1462,19 @@ fn couple_system(world: &mut World) {
 
 /// Apply scheduled shocks. The only place besides the day-0 intervention where the arm decides
 /// what happens to a couple; the decision itself is delegated to `intervention::shock_applies`.
+///
+/// Every shock runs as a list of effects: a named kind stands for a fixed list
+/// (`config::builtin_effects`) and a custom shock carries its own. An effect acts on the days its
+/// cadence picks inside its window; a once effect and a standing (sustained) effect act on the
+/// first such day only. An effect whose amount is its channel's identity (0 to add, 1 to multiply)
+/// does nothing at all, so a zero-magnitude shock leaves every behavioural table unchanged.
 fn shock_system(world: &mut World) {
     let cfg = world.resource::<Config>().0.clone();
     if cfg.shocks.is_empty() {
         return;
     }
     let day = world.resource::<Clock>().day;
+    let programs: Vec<Vec<EffectConfig>> = cfg.shocks.iter().map(|s| s.effect_list()).collect();
     for (couple_id, ce) in couples_by_id(world) {
         let couple = world.get::<Couple>(ce).cloned().expect("couple");
         let rel = world.get::<Rel>(ce).cloned().expect("rel");
@@ -1469,212 +1491,277 @@ fn shock_system(world: &mut World) {
             if day < start || day > last {
                 continue;
             }
-            // Kinds with a cadence only act (and only resolve their member) on their days.
-            let fires_today = match shock.kind {
-                ShockKind::Anniversary => (day - start) % 365 == 0,
-                ShockKind::DateNights => (day - start) % 7 == 0,
-                _ => true,
-            };
-            if !fires_today {
+            let effects = &programs[si];
+            let (resolved, done, started) = world
+                .get::<ShockState>(ce)
+                .map(|st| {
+                    (
+                        st.member.get(si).copied().flatten(),
+                        st.fired.get(si).copied().unwrap_or(0),
+                        st.started.get(si).copied().unwrap_or(0),
+                    )
+                })
+                .unwrap_or((None, 0, 0));
+            // Which effects act today: a shock with none acting neither resolves its member nor
+            // logs, exactly as a cadence kind used to skip its off days.
+            let mut acting: u64 = 0;
+            for (j, e) in effects.iter().enumerate() {
+                let (es, el) = effect_window(e, start, last);
+                if day < es || day > el {
+                    continue;
+                }
+                let once_done = done & (1u64 << j) != 0;
+                let fires = if e.channel.sustained(e.cadence) {
+                    !once_done
+                } else {
+                    match e.cadence {
+                        Cadence::Once => !once_done,
+                        Cadence::Daily => true,
+                        Cadence::Weekly => (day - es) % 7 == 0,
+                        Cadence::Yearly => (day - es) % 365 == 0,
+                    }
+                };
+                if fires {
+                    acting |= 1u64 << j;
+                }
+            }
+            if acting == 0 {
                 continue;
             }
+            let first_time = resolved.is_none();
             // Resolve the member once per couple, from a stateless stream keyed by (seed, shock,
             // couple) so that resolving it never moves the couple's own stream: a shock that does
             // nothing must leave every other draw, and so every other row, exactly as it was.
-            let resolved = world
-                .get::<ShockState>(ce)
-                .and_then(|st| st.member.get(si).copied().flatten());
-            let first_time = resolved.is_none();
             let member_idx = match resolved {
                 Some(m) => m,
-                None => {
-                    let m = match shock.member {
-                        ShockMember::A => 0u8,
-                        ShockMember::B => 1u8,
-                        ShockMember::Random => {
-                            let domain = format!("shock_member_{si}");
-                            let mut r = rng::stream(cfg.seeds.dynamics, &domain, couple_id);
-                            if rng::coin(&mut r, 0.5) {
-                                1u8
-                            } else {
-                                0u8
-                            }
+                None => match shock.member {
+                    ShockMember::A => 0u8,
+                    ShockMember::B => 1u8,
+                    ShockMember::Random => {
+                        let domain = format!("shock_member_{si}");
+                        let mut r = rng::stream(cfg.seeds.dynamics, &domain, couple_id);
+                        if rng::coin(&mut r, 0.5) {
+                            1u8
+                        } else {
+                            0u8
                         }
-                    };
-                    if let Some(mut st) = world.get_mut::<ShockState>(ce) {
-                        if st.member.len() <= si {
-                            st.member.resize(si + 1, None);
-                        }
-                        st.member[si] = Some(m);
                     }
-                    m
-                }
+                },
             };
+            let settles: u64 = effects
+                .iter()
+                .enumerate()
+                .filter(|(j, e)| {
+                    acting & (1u64 << j) != 0
+                        && (e.cadence == Cadence::Once || e.channel.sustained(e.cadence))
+                })
+                .fold(0, |acc, (j, _)| acc | (1u64 << j));
+            if let Some(mut st) = world.get_mut::<ShockState>(ce) {
+                if st.member.len() <= si {
+                    st.member.resize(si + 1, None);
+                }
+                if st.fired.len() <= si {
+                    st.fired.resize(si + 1, 0);
+                }
+                if st.started.len() <= si {
+                    st.started.resize(si + 1, 0);
+                }
+                st.member[si] = Some(member_idx);
+                st.fired[si] |= settles;
+                st.started[si] |= acting;
+            }
             let (me, me_id, pe, pe_id) = if member_idx == 0 {
                 (couple.a, couple.a_id, couple.b, couple.b_id)
             } else {
                 (couple.b, couple.b_id, couple.a, couple.a_id)
             };
-            let m = shock.magnitude();
-            let both = [
-                (couple.a, couple.a_id, couple.b_id),
-                (couple.b, couple.b_id, couple.a_id),
-            ];
-            match shock.kind {
-                ShockKind::JobLoss => {
-                    if first_time {
-                        if let Some(mut a) = world.get_mut::<Affect>(me) {
-                            a.stress = (a.stress + m).clamp(0.0, 3.0);
-                        }
-                        if let Some(mut x) = world.get_mut::<Modifiers>(me) {
-                            x.extra_stress.push((0.1 * m, last));
-                        }
-                        intervention::log_shock_start(
-                            day, couple_id, me_id, couple.arm, shock, &mut logs,
+            let custom = shock.kind == ShockKind::Custom;
+            // Logging. A custom effect logs its start on its own first acting day (effects can start
+            // later than the shock), and each later weekly or yearly firing as a couple event. A
+            // named kind logs its start on the shock's first acting day and its repeats, as before.
+            if custom {
+                let fresh = acting & !started;
+                for (agent, id) in [(couple.a, couple.a_id), (couple.b, couple.b_id)] {
+                    let hits: Vec<&EffectConfig> = effects
+                        .iter()
+                        .enumerate()
+                        .filter(|(j, e)| {
+                            fresh & (1u64 << j) != 0
+                                && match e.who {
+                                    EffectWho::Both => true,
+                                    EffectWho::Member => agent == me,
+                                    EffectWho::Partner => agent == pe,
+                                }
+                        })
+                        .map(|(_, e)| e)
+                        .collect();
+                    if !hits.is_empty() {
+                        intervention::log_custom_start(
+                            day, couple_id, id, couple.arm, shock, &hits, &mut logs,
                         );
                     }
                 }
-                ShockKind::FinancialCrisis => {
-                    if first_time {
-                        for (e, id, _) in both {
-                            if let Some(mut x) = world.get_mut::<Modifiers>(e) {
-                                x.extra_stress.push((0.3 * m, last));
-                            }
-                            intervention::log_shock_start(
-                                day, couple_id, id, couple.arm, shock, &mut logs,
-                            );
-                        }
-                    }
-                }
-                ShockKind::Temptation => {
-                    if first_time {
-                        if let Some(mut x) = world.get_mut::<Modifiers>(me) {
-                            x.outside.push((m, 0.1, last));
-                        }
-                        intervention::log_shock_start(
-                            day, couple_id, me_id, couple.arm, shock, &mut logs,
-                        );
-                    }
-                }
-                ShockKind::IntimacyMismatch => {
-                    if first_time {
-                        if let Some(mut t) = world.get_mut::<Traits>(me) {
-                            t.prefs.closeness_pref = (t.prefs.closeness_pref + m).clamp(0.0, 1.0);
-                        }
-                        intervention::log_shock_start(
-                            day, couple_id, me_id, couple.arm, shock, &mut logs,
-                        );
-                    }
-                }
-                ShockKind::TraitShift => {
-                    if first_time {
-                        if let Some(mut t) = world.get_mut::<Traits>(me) {
-                            let slot: &mut f64 = match shock.trait_name.as_deref().unwrap_or("") {
-                                "neuroticism" => &mut t.personality.neuroticism,
-                                "agreeableness" => &mut t.personality.agreeableness,
-                                "conscientiousness" => &mut t.personality.conscientiousness,
-                                "openness" => &mut t.personality.openness,
-                                "extraversion" => &mut t.personality.extraversion,
-                                "forgiveness" => &mut t.prefs.forgiveness,
-                                "commitment" => &mut t.prefs.commitment,
-                                "closeness_pref" => &mut t.prefs.closeness_pref,
-                                _ => &mut t.prefs.conflict_engagement,
-                            };
-                            *slot = (*slot + m).clamp(0.0, 1.0);
-                        }
-                        intervention::log_shock_start(
-                            day, couple_id, me_id, couple.arm, shock, &mut logs,
-                        );
-                    }
-                }
-                ShockKind::DailyTexts => {
-                    if first_time {
-                        intervention::log_shock_start(
-                            day, couple_id, me_id, couple.arm, shock, &mut logs,
-                        );
-                    }
-                    record_src(
-                        world,
-                        &mut logs,
-                        couple_id,
-                        pe,
-                        Episode {
-                            day,
-                            kind: EpisodeKind::Positive,
-                            intensity: 0.05 * m,
-                            partner: me_id,
-                        },
-                        intervention::shock_source(shock.kind),
-                    );
-                    if let Some(mut a) = world.get_mut::<Affect>(pe) {
-                        a.affect = (a.affect + 0.02 * m).clamp(-1.0, 1.0);
-                    }
-                    let _ = pe_id;
-                }
-                ShockKind::Anniversary => {
-                    if first_time {
-                        for (_, id, _) in both {
-                            intervention::log_shock_start(
-                                day, couple_id, id, couple.arm, shock, &mut logs,
-                            );
-                        }
-                    } else {
+                for (j, e) in effects.iter().enumerate() {
+                    let repeat = acting & started & (1u64 << j) != 0
+                        && matches!(e.cadence, Cadence::Weekly | Cadence::Yearly);
+                    if repeat {
                         logs.event(
                             day,
                             couple_id,
                             None,
-                            "shock_anniversary",
+                            intervention::custom_event(shock),
                             None,
                             None,
-                            Some(m),
+                            Some(e.amount),
                         );
                     }
-                    for (e, _, pid) in both {
-                        record_src(
-                            world,
-                            &mut logs,
-                            couple_id,
-                            e,
-                            Episode {
-                                day,
-                                kind: EpisodeKind::Positive,
-                                intensity: 0.5 * m,
-                                partner: pid,
-                            },
-                            intervention::shock_source(shock.kind),
+                }
+            } else {
+                let (who, repeat) = intervention::builtin_log_plan(shock.kind);
+                if first_time {
+                    let ids: Vec<u64> = match who {
+                        intervention::LogWho::Member => vec![me_id],
+                        intervention::LogWho::Both => vec![couple.a_id, couple.b_id],
+                    };
+                    for id in ids {
+                        intervention::log_shock_start(
+                            day, couple_id, id, couple.arm, shock, &mut logs,
                         );
-                        bump_trust(world, e, 0.02 * m);
                     }
+                } else if let Some(name) = repeat {
+                    logs.event(
+                        day,
+                        couple_id,
+                        None,
+                        name,
+                        None,
+                        None,
+                        Some(shock.magnitude()),
+                    );
                 }
-                ShockKind::DateNights => {
-                    if first_time {
-                        for (_, id, _) in both {
-                            intervention::log_shock_start(
-                                day, couple_id, id, couple.arm, shock, &mut logs,
-                            );
-                        }
-                    }
-                    {
-                        for (e, _, pid) in both {
-                            record_src(
-                                world,
-                                &mut logs,
-                                couple_id,
-                                e,
-                                Episode {
-                                    day,
-                                    kind: EpisodeKind::Positive,
-                                    intensity: 0.15 * m,
-                                    partner: pid,
-                                },
-                                intervention::shock_source(shock.kind),
-                            );
-                        }
-                    }
+            }
+            let source = if custom {
+                intervention::custom_source(shock)
+            } else {
+                intervention::shock_source(shock.kind)
+            };
+            for (j, e) in effects.iter().enumerate() {
+                if acting & (1u64 << j) == 0 || e.amount == e.channel.identity() {
+                    continue;
                 }
+                let targets: Vec<(Entity, u64)> = match e.who {
+                    EffectWho::Member => vec![(me, pe_id)],
+                    EffectWho::Partner => vec![(pe, me_id)],
+                    EffectWho::Both => vec![(couple.a, couple.b_id), (couple.b, couple.a_id)],
+                };
+                let (_, el) = effect_window(e, start, last);
+                apply_effect(
+                    world, &mut logs, couple_id, ce, e, &targets, day, el, source,
+                );
             }
         }
         world.resource_mut::<LogStore>().0 = logs;
+    }
+}
+
+/// First and last day (inclusive) an effect may act: its own window, else the shock's.
+fn effect_window(e: &EffectConfig, start: i32, last: i32) -> (i32, i32) {
+    (
+        e.start_day.map(|v| v as i32).unwrap_or(start),
+        e.end_day.map(|v| v as i32).unwrap_or(last).min(last),
+    )
+}
+
+fn episode_kind_for(class: Option<&str>) -> EpisodeKind {
+    match class.unwrap_or("positive") {
+        "conflict" => EpisodeKind::Conflict,
+        "repair" => EpisodeKind::Reconciliation,
+        "disappointment" => EpisodeKind::Disappointment,
+        _ => EpisodeKind::Positive,
+    }
+}
+
+/// Apply one acting effect to its targets, each given as (agent, that agent's partner id).
+#[allow(clippy::too_many_arguments)]
+fn apply_effect(
+    world: &mut World,
+    logs: &mut Logs,
+    couple_id: u64,
+    ce: Entity,
+    e: &EffectConfig,
+    targets: &[(Entity, u64)],
+    day: i32,
+    last: i32,
+    source: &'static str,
+) {
+    let amount = e.amount;
+    let sustained = e.channel.sustained(e.cadence);
+    if e.channel == EffectChannel::OnsetHazard {
+        // Acts on the couple, once, whatever the targets.
+        if let Some(mut x) = world.get_mut::<CoupleModifiers>(ce) {
+            x.onset_mult.push((amount, last));
+        }
+        return;
+    }
+    for &(agent, partner_id) in targets {
+        match e.channel {
+            EffectChannel::Stress if sustained => {
+                if let Some(mut x) = world.get_mut::<Modifiers>(agent) {
+                    x.extra_stress.push((amount, last));
+                }
+            }
+            EffectChannel::Stress => {
+                if let Some(mut a) = world.get_mut::<Affect>(agent) {
+                    a.stress = (a.stress + amount).clamp(0.0, 3.0);
+                }
+            }
+            EffectChannel::Affect => {
+                if let Some(mut a) = world.get_mut::<Affect>(agent) {
+                    a.affect = (a.affect + amount).clamp(-1.0, 1.0);
+                }
+            }
+            EffectChannel::Trust => bump_trust(world, agent, amount),
+            EffectChannel::Episode => record_src(
+                world,
+                logs,
+                couple_id,
+                agent,
+                Episode {
+                    day,
+                    kind: episode_kind_for(e.class.as_deref()),
+                    intensity: amount,
+                    partner: partner_id,
+                },
+                source,
+            ),
+            EffectChannel::Outside => {
+                if let Some(mut x) = world.get_mut::<Modifiers>(agent) {
+                    x.outside.push((amount, 0.1, last));
+                }
+            }
+            EffectChannel::RepairPropensity => {
+                if let Some(mut x) = world.get_mut::<Modifiers>(agent) {
+                    x.repair_mult.push((amount, last));
+                }
+            }
+            EffectChannel::Trait => {
+                if let Some(mut t) = world.get_mut::<Traits>(agent) {
+                    let slot: &mut f64 = match e.trait_name.as_deref().unwrap_or("") {
+                        "neuroticism" => &mut t.personality.neuroticism,
+                        "agreeableness" => &mut t.personality.agreeableness,
+                        "conscientiousness" => &mut t.personality.conscientiousness,
+                        "openness" => &mut t.personality.openness,
+                        "extraversion" => &mut t.personality.extraversion,
+                        "forgiveness" => &mut t.prefs.forgiveness,
+                        "commitment" => &mut t.prefs.commitment,
+                        "closeness_pref" => &mut t.prefs.closeness_pref,
+                        _ => &mut t.prefs.conflict_engagement,
+                    };
+                    *slot = (*slot + amount).clamp(0.0, 1.0);
+                }
+            }
+            EffectChannel::OnsetHazard => {}
+        }
     }
 }
 

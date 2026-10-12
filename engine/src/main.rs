@@ -72,6 +72,8 @@ enum Cmd {
     DefaultConfig,
     /// Print the shock kinds with their magnitude bounds and defaults.
     ShockCatalog,
+    /// Print the effect channels a custom shock may use, with their bounds per cadence.
+    EffectCatalog,
 }
 
 fn load_config(path: &str) -> Result<SimConfig> {
@@ -169,6 +171,12 @@ fn main() -> Result<()> {
             println!(
                 "{}",
                 serde_json::to_string_pretty(&loveworld_engine::config::shock_catalog())?
+            );
+        }
+        Cmd::EffectCatalog => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&loveworld_engine::config::effect_catalog())?
             );
         }
     }

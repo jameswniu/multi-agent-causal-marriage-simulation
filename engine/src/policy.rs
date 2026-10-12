@@ -83,6 +83,10 @@ pub struct AgentView<'a> {
     pub leave_available: bool,
     /// The commitment shift of the agent's own sealed divorce, 0 without one.
     pub legacy_shift: f64,
+    /// Bias on the repair (or reunite) utility from active shock effects on repair propensity: the
+    /// sum of the logs of their multipliers, 0 without one. The policy scales it by its temperature,
+    /// so a combined multiplier m multiplies the odds of choosing repair by exactly m.
+    pub repair_bias: f64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -129,7 +133,8 @@ pub fn utilities(view: &AgentView, w: &PolicyConfig) -> Vec<(Action, f64)> {
                 - w.rep_negmem * neg
                 + w.rep_partner_repaired * partner_repaired
                 - w.rep_intensity * view.conflict_intensity
-                + w.rep_days * days;
+                + w.rep_days * days
+                + w.temperature * view.repair_bias;
             let u_hold =
                 w.hold_base + w.hold_avoidant * avoidant + w.hold_consc * p.conscientiousness;
             let u_esc = w.esc_base
@@ -164,7 +169,8 @@ pub fn utilities(view: &AgentView, w: &PolicyConfig) -> Vec<(Action, f64)> {
                 + w.rep_trust * view.trust
                 + w.rep_posmem * pos
                 - w.rep_negmem * neg
-                + w.rep_partner_repaired * partner_repaired;
+                + w.rep_partner_repaired * partner_repaired
+                + w.temperature * view.repair_bias;
             let u_hold = w.sep_hold_base + w.hold_avoidant * avoidant;
             let mut out = vec![(Action::Repair, u_rep), (Action::Hold, u_hold)];
             if view.leave_available {
@@ -217,7 +223,8 @@ pub fn spec(
             "sees": ["own personality", "own preferences", "own trust", "own affect", "own stress", "own satisfaction",
                      "own retained negative and positive memory about the partner", "shared conflict intensity and duration",
                      "partner's last observable action", "share of divorced network neighbours", "today's outside option surplus",
-                     "whether leaving is on the menu today", "own sealed divorce, if any"],
+                     "whether leaving is on the menu today", "own sealed divorce, if any",
+                     "active shock effects on own repair propensity (repair_bias, the log of their combined multiplier)"],
             "never_sees": ["treatment arm", "partner's trust", "partner's memory", "partner's utilities"]
         },
         "sampling": {"rule": "softmax over utilities", "temperature": w.temperature},
@@ -227,14 +234,14 @@ pub fn spec(
                 "neutral": "0"
             },
             "conflict": {
-                "repair": "rep_base + rep_agree*agreeableness + rep_forgive*forgiveness + rep_trust*trust + rep_posmem*pos_load - rep_negmem*neg_load + rep_partner_repaired*[partner repaired] - rep_intensity*intensity + rep_days*min(days,30)",
+                "repair": "rep_base + rep_agree*agreeableness + rep_forgive*forgiveness + rep_trust*trust + rep_posmem*pos_load - rep_negmem*neg_load + rep_partner_repaired*[partner repaired] - rep_intensity*intensity + rep_days*min(days,30) + temperature*repair_bias",
                 "hold": "hold_base + hold_avoidant*(1-conflict_engagement) + hold_consc*conscientiousness",
                 "escalate": "esc_base + esc_neuro*neuroticism + esc_engage*conflict_engagement + esc_negmem*neg_load + esc_stress*stress - esc_trust*trust + esc_partner_escalated*[partner escalated] - esc_affect*affect",
                 "withdraw": "wd_base + wd_avoidant*(1-conflict_engagement) + wd_neuro*neuroticism + wd_intensity*intensity + wd_partner_escalated*[partner escalated]",
                 "leave (when on the menu)": "leave_base - leave_commit*commitment - leave_trust*trust + leave_negmem*neg_load - leave_posmem*pos_load + leave_intensity*intensity + leave_days*min(days,30) - leave_satisfaction*satisfaction + leave_network*divorced_friend_share + leave_outside_option*outside_option + leave_dating_bonus*[dating] + legacy_shift"
             },
             "separated": {
-                "repair (reunite)": "sep_reunite_base + rep_agree*agreeableness + rep_forgive*forgiveness + rep_trust*trust + rep_posmem*pos_load - rep_negmem*neg_load + rep_partner_repaired*[partner repaired]",
+                "repair (reunite)": "sep_reunite_base + rep_agree*agreeableness + rep_forgive*forgiveness + rep_trust*trust + rep_posmem*pos_load - rep_negmem*neg_load + rep_partner_repaired*[partner repaired] + temperature*repair_bias",
                 "hold": "sep_hold_base + hold_avoidant*(1-conflict_engagement)",
                 "leave (finalise, when on the menu)": "sep_leave_base + (conflict leave formula with min(days,60) and without leave_base)"
             }
@@ -281,6 +288,7 @@ mod tests {
             outside_option: 0.0,
             leave_available: true,
             legacy_shift: 0.0,
+            repair_bias: 0.0,
         }
     }
 
@@ -401,6 +409,33 @@ mod tests {
         let s: f64 = d.probabilities.iter().sum();
         assert!((s - 1.0).abs() < 1e-9);
         assert_eq!(d.probabilities.len(), 5);
+    }
+
+    #[test]
+    fn a_repair_multiplier_multiplies_the_odds_of_repair_exactly() {
+        let (p, q) = mid();
+        let w = PolicyConfig::default();
+        assert!(
+            (w.temperature - 1.0).abs() > 0.1,
+            "the test needs a temperature other than 1"
+        );
+        for ctx in [Context::Conflict, Context::Separated] {
+            let base = view(&p, &q, ctx);
+            for m in [0.1, 0.5, 2.0, 10.0] {
+                let boosted = AgentView {
+                    repair_bias: f64::ln(m),
+                    ..base
+                };
+                let d0 = decide(&base, &w, &mut rng::stream(5, "t", 4));
+                let d1 = decide(&boosted, &w, &mut rng::stream(5, "t", 4));
+                let odds = |d: &Decision| d.probabilities[0] / (1.0 - d.probabilities[0]);
+                assert_eq!(d0.utilities[0].0, Action::Repair);
+                assert!(
+                    ((odds(&d1) / odds(&d0)) - m).abs() < 1e-9 * m.max(1.0),
+                    "{ctx:?} m={m}"
+                );
+            }
+        }
     }
 
     #[test]

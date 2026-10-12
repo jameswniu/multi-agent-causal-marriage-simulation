@@ -394,7 +394,8 @@ impl Default for DynamicsConfig {
 
 /// The agents' decision policy: named utility weights for every action in every context.
 /// The policy never sees the arm; it sees the agent's own private state plus observable
-/// partner behaviour. `loveworld-engine policy-spec` prints these with the formulas.
+/// partner behaviour. The engine binary (`loveworld-engine`, this crate's command-line program)
+/// prints them with the formulas through its `policy-spec` command.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PolicyConfig {
@@ -547,7 +548,8 @@ impl Default for MarketConfig {
     }
 }
 
-/// A scheduled stressor or kindness applied to one arm or to everyone.
+/// A scheduled stressor or kindness applied to one arm or to everyone. The eight named kinds are
+/// shorthands for fixed effect lists (`builtin_effects`); `custom` carries its own list.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ShockKind {
@@ -559,9 +561,10 @@ pub enum ShockKind {
     Anniversary,
     DateNights,
     TraitShift,
+    Custom,
 }
 
-/// Traits a trait_shift shock may move.
+/// Traits a trait_shift shock (or a trait effect) may move.
 pub const SHIFTABLE_TRAITS: [&str; 9] = [
     "neuroticism",
     "agreeableness",
@@ -585,10 +588,12 @@ impl ShockKind {
             ShockKind::Anniversary => "anniversary",
             ShockKind::DateNights => "date_nights",
             ShockKind::TraitShift => "trait_shift",
+            ShockKind::Custom => "custom",
         }
     }
 
     /// Allowed magnitude range and default, plus the default length in days (None = open).
+    /// A custom shock has no magnitude (each effect carries its own amount) and is open-ended.
     pub fn bounds(self) -> (f64, f64, f64, Option<u32>) {
         match self {
             ShockKind::JobLoss => (0.0, 5.0, 1.5, Some(120)),
@@ -599,9 +604,11 @@ impl ShockKind {
             ShockKind::Anniversary => (0.0, 2.0, 1.0, None),
             ShockKind::DateNights => (0.0, 2.0, 1.0, None),
             ShockKind::TraitShift => (-1.0, 1.0, 0.3, None),
+            ShockKind::Custom => (0.0, 0.0, 0.0, None),
         }
     }
 
+    /// The eight named kinds (not `custom`), in catalog order.
     pub fn all() -> [ShockKind; 8] {
         [
             ShockKind::JobLoss,
@@ -632,6 +639,251 @@ pub enum ShockMember {
     Random,
 }
 
+/// What an effect acts on. Every channel is a quantity the engine already models; none of them
+/// reaches memory half-lives, the memory rules, the leave gate, policy weights, the temperature,
+/// assignment, seeds or the arm.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectChannel {
+    Stress,
+    Affect,
+    Trust,
+    Episode,
+    Outside,
+    OnsetHazard,
+    RepairPropensity,
+    Trait,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectOp {
+    Add,
+    Multiply,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Cadence {
+    Once,
+    Daily,
+    Weekly,
+    Yearly,
+}
+
+/// Whom an effect hits, relative to the shock's resolved member.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectWho {
+    Member,
+    Partner,
+    Both,
+}
+
+/// Episode classes an episode effect may store.
+pub const EFFECT_EPISODE_CLASSES: [&str; 4] = ["positive", "conflict", "repair", "disappointment"];
+
+/// One effect of a shock: a channel, an operation, an amount, how often it acts, whom it hits and
+/// (optionally) a window inside the shock's own.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EffectConfig {
+    pub channel: EffectChannel,
+    pub op: EffectOp,
+    pub amount: f64,
+    pub cadence: Cadence,
+    #[serde(default = "default_who")]
+    pub who: EffectWho,
+    /// Episode effects only: which kind of memory is stored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub class: Option<String>,
+    /// Trait effects only: which trait moves.
+    #[serde(default, rename = "trait", skip_serializing_if = "Option::is_none")]
+    pub trait_name: Option<String>,
+    /// First day the effect acts; defaults to the shock's start day.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_day: Option<u32>,
+    /// Last day (inclusive) the effect acts; defaults to the shock's last day.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_day: Option<u32>,
+}
+
+fn default_who() -> EffectWho {
+    EffectWho::Member
+}
+
+impl EffectChannel {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EffectChannel::Stress => "stress",
+            EffectChannel::Affect => "affect",
+            EffectChannel::Trust => "trust",
+            EffectChannel::Episode => "episode",
+            EffectChannel::Outside => "outside",
+            EffectChannel::OnsetHazard => "onset_hazard",
+            EffectChannel::RepairPropensity => "repair_propensity",
+            EffectChannel::Trait => "trait",
+        }
+    }
+
+    pub fn all() -> [EffectChannel; 8] {
+        [
+            EffectChannel::Stress,
+            EffectChannel::Affect,
+            EffectChannel::Trust,
+            EffectChannel::Episode,
+            EffectChannel::Outside,
+            EffectChannel::OnsetHazard,
+            EffectChannel::RepairPropensity,
+            EffectChannel::Trait,
+        ]
+    }
+
+    /// The one operation the channel accepts.
+    pub fn op(self) -> EffectOp {
+        match self {
+            EffectChannel::OnsetHazard | EffectChannel::RepairPropensity => EffectOp::Multiply,
+            _ => EffectOp::Add,
+        }
+    }
+
+    /// The amount that leaves everything unchanged (an effect at this amount does nothing).
+    pub fn identity(self) -> f64 {
+        match self.op() {
+            EffectOp::Add => 0.0,
+            EffectOp::Multiply => 1.0,
+        }
+    }
+
+    /// Hard bounds on the amount for a cadence, or None when the channel cannot act on it.
+    pub fn bounds(self, cadence: Cadence) -> Option<(f64, f64)> {
+        use Cadence::*;
+        use EffectChannel::*;
+        match (self, cadence) {
+            (Stress, Once) | (Stress, Weekly) | (Stress, Yearly) => Some((-3.0, 5.0)),
+            (Stress, Daily) => Some((-1.5, 1.5)),
+            (Affect, Once) | (Affect, Yearly) => Some((-1.0, 1.0)),
+            (Affect, Weekly) => Some((-0.5, 0.5)),
+            (Affect, Daily) => Some((-0.1, 0.1)),
+            (Trust, Once) | (Trust, Yearly) => Some((-0.5, 0.5)),
+            (Trust, Weekly) => Some((-0.1, 0.1)),
+            (Trust, Daily) => Some((-0.02, 0.02)),
+            (Episode, Once) | (Episode, Yearly) => Some((0.0, 2.0)),
+            (Episode, Weekly) => Some((0.0, 1.0)),
+            (Episode, Daily) => Some((0.0, 0.25)),
+            (Outside, Daily) => Some((0.0, 1.0)),
+            (OnsetHazard, Daily) => Some((0.0, 5.0)),
+            (RepairPropensity, Daily) => Some((0.1, 10.0)),
+            (Trait, Once) => Some((-1.0, 1.0)),
+            (Trait, Yearly) => Some((-0.25, 0.25)),
+            _ => None,
+        }
+    }
+
+    /// Whether the channel installs one standing modifier for its window (daily cadence) rather
+    /// than acting on each day it fires.
+    pub fn sustained(self, cadence: Cadence) -> bool {
+        matches!(
+            (self, cadence),
+            (EffectChannel::Stress, Cadence::Daily)
+                | (EffectChannel::Outside, _)
+                | (EffectChannel::OnsetHazard, _)
+                | (EffectChannel::RepairPropensity, _)
+        )
+    }
+
+    /// Plain description of what the channel does, for the catalog.
+    pub fn describe(self) -> &'static str {
+        match self {
+            EffectChannel::Stress => "Stress level, 0 to 3. Once, weekly or yearly: added to the level on each day it acts. Daily: a standing daily stress input for the window, so stress settles higher rather than climbing without limit.",
+            EffectChannel::Affect => "Mood toward the partner, -1 to 1, added on each day the effect acts.",
+            EffectChannel::Trust => "Trust in the partner, 0 to 1, added on each day the effect acts.",
+            EffectChannel::Episode => "Stores a memory about the partner of the given class and intensity on each day the effect acts. Memories fade on the agent's own half-lives.",
+            EffectChannel::Outside => "Daily chance of meeting an attractive alternative while the window lasts (the strongest active value wins).",
+            EffectChannel::OnsetHazard => "Multiplies the couple's daily chance that a fight starts while the window lasts. Acts on the couple, so it always hits both.",
+            EffectChannel::RepairPropensity => "Multiplies the odds that the agent chooses to repair, or to reunite when separated, while the window lasts.",
+            EffectChannel::Trait => "Shifts a personality trait or preference (0 to 1) on each day the effect acts.",
+        }
+    }
+}
+
+impl Cadence {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Cadence::Once => "once",
+            Cadence::Daily => "daily",
+            Cadence::Weekly => "weekly",
+            Cadence::Yearly => "yearly",
+        }
+    }
+
+    pub fn all() -> [Cadence; 4] {
+        [
+            Cadence::Once,
+            Cadence::Daily,
+            Cadence::Weekly,
+            Cadence::Yearly,
+        ]
+    }
+}
+
+impl EffectConfig {
+    fn plain(
+        channel: EffectChannel,
+        amount: f64,
+        cadence: Cadence,
+        who: EffectWho,
+    ) -> EffectConfig {
+        EffectConfig {
+            channel,
+            op: channel.op(),
+            amount,
+            cadence,
+            who,
+            class: None,
+            trait_name: None,
+            start_day: None,
+            end_day: None,
+        }
+    }
+}
+
+/// The effect list a named kind stands for, at magnitude `m`. Running a named kind and running
+/// `custom` with exactly this list produce identical behaviour (a parity test holds them to it).
+pub fn builtin_effects(kind: ShockKind, m: f64, trait_name: Option<&str>) -> Vec<EffectConfig> {
+    use Cadence::*;
+    use EffectChannel::*;
+    use EffectWho::*;
+    let episode = |amount: f64, cadence: Cadence, who: EffectWho| EffectConfig {
+        class: Some("positive".to_string()),
+        ..EffectConfig::plain(Episode, amount, cadence, who)
+    };
+    let shift = |name: &str| EffectConfig {
+        trait_name: Some(name.to_string()),
+        ..EffectConfig::plain(Trait, m, Once, Member)
+    };
+    match kind {
+        ShockKind::JobLoss => vec![
+            EffectConfig::plain(Stress, m, Once, Member),
+            EffectConfig::plain(Stress, 0.1 * m, Daily, Member),
+        ],
+        ShockKind::FinancialCrisis => vec![EffectConfig::plain(Stress, 0.3 * m, Daily, Both)],
+        ShockKind::Temptation => vec![EffectConfig::plain(Outside, m, Daily, Member)],
+        ShockKind::IntimacyMismatch => vec![shift("closeness_pref")],
+        ShockKind::TraitShift => vec![shift(trait_name.unwrap_or("conflict_engagement"))],
+        ShockKind::DailyTexts => vec![
+            episode(0.05 * m, Daily, Partner),
+            EffectConfig::plain(Affect, 0.02 * m, Daily, Partner),
+        ],
+        ShockKind::Anniversary => vec![
+            episode(0.5 * m, Yearly, Both),
+            EffectConfig::plain(Trust, 0.02 * m, Yearly, Both),
+        ],
+        ShockKind::DateNights => vec![episode(0.15 * m, Weekly, Both)],
+        ShockKind::Custom => Vec::new(),
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ShockConfig {
@@ -642,20 +894,32 @@ pub struct ShockConfig {
     pub start_day: u32,
     #[serde(default)]
     pub end_day: Option<u32>,
-    /// Omitted means the kind's catalog default.
+    /// Omitted means the kind's catalog default. Not used by `custom`.
     #[serde(default)]
     pub magnitude: Option<f64>,
     /// For trait_shift only: which trait moves.
     #[serde(default, rename = "trait")]
     pub trait_name: Option<String>,
+    /// For custom only: a short name used in logs (letters, digits, spaces, hyphens).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// For custom only: one plain sentence saying what happens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// For custom only: what the shock does, as effects.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effects: Option<Vec<EffectConfig>>,
 }
 
 fn default_member() -> ShockMember {
     ShockMember::Random
 }
 
+/// Most effects one custom shock may carry.
+pub const MAX_EFFECTS: usize = 8;
+
 impl ShockConfig {
-    /// Effective magnitude: the configured value or the kind's catalog default.
+    /// Effective magnitude: the configured value or the kind's catalog default (0 for custom).
     pub fn magnitude(&self) -> f64 {
         self.magnitude.unwrap_or(self.kind.bounds().2)
     }
@@ -669,12 +933,39 @@ impl ShockConfig {
         };
         v.min(i32::MAX as i64) as i32
     }
+
+    /// The effects this shock applies: its own list for custom, the kind's list otherwise.
+    pub fn effect_list(&self) -> Vec<EffectConfig> {
+        match self.kind {
+            ShockKind::Custom => self.effects.clone().unwrap_or_default(),
+            kind => builtin_effects(kind, self.magnitude(), self.trait_name.as_deref()),
+        }
+    }
+
+    /// The label folded to a log-safe slug: lowercase letters, digits and single underscores.
+    pub fn label_slug(&self) -> String {
+        let raw = self.label.as_deref().unwrap_or("custom").to_lowercase();
+        let mut out = String::new();
+        for ch in raw.chars() {
+            if ch.is_ascii_alphanumeric() {
+                out.push(ch);
+            } else if !out.ends_with('_') && !out.is_empty() {
+                out.push('_');
+            }
+        }
+        let out = out.trim_end_matches('_').to_string();
+        if out.is_empty() {
+            "custom".to_string()
+        } else {
+            out
+        }
+    }
 }
 
 /// Longest run accepted (100 years), which keeps every day arithmetic inside i32.
 pub const MAX_DAYS: u32 = 36_500;
 
-/// Shock kinds with their bounds, for the picker.
+/// Shock kinds with their bounds, for the picker (the eight named kinds; see `effect_catalog`).
 pub fn shock_catalog() -> serde_json::Value {
     serde_json::json!(ShockKind::all()
         .iter()
@@ -684,6 +975,161 @@ pub fn shock_catalog() -> serde_json::Value {
                 "traits": if *k == ShockKind::TraitShift { SHIFTABLE_TRAITS.to_vec() } else { Vec::new() }})
         })
         .collect::<Vec<_>>())
+}
+
+/// Every effect channel with its operation, identity, bounds per cadence and extra fields, and
+/// the effect list each named kind stands for at its default magnitude.
+pub fn effect_catalog() -> serde_json::Value {
+    let channels: Vec<serde_json::Value> = EffectChannel::all()
+        .iter()
+        .map(|c| {
+            let cadences: serde_json::Map<String, serde_json::Value> = Cadence::all()
+                .iter()
+                .filter_map(|cad| {
+                    c.bounds(*cad).map(|(lo, hi)| {
+                        (
+                            cad.as_str().to_string(),
+                            serde_json::json!({"min": lo, "max": hi, "sustained": c.sustained(*cad)}),
+                        )
+                    })
+                })
+                .collect();
+            serde_json::json!({
+                "channel": c.as_str(),
+                "op": match c.op() { EffectOp::Add => "add", EffectOp::Multiply => "multiply" },
+                "identity": c.identity(),
+                "cadences": cadences,
+                "who": if *c == EffectChannel::OnsetHazard { vec!["both"] } else { vec!["member", "partner", "both"] },
+                "classes": if *c == EffectChannel::Episode { EFFECT_EPISODE_CLASSES.to_vec() } else { Vec::new() },
+                "traits": if *c == EffectChannel::Trait { SHIFTABLE_TRAITS.to_vec() } else { Vec::new() },
+                "description": c.describe(),
+            })
+        })
+        .collect();
+    let kinds: serde_json::Map<String, serde_json::Value> = ShockKind::all()
+        .iter()
+        .map(|k| {
+            let trait_name = if *k == ShockKind::TraitShift {
+                Some("neuroticism")
+            } else {
+                None
+            };
+            let m = k.bounds().2;
+            (
+                k.as_str().to_string(),
+                serde_json::to_value(builtin_effects(*k, m, trait_name))
+                    .expect("effects serialise"),
+            )
+        })
+        .collect();
+    serde_json::json!({
+        "channels": channels,
+        "max_effects": MAX_EFFECTS,
+        "label_max_chars": 40,
+        "description_max_chars": 240,
+        "builtin_at_default_magnitude": kinds,
+    })
+}
+
+/// Validate one custom shock's label, description and effects against the shock's window.
+fn validate_custom(i: usize, sh: &ShockConfig, days: u32) -> anyhow::Result<()> {
+    let label = sh.label.as_deref().unwrap_or("");
+    anyhow::ensure!(
+        !label.trim().is_empty() && label.chars().count() <= 40,
+        "shocks[{i}].label must be 1 to 40 characters for a custom shock"
+    );
+    anyhow::ensure!(
+        label
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == ' ' || c == '-' || c == '_' || c == '\''),
+        "shocks[{i}].label may use only letters, digits, spaces, hyphens, underscores and apostrophes"
+    );
+    if let Some(d) = &sh.description {
+        anyhow::ensure!(
+            d.chars().count() <= 240 && !d.chars().any(|c| c.is_control()),
+            "shocks[{i}].description must be at most 240 characters with no control characters"
+        );
+    }
+    anyhow::ensure!(
+        sh.magnitude.is_none() && sh.trait_name.is_none(),
+        "shocks[{i}] is custom, so magnitude and trait go on its effects instead"
+    );
+    let effects = sh.effects.as_deref().unwrap_or(&[]);
+    anyhow::ensure!(
+        !effects.is_empty() && effects.len() <= MAX_EFFECTS,
+        "shocks[{i}].effects must hold 1 to {MAX_EFFECTS} effects"
+    );
+    let shock_last = sh.last_day(days) as i64;
+    for (j, e) in effects.iter().enumerate() {
+        let at = format!("shocks[{i}].effects[{j}]");
+        let ch = e.channel.as_str();
+        let (lo, hi) = e.channel.bounds(e.cadence).ok_or_else(|| {
+            anyhow::anyhow!(
+                "{at}: the {ch} channel cannot act {}; allowed: {}",
+                e.cadence.as_str(),
+                Cadence::all()
+                    .iter()
+                    .filter(|c| e.channel.bounds(**c).is_some())
+                    .map(|c| c.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        })?;
+        anyhow::ensure!(
+            e.op == e.channel.op(),
+            "{at}: the {ch} channel takes op {:?}",
+            e.channel.op()
+        );
+        anyhow::ensure!(
+            e.amount.is_finite() && e.amount >= lo && e.amount <= hi,
+            "{at}: amount must be within [{lo}, {hi}] for {ch} {}",
+            e.cadence.as_str()
+        );
+        if e.channel == EffectChannel::OnsetHazard {
+            anyhow::ensure!(
+                e.who == EffectWho::Both,
+                "{at}: onset_hazard acts on the couple, so who must be both"
+            );
+        }
+        if e.channel == EffectChannel::Episode {
+            let c = e.class.as_deref().unwrap_or("");
+            anyhow::ensure!(
+                EFFECT_EPISODE_CLASSES.contains(&c),
+                "{at}: class must be one of {:?}",
+                EFFECT_EPISODE_CLASSES
+            );
+        } else {
+            anyhow::ensure!(
+                e.class.is_none(),
+                "{at}: class is only valid for the episode channel"
+            );
+        }
+        if e.channel == EffectChannel::Trait {
+            let t = e.trait_name.as_deref().unwrap_or("");
+            anyhow::ensure!(
+                SHIFTABLE_TRAITS.contains(&t),
+                "{at}: trait must be one of {:?}",
+                SHIFTABLE_TRAITS
+            );
+        } else {
+            anyhow::ensure!(
+                e.trait_name.is_none(),
+                "{at}: trait is only valid for the trait channel"
+            );
+        }
+        let es = e.start_day.unwrap_or(sh.start_day) as i64;
+        let el = e.end_day.map(|v| v as i64).unwrap_or(shock_last);
+        anyhow::ensure!(
+            es >= sh.start_day as i64 && es <= shock_last,
+            "{at}: start_day must fall inside the shock's window [{}, {shock_last}]",
+            sh.start_day
+        );
+        anyhow::ensure!(
+            el >= es && el <= shock_last,
+            "{at}: end_day must fall inside the shock's window and not precede the effect's start"
+        );
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -821,6 +1267,9 @@ impl SimConfig {
                 && self.memory.treatment.load_saturation >= 1e-6,
             "memory load_saturation must be at least 1e-6"
         );
+        anyhow::ensure!(self.shocks.len() <= 64, "at most 64 shocks per run");
+        // Logs name a custom shock by its slug, so two custom shocks must not share one.
+        let mut slugs: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
         for (i, sh) in self.shocks.iter().enumerate() {
             let (lo, hi, _, _) = sh.kind.bounds();
             anyhow::ensure!(
@@ -834,6 +1283,21 @@ impl SimConfig {
                     "shocks[{i}].end_day must not precede start_day"
                 );
             }
+            if sh.kind == ShockKind::Custom {
+                validate_custom(i, sh, self.days)?;
+                let slug = sh.label_slug();
+                if let Some(j) = slugs.insert(slug.clone(), i) {
+                    anyhow::bail!(
+                        "shocks[{i}]: the custom shock name {:?} is logged as {slug:?}, the same as shocks[{j}]; give each custom shock its own name",
+                        sh.label.as_deref().unwrap_or("")
+                    );
+                }
+                continue;
+            }
+            anyhow::ensure!(
+                sh.label.is_none() && sh.description.is_none() && sh.effects.is_none(),
+                "shocks[{i}]: label, description and effects are only valid for a custom shock"
+            );
             let m = sh.magnitude();
             anyhow::ensure!(
                 m.is_finite() && m >= lo && m <= hi,
@@ -1013,6 +1477,190 @@ mod tests {
         assert_eq!(shock_catalog().as_array().unwrap().len(), 8);
         assert!(SimConfig::from_json(r#"{"days": 100, "shocks": [{"kind": "trait_shift", "target": "treatment", "start_day": 0}]}"#).is_err());
         assert!(SimConfig::from_json(r#"{"days": 100, "shocks": [{"kind": "trait_shift", "target": "treatment", "start_day": 0, "trait": "neuroticism", "magnitude": 0.3}]}"#).is_ok());
+    }
+
+    fn custom_json(effects: &str) -> String {
+        format!(
+            r#"{{"days": 200, "shocks": [{{"kind": "custom", "target": "all", "start_day": 20, "end_day": 120, "label": "in-law moves in", "description": "His mother moves in for a while.", "effects": [{effects}]}}]}}"#
+        )
+    }
+
+    fn custom_err(effects: &str) -> String {
+        SimConfig::from_json(&custom_json(effects))
+            .err()
+            .map(|e| format!("{e:#}"))
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn custom_shocks_parse_and_validate() {
+        let ok = custom_json(
+            r#"{"channel": "stress", "op": "add", "amount": 0.4, "cadence": "daily", "who": "both"},
+               {"channel": "onset_hazard", "op": "multiply", "amount": 1.3, "cadence": "daily", "who": "both"},
+               {"channel": "episode", "op": "add", "amount": 0.3, "cadence": "weekly", "class": "conflict", "start_day": 30, "end_day": 90},
+               {"channel": "trait", "op": "add", "amount": -0.1, "cadence": "once", "trait": "forgiveness", "who": "partner"}"#,
+        );
+        let cfg = SimConfig::from_json(&ok).unwrap();
+        assert_eq!(cfg.shocks[0].effect_list().len(), 4);
+        assert_eq!(cfg.shocks[0].label_slug(), "in_law_moves_in");
+        assert_eq!(cfg.shocks[0].last_day(200), 120);
+        // Round trip keeps every field.
+        let again: SimConfig = serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(again.shocks, cfg.shocks);
+        // Named kinds serialise exactly as before (no new fields appear).
+        let named = SimConfig::from_json(
+            r#"{"days": 100, "shocks": [{"kind": "job_loss", "target": "all", "start_day": 3}]}"#,
+        )
+        .unwrap();
+        let v = serde_json::to_value(&named.shocks[0]).unwrap();
+        assert!(
+            v.get("label").is_none()
+                && v.get("effects").is_none()
+                && v.get("description").is_none()
+        );
+    }
+
+    #[test]
+    fn custom_shocks_whose_names_share_a_log_name_are_rejected() {
+        let two = |a: &str, b: &str| {
+            let effect = r#"{"channel": "stress", "op": "add", "amount": 0.4, "cadence": "daily", "who": "both"}"#;
+            let shock = |label: &str| {
+                format!(
+                    r#"{{"kind": "custom", "target": "all", "start_day": 20, "end_day": 120, "label": "{label}", "effects": [{effect}]}}"#
+                )
+            };
+            SimConfig::from_json(&format!(
+                r#"{{"days": 200, "shocks": [{}, {}]}}"#,
+                shock(a),
+                shock(b)
+            ))
+            .err()
+            .map(|e| format!("{e:#}"))
+            .unwrap_or_default()
+        };
+        let err = two("in-law move", "in_law_move");
+        assert!(
+            err.contains("shocks[1]") && err.contains("the same as shocks[0]"),
+            "{err}"
+        );
+        assert!(two("Mother moves in", "mother moves in").contains("the same as shocks[0]"));
+        assert_eq!(two("mother moves in", "father moves in"), "");
+    }
+
+    #[test]
+    fn custom_shocks_reject_what_the_catalog_forbids() {
+        let cases = [
+            (
+                r#"{"channel": "stress", "op": "add", "amount": 2.0, "cadence": "daily"}"#,
+                "amount must be within [-1.5, 1.5]",
+            ),
+            (
+                r#"{"channel": "stress", "op": "multiply", "amount": 1.0, "cadence": "once"}"#,
+                "takes op Add",
+            ),
+            (
+                r#"{"channel": "outside", "op": "add", "amount": 0.2, "cadence": "weekly"}"#,
+                "cannot act weekly",
+            ),
+            (
+                r#"{"channel": "onset_hazard", "op": "multiply", "amount": 2.0, "cadence": "daily", "who": "member"}"#,
+                "who must be both",
+            ),
+            (
+                r#"{"channel": "episode", "op": "add", "amount": 0.2, "cadence": "once"}"#,
+                "class must be one of",
+            ),
+            (
+                r#"{"channel": "episode", "op": "add", "amount": 0.2, "cadence": "once", "class": "joy"}"#,
+                "class must be one of",
+            ),
+            (
+                r#"{"channel": "trait", "op": "add", "amount": 0.2, "cadence": "once"}"#,
+                "trait must be one of",
+            ),
+            (
+                r#"{"channel": "stress", "op": "add", "amount": 0.2, "cadence": "once", "trait": "openness"}"#,
+                "trait is only valid",
+            ),
+            (
+                r#"{"channel": "stress", "op": "add", "amount": 0.2, "cadence": "once", "start_day": 5}"#,
+                "inside the shock's window",
+            ),
+            (
+                r#"{"channel": "stress", "op": "add", "amount": 0.2, "cadence": "once", "end_day": 150}"#,
+                "inside the shock's window",
+            ),
+            (
+                r#"{"channel": "repair_propensity", "op": "multiply", "amount": 0.0, "cadence": "daily"}"#,
+                "amount must be within [0.1, 10]",
+            ),
+            (
+                r#"{"channel": "affect", "op": "add", "amount": 1e400, "cadence": "once"}"#,
+                "",
+            ),
+            (
+                r#"{"channel": "policy_weight", "op": "add", "amount": 1.0, "cadence": "once"}"#,
+                "unknown variant",
+            ),
+            (
+                r#"{"channel": "stress", "op": "add", "amount": 0.1, "cadence": "once", "magnitud": 3}"#,
+                "unknown field",
+            ),
+        ];
+        for (effect, expect) in cases {
+            let err = custom_err(effect);
+            assert!(!err.is_empty(), "accepted: {effect}");
+            assert!(
+                err.contains(expect),
+                "{effect}: expected {expect:?}, got {err}"
+            );
+        }
+        assert!(custom_err("").contains("1 to 8 effects"));
+        let nine = [r#"{"channel": "affect", "op": "add", "amount": 0.1, "cadence": "once"}"#; 9]
+            .join(",");
+        assert!(custom_err(&nine).contains("1 to 8 effects"));
+        let bad_label = r#"{"days": 100, "shocks": [{"kind": "custom", "target": "all", "start_day": 1, "label": "<script>", "effects": [{"channel": "affect", "op": "add", "amount": 0.1, "cadence": "once"}]}]}"#;
+        assert!(SimConfig::from_json(bad_label).is_err());
+        let with_magnitude = r#"{"days": 100, "shocks": [{"kind": "custom", "target": "all", "start_day": 1, "label": "x", "magnitude": 1.0, "effects": [{"channel": "affect", "op": "add", "amount": 0.1, "cadence": "once"}]}]}"#;
+        assert!(SimConfig::from_json(with_magnitude).is_err());
+        let named_with_effects = r#"{"days": 100, "shocks": [{"kind": "job_loss", "target": "all", "start_day": 1, "effects": [{"channel": "affect", "op": "add", "amount": 0.1, "cadence": "once"}]}]}"#;
+        assert!(SimConfig::from_json(named_with_effects).is_err());
+    }
+
+    #[test]
+    fn every_named_kind_fits_the_channel_bounds_at_every_magnitude() {
+        for kind in ShockKind::all() {
+            let (lo, hi, default, _) = kind.bounds();
+            for m in [lo, default, hi] {
+                for e in builtin_effects(kind, m, Some("neuroticism")) {
+                    let (blo, bhi) = e.channel.bounds(e.cadence).unwrap_or_else(|| {
+                        panic!("{kind:?}: {:?} cannot act {:?}", e.channel, e.cadence)
+                    });
+                    assert!(
+                        e.amount >= blo && e.amount <= bhi,
+                        "{kind:?} at {m}: {e:?} outside [{blo}, {bhi}]"
+                    );
+                    assert_eq!(e.op, e.channel.op());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn effect_catalog_lists_every_channel_and_the_named_kinds() {
+        let c = effect_catalog();
+        assert_eq!(c["channels"].as_array().unwrap().len(), 8);
+        assert_eq!(c["max_effects"], 8);
+        let stress = &c["channels"][0];
+        assert_eq!(stress["channel"], "stress");
+        assert_eq!(stress["cadences"]["daily"]["sustained"], true);
+        assert_eq!(stress["cadences"]["once"]["max"], 5.0);
+        assert_eq!(
+            c["builtin_at_default_magnitude"].as_object().unwrap().len(),
+            8
+        );
+        // shock_catalog still lists only the eight named kinds.
+        assert_eq!(shock_catalog().as_array().unwrap().len(), 8);
     }
 
     #[test]

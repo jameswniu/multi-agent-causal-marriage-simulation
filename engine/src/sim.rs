@@ -1,4 +1,5 @@
-//! Build the world from a config, run it for `days` ticks, and summarise.
+//! Build the LoveWorld simulation (this engine's population of couples) from a config, run it for
+//! `days` ticks, and summarise.
 
 use crate::assignment;
 use crate::components::*;
@@ -143,9 +144,8 @@ pub fn build_world(cfg: &SimConfig) -> (World, Population, Vec<Arm>) {
                 },
                 Rel::new(RelState::Married),
                 CoupleRng(rng::stream(cfg.seeds.dynamics, "couple", c.id)),
-                ShockState {
-                    member: vec![None; cfg.shocks.len()],
-                },
+                ShockState::new(cfg.shocks.len()),
+                CoupleModifiers::default(),
             ))
             .id();
         *world.get_mut::<Bond>(ea).expect("bond") = Bond {
