@@ -8,7 +8,10 @@ slice instead of scanning.
 from __future__ import annotations
 
 import json
+import os
+import threading
 import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -378,6 +381,20 @@ class TwinsCache:
 # ---------------------------------------------------------------------------- store
 
 
+DEFAULT_MAX_LOADED = 2
+"""Experiments kept in memory at once; each loaded 1,000 x 365 run holds about half a gigabyte."""
+
+
+def _max_loaded_from_env() -> int:
+    """LOVEWORLD_MAX_LOADED when it is a positive integer, else the default."""
+    raw = os.environ.get("LOVEWORLD_MAX_LOADED", "")
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_MAX_LOADED
+    return value if value >= 1 else DEFAULT_MAX_LOADED
+
+
 class ExperimentStore:
     """Experiments under a results root (or a single results directory), loaded lazily.
 
@@ -386,12 +403,25 @@ class ExperimentStore:
     when it passes the same check again at request time.
     """
 
-    def __init__(self, root: Path) -> None:
-        """Accept a results directory or a root containing results directories."""
+    def __init__(self, root: Path, max_loaded: int | None = None) -> None:
+        """Accept a results directory or a root containing results directories.
+
+        At most `max_loaded` experiments stay in memory (env LOVEWORLD_MAX_LOADED, default 2),
+        since one loaded year of 1,000 couples holds about half a gigabyte; the least recently
+        used is dropped first and is read again from disk when asked for.
+        """
         self.root = Path(root).resolve()
         self.single = runner.is_results_dir(self.root)
         self.extra: set[str] = set()
-        self.loaded: dict[str, Loaded] = {}
+        self.max_loaded = max_loaded if max_loaded is not None else _max_loaded_from_env()
+        if self.max_loaded < 1:
+            raise ValueError("max_loaded must be at least 1")
+        self.loaded: OrderedDict[str, Loaded] = OrderedDict()
+        # `_lock` guards the cache itself and is held only briefly; `_load_lock` lets one
+        # experiment load at a time, so concurrent cold requests never hold several copies.
+        self._lock = threading.Lock()
+        self._load_lock = threading.Lock()
+        self._generation: dict[str, int] = {}
         if not self.single and not self.root.is_dir():
             raise FileNotFoundError(f"{root} is neither a results directory nor a directory of them")
 
@@ -437,13 +467,34 @@ class ExperimentStore:
         path = self.dir_for(resolved)
         if path is None:
             raise HTTPException(status_code=404, detail=f"unknown experiment {name!r}")
-        if resolved not in self.loaded:
-            self.loaded[resolved] = Loaded(path)
-        return self.loaded[resolved]
+        with self._lock:
+            item = self.loaded.get(resolved)
+            if item is not None:
+                self.loaded.move_to_end(resolved)
+                return item
+        with self._load_lock:
+            with self._lock:
+                item = self.loaded.get(resolved)
+                if item is not None:
+                    self.loaded.move_to_end(resolved)
+                    return item
+                generation = self._generation.get(resolved, 0)
+                # Make room first, so the new copy and the cache together stay within the limit.
+                while len(self.loaded) >= self.max_loaded:
+                    self.loaded.popitem(last=False)
+            item = Loaded(path)
+            with self._lock:
+                # A re-run that invalidated this name while it loaded wins: serve, do not cache.
+                if self._generation.get(resolved, 0) == generation:
+                    self.loaded[resolved] = item
+                    self.loaded.move_to_end(resolved)
+        return item
 
     def invalidate(self, name: str) -> None:
         """Forget a cached experiment (after a re-run) and list it (after a new run)."""
-        self.loaded.pop(name, None)
+        with self._lock:
+            self.loaded.pop(name, None)
+            self._generation[name] = self._generation.get(name, 0) + 1
         if self.single and name != self.root.name:
             self.extra.add(name)
 

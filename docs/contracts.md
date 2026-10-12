@@ -26,8 +26,10 @@ file is written. An existing `--out` is replaced only when it is empty or holds 
 survives any failure: it is renamed to `.<dir>.old-<pid>-<n>` carrying a `.loveworld-swap.json` marker and
 removed only once the new run is in place. The lock, marker and names are the Python runner's, so either
 side recovers what the other left behind.
-Config JSON may be partial; missing fields take defaults. Seeds: `seeds.population`,
-`seeds.assignment`, `seeds.dynamics`. Treatment arm memory params: `memory.treatment`.
+Config JSON may be partial; missing fields take defaults. Unknown keys are rejected at every level,
+with the key named in the error, so a misspelt field can never quietly fall back to its default
+(engine 0.2.1). Seeds: `seeds.population`, `seeds.assignment`, `seeds.dynamics`. Treatment arm memory
+params: `memory.treatment`.
 
 ### Output directory
 
@@ -133,6 +135,9 @@ loveworld replay <results_dir>                                            # engi
 loveworld serve <results_dir> [--port 8765]                              # FastAPI + built dashboard
 loveworld build-engine                                                    # cargo build --release
 ```
+
+Every engine command is stopped after 120 seconds (env `LOVEWORLD_ENGINE_TIMEOUT`, in seconds); the
+stopped run's staging directory and lock are removed and an `EngineError` names the timeout.
 
 `run`, `placebo` and `twins` publish through a staging directory under a per-target lock
 (`.<name>.lock`, reported rather than stolen when stale). A run that dies between its two publication
@@ -297,7 +302,7 @@ A shock is a scheduled stressor applied to one arm or to everyone. The engine co
 {"kind": "job_loss" | "financial_crisis" | "temptation" | "intimacy_mismatch",
  "target": "treatment" | "control" | "all",
  "member": "a" | "b" | "random",        (ignored by financial_crisis, which hits both)
- "start_day": 90, "end_day": 210,        (end_day null means to the end of the run)
+ "start_day": 90, "end_day": 210,        (end_day null means the kind's default length, or to the end of the run when it has none)
  "magnitude": 1.0}                        (kind-specific, see below)
 ```
 
@@ -315,6 +320,12 @@ row with parameter = kind and applied_value = magnitude, and as an event `shock_
   each week the partner who wants more closeness may store a `disappointment` episode (negative,
   conflict class) with probability proportional to the gap.
 
+A random member is drawn once per couple and shock from its own keyed stream (`seeds.dynamics`,
+domain `shock_member_<shock index>`, couple id), never from the couple's own stream, so a shock that
+does nothing leaves every other row exactly as it was; a zero-magnitude job loss is the test. Engine
+0.2.1 made this change, which moves the table hashes of every run with a random-member shock: shock
+experiments written by 0.2.0 replay only on 0.2.0, and runs without shocks keep their hashes.
+
 `target: treatment` is an intervention (the treatment arm gets it, control does not).
 `target: all` is a world event that hits both arms equally, so the memory treatment is tested under
 stress. Remarriage couples have no arm and only receive `all` shocks.
@@ -327,14 +338,16 @@ Experiment YAML gains `treatment.shocks` (a list, target forced to treatment) an
 `loveworld serve <dir>` accepts either one results dir (with summary.json) or a results root; every
 child dir with a summary.json is an experiment, and `-placebo` and `-twins` dirs attach to their
 parent by name and are not listed on their own. Every existing endpoint accepts
-`?experiment=<name>` (default: the single experiment, or the first by name).
+`?experiment=<name>` (default: the single experiment, or the first by name). At most two experiments
+stay loaded in memory at once (env `LOVEWORLD_MAX_LOADED`), since one loaded year of 1,000 couples holds
+about half a gigabyte; the least recently used is dropped and read again from disk when it is next asked for.
 
 ```
 GET  /api/experiments      -> {"default": name, "items": [{"name", "dir", "n_couples", "days", "seeds",
                                "intervention": {"memory": {parameter: [control, treatment]} | null, "shocks": [...]},
                                "divorce_control", "divorce_treatment", "generated_at_unix"}]}
 GET  /api/shocks/catalog   -> {"kinds": [{"kind", "label", "blurb", "member_applies", "magnitude": {"min","max","default","unit"},
-                               "default_start_day", "default_end_day"}]}
+                               "default_start_day", "default_length_days", "default_end_day"}]}
 POST /api/experiments/run  -> body {"name"?, "n_couples"? (<= 2000), "days"? (<= 730), "seeds"?,
                                "treatment": {"conflict_half_life_days"?, ..., "shocks"?: [...]},
                                "control"?, "world"?: {"shocks": [...]}, "engine"?, "analysis"?: {"n_boot" (<= 500), "n_perm" (<= 500)},

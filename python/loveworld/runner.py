@@ -54,7 +54,7 @@ def check_target(target: Path, overwrite: bool) -> None:
             raise TargetError(f"{target} exists; pass overwrite to replace it")
 
 
-SWAP_MARKER = ".loveworld-swap.json"
+SWAP_MARKER = eng.SWAP_MARKER
 
 
 def _swap_in(tmp: Path, target: Path) -> None:

@@ -471,3 +471,76 @@ def test_legacies_and_orphan_days_are_tolerated_when_absent_and_served_when_pres
     a = c.get("/api/agents/1").json()
     assert [row["trust_prior"] for row in a["legacies"]] == [0.45]
     assert c.get("/api/agents/2").json()["legacies"] == []
+
+
+def test_the_store_keeps_only_the_most_recently_used_experiments(
+    results_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from loveworld.api import ExperimentStore
+
+    for name in ("alpha", "beta", "gamma"):
+        shutil.copytree(results_root / "smoke", tmp_path / name)
+    store = ExperimentStore(tmp_path, max_loaded=2)
+    a = store.get("alpha")
+    store.get("beta")
+    store.get("gamma")
+    assert list(store.loaded) == ["beta", "gamma"], "the least recently used is dropped first"
+    store.get("beta")
+    assert list(store.loaded) == ["gamma", "beta"], "a hit counts as a use"
+    again = store.get("alpha")
+    assert list(store.loaded) == ["beta", "alpha"]
+    assert again is not a, "an evicted experiment is read again from disk"
+    assert store.get("alpha") is again, "and then served from memory"
+    monkeypatch.setenv("LOVEWORLD_MAX_LOADED", "1")
+    assert ExperimentStore(tmp_path).max_loaded == 1
+    monkeypatch.setenv("LOVEWORLD_MAX_LOADED", "zero")
+    assert ExperimentStore(tmp_path).max_loaded == 2
+    with pytest.raises(ValueError):
+        ExperimentStore(tmp_path, max_loaded=0)
+
+
+def test_concurrent_cold_requests_load_an_experiment_once(
+    results_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+
+    from loveworld import api
+
+    shutil.copytree(results_root / "smoke", tmp_path / "alpha")
+    built: list[str] = []
+    real = api.Loaded
+
+    def slow_loaded(path: Path) -> object:
+        built.append(path.name)
+        threading.Event().wait(0.2)
+        return real(path)
+
+    monkeypatch.setattr(api, "Loaded", slow_loaded)
+    store = api.ExperimentStore(tmp_path, max_loaded=2)
+    got: list[object] = []
+    threads = [threading.Thread(target=lambda: got.append(store.get("alpha"))) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert built == ["alpha"], "one load serves every concurrent request"
+    assert all(g is got[0] for g in got)
+
+
+def test_a_rerun_during_a_load_is_not_hidden_behind_the_old_copy(
+    results_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from loveworld import api
+
+    shutil.copytree(results_root / "smoke", tmp_path / "alpha")
+    real = api.Loaded
+    store = api.ExperimentStore(tmp_path, max_loaded=2)
+
+    def loaded_then_rerun(path: Path) -> object:
+        item = real(path)
+        store.invalidate(path.name)  # a re-run lands while the old results were being read
+        return item
+
+    monkeypatch.setattr(api, "Loaded", loaded_then_rerun)
+    store.get("alpha")
+    assert "alpha" not in store.loaded, "the stale copy is served once and not cached"
