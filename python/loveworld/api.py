@@ -27,7 +27,7 @@ from loveworld import jobs as jobq
 from loveworld import public as pubmod
 from loveworld.analysis import Tables, load_tables, sanitize, sibling_dir
 from loveworld.engine import REPO_ROOT, EngineError
-from loveworld.experiment import ExperimentError, Shock, parse_experiment
+from loveworld.experiment import ExperimentError, Shock, build_engine_config, parse_experiment
 from loveworld.schema import (
     EXPERIMENT_KEYS,
     MAX_COUPLES,
@@ -925,11 +925,17 @@ def create_app(
             extra["translation.json"] = {"translations": records}
         name = exp.name
         target = store.results_root / name
+        twins = runner.twins_dir_for(target)
         if target.exists() and any(target.iterdir()) and not overwrite:
             raise HTTPException(status_code=409, detail=f"experiment {name!r} exists; set overwrite to replace it")
+        if twins.exists() and any(twins.iterdir()) and not overwrite:
+            raise HTTPException(status_code=409, detail=f"{twins.name} exists; set overwrite to replace it")
 
+        # Every run brings its twins (each couple under both arms on the same seeds), through this same
+        # job, so the run cap and the public rules cover them and the World page can show both.
         def work() -> dict[str, Any]:
-            runner.run_experiment(exp, target, overwrite=overwrite, extra_files=extra or None)
+            cfg = build_engine_config(exp)
+            runner.run_with_twins(cfg, target, exp.analysis, overwrite=overwrite, extra_files=extra or None)
             store.invalidate(name)
             return {"name": name, "dir": str(target)}
 
@@ -971,8 +977,11 @@ def create_app(
         except ExperimentError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
         target = store.results_root / plan.name
+        twins = runner.twins_dir_for(target)
         if target.exists() and any(target.iterdir()):
             raise HTTPException(status_code=409, detail=f"experiment {plan.name!r} exists; pick another name")
+        if twins.exists() and any(twins.iterdir()):
+            raise HTTPException(status_code=409, detail=f"{twins.name} exists; pick another name")
         extra: dict[str, Any] = {}
         if pointers:
             records = [
@@ -985,7 +994,7 @@ def create_app(
             return {"parent.json": forking.parent_record(plan, forking.compare_with_parent(run_dir, plan))}
 
         def work() -> dict[str, Any]:
-            runner.run_config(plan.config, target, plan.settings, extra_files=extra or None, extra_from_run=compare)
+            runner.run_with_twins(plan.config, target, plan.settings, extra_files=extra or None, extra_from_run=compare)
             store.invalidate(plan.name)
             return {"name": plan.name, "dir": str(target)}
 

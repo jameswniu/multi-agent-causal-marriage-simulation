@@ -4,7 +4,7 @@ Off by default, so the local dashboard keeps every power. When on:
 
 - Experiments present at startup are read-only, and overwrite is refused.
 - A visitor's runs get server-assigned names in their own namespace, keyed by a signed session
-  cookie, are visible only to that visitor, and are deleted after a day.
+  cookie, are visible only to that visitor, and are deleted after a day with the twins run beside each.
 - A run may set only its shocks and the treatment arm's memory half-life for fights, at most
   1,000 couples for 365 days; seeds, control memory and engine settings are fixed.
 - The translator has an input cap, a daily cap per client address and a daily cap overall,
@@ -231,21 +231,43 @@ class Counters:
             return self._load(time.strftime("%Y-%m-%d", time.gmtime()))
 
 
+_SIBLING = re.compile(r"-(twins|placebo)$")
+
+
+def _made_at(d: Path) -> float | None:
+    """When the run in `d` was written: its manifest's stamp, or its control twin's, else None."""
+    for manifest in (d / "manifest.json", d / "control" / "manifest.json"):
+        try:
+            return float(json.loads(manifest.read_text()).get("generated_at_unix") or 0)
+        except (OSError, ValueError, AttributeError):
+            continue
+    return None
+
+
 def sweep(root: Path, ttl_hours: int, now: float | None = None, keep: set[str] | None = None) -> list[str]:
-    """Delete visitor experiments older than `ttl_hours`; names in `keep` (the curated set) are never touched."""
+    """Delete visitor experiments older than `ttl_hours`, with the twins or placebo run beside each.
+
+    Names in `keep` (the curated set) and their siblings are never touched. A sibling ages with the
+    run it belongs to while that run is there, so the two leave together.
+    """
     now = time.time() if now is None else now
-    removed = []
+    keep = keep or set()
+    # Every age is read before anything is deleted, so a sibling still sees the run it belongs to.
+    ages: list[tuple[Path, float]] = []
     for child in sorted(root.iterdir()):
-        if child.name in (keep or set()) or owner_of(child.name) is None:
+        base = _SIBLING.sub("", child.name)
+        if child.name in keep or base in keep or owner_of(base) is None:
             continue
         if not child.is_dir() or child.is_symlink():
             continue
         if child.resolve().parent != root.resolve():
             continue
-        try:
-            made = float(json.loads((child / "manifest.json").read_text()).get("generated_at_unix") or 0)
-        except (OSError, ValueError):
-            made = child.stat().st_mtime
+        made = _made_at(root / base) if base != child.name else None
+        if made is None:
+            made = _made_at(child)
+        ages.append((child, child.stat().st_mtime if made is None else made))
+    removed = []
+    for child, made in ages:
         if now - made >= ttl_hours * 3600:
             shutil.rmtree(child, ignore_errors=True)
             removed.append(child.name)

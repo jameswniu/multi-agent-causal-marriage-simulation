@@ -87,6 +87,41 @@ def _swap_in(tmp: Path, target: Path) -> None:
     shutil.rmtree(old, ignore_errors=True)
 
 
+def _swap_in_pair(first_tmp: Path, first: Path, second_tmp: Path, second: Path) -> None:
+    """Publish two staged directories together: `first` (the twins), then `second` (the run).
+
+    The earlier `first` is kept aside, marked the way `_swap_in` marks it, until `second` is in place,
+    so a failure while publishing `second` takes the new `first` out and puts the earlier one back, and
+    both targets stay as they were.
+    """
+    first.parent.mkdir(parents=True, exist_ok=True)
+    kept: Path | None = None
+    if first.exists():
+        kept = _free_sibling(first, f".{first.name}.old-{os.getpid()}")
+        marker = {"state": "replacing", "target": first.name, "staging": str(first_tmp), "pid": os.getpid()}
+        (first / SWAP_MARKER).write_text(json.dumps(marker))
+        os.rename(first, kept)
+
+    def put_back() -> None:
+        if kept is not None:
+            os.rename(kept, first)
+            (first / SWAP_MARKER).unlink(missing_ok=True)
+
+    try:
+        os.rename(first_tmp, first)
+    except OSError:
+        put_back()
+        raise
+    try:
+        _swap_in(second_tmp, second)
+    except BaseException:
+        shutil.rmtree(first, ignore_errors=True)
+        put_back()
+        raise
+    if kept is not None:
+        shutil.rmtree(kept, ignore_errors=True)
+
+
 def _free_sibling(target: Path, stem: str) -> Path:
     """Return the first of `stem`, `stem-1`, `stem-2`, ... that does not exist next to `target`."""
     candidate = target.parent / stem
@@ -218,18 +253,28 @@ def run_config(
             run_dir = staging / "run"
             eng.run_engine(cfg, run_dir, overwrite=True)
             summary = analysis.write_summary(run_dir, settings, link_from=target)
-            files = dict(extra_files or {})
-            if extra_from_run is not None:
-                files.update(extra_from_run(run_dir))
-            for file_name, value in files.items():
-                reserved = ("manifest.json", "config.json", "summary.json")
-                if "/" in file_name or file_name.startswith(".") or file_name in reserved:
-                    raise ValueError(f"extra file name {file_name!r} is not allowed")
-                (run_dir / file_name).write_text(json.dumps(value, indent=2, sort_keys=True))
+            _write_extra_files(run_dir, extra_files, extra_from_run)
             _swap_in(run_dir, target)
         finally:
             shutil.rmtree(staging, ignore_errors=True)
     return summary
+
+
+def _write_extra_files(run_dir: Path, extra_files: dict[str, Any] | None, extra_from_run: ExtraFromRun | None) -> None:
+    """Write the extra records beside summary.json in the unpublished run, so they land with it or not at all."""
+    files = dict(extra_files or {})
+    if extra_from_run is not None:
+        files.update(extra_from_run(run_dir))
+    for file_name, value in files.items():
+        reserved = ("manifest.json", "config.json", "summary.json")
+        if "/" in file_name or file_name.startswith(".") or file_name in reserved:
+            raise ValueError(f"extra file name {file_name!r} is not allowed")
+        (run_dir / file_name).write_text(json.dumps(value, indent=2, sort_keys=True))
+
+
+def twins_dir_for(target: Path) -> Path:
+    """Where a run's twins live: the `<name>-twins` sibling that the API and the summary look for."""
+    return target.parent / f"{target.name}-twins"
 
 
 def run_twins(exp: Experiment, target: Path, overwrite: bool = False) -> dict[str, Any]:
@@ -247,6 +292,61 @@ def run_twins(exp: Experiment, target: Path, overwrite: bool = False) -> dict[st
                 eng.run_engine(cfg, run_dir / arm, overwrite=True, arm_override=arm, name=f"{exp.name}-twins-{arm}")
             summary = analysis.twins_summary(run_dir, exp.analysis)
             _swap_in(run_dir, target)
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+    return summary
+
+
+def _twins_link(dir_name: str, twins: dict[str, Any]) -> dict[str, Any]:
+    """Return the `governance.twins` block for twins published as `dir_name`, shaped as link_governance writes it."""
+    return {
+        "path": dir_name,
+        "paired": twins.get("paired", []),
+        "runs": twins.get("runs", {}),
+        "identical_parameters": twins.get("identical_parameters"),
+        "dynamics_hashes_equal": twins.get("dynamics_hashes_equal"),
+    }
+
+
+def run_with_twins(
+    cfg: dict[str, Any],
+    target: Path,
+    settings: AnalysisSettings,
+    overwrite: bool = False,
+    extra_files: dict[str, Any] | None = None,
+    extra_from_run: ExtraFromRun | None = None,
+) -> dict[str, Any]:
+    """Run a config and its twins, and publish both or neither; return the run's summary.
+
+    The twins (every couple under both arms on the run's own seeds) and the run are simulated and
+    analysed side by side in one staging directory, under both targets' locks, and the run's summary
+    links these twins. Only when everything has succeeded are the two published together (twins first,
+    then the run), and a failure at any step leaves both targets as they were, so an overwrite that
+    fails keeps the earlier run with its own twins.
+    """
+    eng.require_engine()
+    twins = twins_dir_for(target)
+    name = str(cfg.get("name") or target.name)
+    recover_swaps(target.parent)
+    with _TargetLock(target), _TargetLock(twins):
+        recover_swaps(target.parent, target.name)
+        recover_swaps(target.parent, twins.name)
+        check_target(target, overwrite)
+        check_target(twins, overwrite)
+        staging = _staging_dir(target)
+        try:
+            twins_dir = staging / "twins"
+            for arm in ("control", "treatment"):
+                eng.run_engine(cfg, twins_dir / arm, overwrite=True, arm_override=arm, name=f"{name}-twins-{arm}")
+            twins_summary = analysis.twins_summary(twins_dir, settings)
+            run_dir = staging / "run"
+            eng.run_engine(cfg, run_dir, overwrite=True)
+            summary = analysis.write_summary(run_dir, settings, link_from=target)
+            # The twins are not in place yet, so the summary links these ones, not whatever sits there now.
+            summary["governance"]["twins"] = _twins_link(twins.name, twins_summary)
+            summary = analysis.write_json(run_dir / "summary.json", summary)
+            _write_extra_files(run_dir, extra_files, extra_from_run)
+            _swap_in_pair(twins_dir, twins, run_dir, target)
         finally:
             shutil.rmtree(staging, ignore_errors=True)
     return summary
