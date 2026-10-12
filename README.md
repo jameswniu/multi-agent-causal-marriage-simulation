@@ -8,7 +8,7 @@
 
 <br/>
 
-<a href="https://github.com/jameswniu/loveworld/actions/workflows/ci.yml"><img alt="ci" src="https://github.com/jameswniu/loveworld/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+<a href="https://github.com/jameswniu/multi-agent-causal-marriage-simulation/actions/workflows/ci.yml"><img alt="ci" src="https://github.com/jameswniu/multi-agent-causal-marriage-simulation/actions/workflows/ci.yml/badge.svg?branch=main"></a>
 <img alt="Apache 2.0 license" src="https://img.shields.io/badge/license-Apache_2.0-4a5263?style=flat-square&labelColor=0e1119">
 
 <br/><br/>
@@ -127,9 +127,9 @@ target/release/loveworld-engine policy-spec
 </p>
 
 <p align="center">
-  <a href="https://github.com/jameswniu/loveworld/raw/main/assets/loveworld-demo.mp4"><img src="assets/loveworld-demo.gif" alt="A two and a half minute screen recording of the World replay across the example run and two shock experiments, with a stop on the prior-art notes" width="360"></a>
+  <a href="https://github.com/jameswniu/multi-agent-causal-marriage-simulation/raw/main/assets/loveworld-demo.mp4"><img src="assets/loveworld-demo.gif" alt="A two and a half minute screen recording of the World replay across the example run and two shock experiments, with a stop on the prior-art notes" width="360"></a>
 </p>
-<p align="center"><sub><a href="https://github.com/jameswniu/loveworld/raw/main/assets/loveworld-demo.mp4">Watch with sound</a></sub></p>
+<p align="center"><sub><a href="https://github.com/jameswniu/multi-agent-causal-marriage-simulation/raw/main/assets/loveworld-demo.mp4">Watch with sound</a></sub></p>
 
 The World page replays the year as a town.
 
