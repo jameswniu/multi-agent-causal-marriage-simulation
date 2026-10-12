@@ -135,7 +135,7 @@ class Sessions:
         if not cookie or "." not in cookie:
             return None
         sid, sig = cookie.split(".", 1)
-        if not _SID.match(sid) or not hmac.compare_digest(sig, self._sign(sid)):
+        if not _SID.fullmatch(sid) or not hmac.compare_digest(sig, self._sign(sid)):
             return None
         return sid
 
@@ -156,7 +156,7 @@ def visitor_name(sid: str, taken: set[str]) -> str:
 
 def owner_of(name: str) -> str | None:
     """Return the visitor id a server-assigned name belongs to, or None for any other name."""
-    m = _VISITOR.match(name)
+    m = _VISITOR.fullmatch(name)
     return m.group(1) if m else None
 
 

@@ -34,6 +34,7 @@ from loveworld.schema import (
     SHOCK_KEYS,
     SHOCK_KINDS,
     SHOCK_MEMBERS,
+    shock_last_day,
 )
 
 
@@ -203,15 +204,15 @@ def parse_shock(raw: Any, target: str, days: int, path: str) -> Shock:
     start = _int(entry.get("start_day", spec["default_start_day"]), f"{path}.start_day", lo=0)
     if start >= days:
         raise ExperimentError(f"{path}.start_day must be below days ({days}), got {start}")
-    end: int | None = None
-    if "end_day" in entry:
-        if entry["end_day"] is not None:
-            end = _int(entry["end_day"], f"{path}.end_day", lo=0)
-            if end < start or end >= days:
-                raise ExperimentError(f"{path}.end_day must lie in [{start}, {days - 1}], got {end}")
-    elif spec["default_length_days"] is not None:
-        # A finite-duration kind ends a catalog length after its start, clipped to the run.
-        end = min(start + int(spec["default_length_days"]), days - 1)
+    end: int | None
+    if entry.get("end_day") is not None:
+        end = _int(entry["end_day"], f"{path}.end_day", lo=0)
+        if end < start or end >= days:
+            raise ExperimentError(f"{path}.end_day must lie in [{start}, {days - 1}], got {end}")
+    else:
+        # A missing or empty end day means what it means to the engine: a kind with a catalog
+        # length ends that many days after its start, and any other kind runs to the end.
+        end = shock_last_day(str(kind), start, None, days)
     bounds = spec["magnitude"]
     magnitude = _float(entry.get("magnitude", bounds["default"]), f"{path}.magnitude")
     if not bounds["min"] <= magnitude <= bounds["max"]:
@@ -361,7 +362,7 @@ def parse_experiment(raw: Any, defaults: dict[str, Any] | None = None, source: P
     _check_keys(top, EXPERIMENT_KEYS, "experiment")
     defaults = defaults if defaults is not None else eng.default_config()
     name = str(top.get("name") or (source.stem if source else "experiment"))
-    if not SAFE_NAME.match(name):
+    if not SAFE_NAME.fullmatch(name):
         raise ExperimentError(f"name must match {SAFE_NAME.pattern}, got {name!r}")
     n_couples = _int(top.get("n_couples", defaults.get("n_couples", 1000)), "n_couples", lo=1)
     days = _int(top.get("days", defaults.get("days", 365)), "days", lo=1)

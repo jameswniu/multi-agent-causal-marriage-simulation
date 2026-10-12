@@ -273,6 +273,24 @@ SHOCK_CATALOG: tuple[dict[str, Any], ...] = (
 SHOCK_KINDS = {s["kind"]: s for s in SHOCK_CATALOG}
 
 
+def shock_last_day(kind: str, start_day: int, end_day: int | None, days: int | None = None) -> int | None:
+    """Return the last day a built-in shock is active, resolved exactly as the engine resolves it.
+
+    The engine (ShockConfig::last_day) keeps an explicit end day, ends a shock that has none
+    `default_length_days` after its start when its kind has a catalog length, and otherwise runs it
+    to the end of the run, which this returns as None. Given the run length, the day is clipped to
+    the last simulated day; days past the run are never simulated, so the clip changes nothing.
+    """
+    if end_day is not None:
+        return end_day
+    spec = SHOCK_KINDS.get(kind)
+    length = spec["default_length_days"] if spec else None
+    if length is None:
+        return None
+    last = start_day + int(length)
+    return last if days is None else min(last, days - 1)
+
+
 # Custom shocks: effect channels, matching the engine's effect catalog
 # (`loveworld-engine effect-catalog`), and a test holds the two to byte equality.
 MAX_EFFECTS = 8

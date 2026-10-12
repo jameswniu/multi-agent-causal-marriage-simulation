@@ -16,8 +16,9 @@ from loveworld.experiment import (
     label_slug,
     load_experiment,
     parse_experiment,
+    parse_shock,
 )
-from loveworld.schema import SHOCK_CATALOG
+from loveworld.schema import SHOCK_CATALOG, shock_last_day
 
 from .conftest import EXPERIMENTS
 
@@ -137,7 +138,7 @@ def test_default_end_day_is_start_plus_catalog_length_clipped_to_the_run(default
     exp = parse_experiment(
         _raw(days=400, world={"shocks": [{"kind": "temptation", "start_day": 10, "end_day": None}]}), defaults
     )
-    assert exp.shocks[0].end_day is None  # an explicit null means to the end of the run
+    assert exp.shocks[0].end_day == 130  # an empty end day means what it means to the engine: start plus 120
 
 
 def test_trait_shift_requires_a_trait_and_other_kinds_forbid_it(defaults: dict) -> None:
@@ -320,3 +321,34 @@ def test_every_python_accepted_custom_shock_is_accepted_by_the_engine(defaults: 
     exp = parse_experiment(_raw(n_couples=30, days=90, world={"shocks": [_custom(effects=effects)]}), defaults)
     manifest = eng.run_engine(build_engine_config(exp, defaults), tmp_path / "run")
     assert manifest["config"]["shocks"][0]["effects"][6]["start_day"] == 30
+
+
+def test_an_empty_end_day_means_what_it_means_to_the_engine(engine_ready: None, tmp_path: Path) -> None:
+    """For every built-in kind, an empty end day resolves in Python exactly as the engine resolves it.
+
+    Each kind runs twice on the same world, once with the end day Python resolved and once with no
+    end day, leaving the engine to resolve it. The tables must hash the same, and the resolved day
+    must be the catalog length after the start, clipped to the run, or None for an open-ended kind.
+    """
+    from loveworld import engine as eng
+
+    days = 200
+    for spec in eng.shock_catalog():
+        kind = spec["kind"]
+        if kind == "custom":
+            continue
+        for start in (5, 150):
+            raw: dict = {"kind": kind, "start_day": start, "end_day": None}
+            if spec.get("traits"):
+                raw["trait"] = spec["traits"][0]
+            shock = parse_shock(raw, "all", days, "shock")
+            length = spec["default_length_days"]
+            want = None if length is None else min(start + length, days - 1)
+            assert shock.end_day == want == shock_last_day(kind, start, None, days), (kind, start)
+            assert parse_shock({k: v for k, v in raw.items() if k != "end_day"}, "all", days, "s").end_day == want
+            resolved = shock.to_engine()
+            left_to_engine = dict(resolved, end_day=None)
+            base = {"n_couples": 12, "days": days}
+            a = eng.run_engine({**base, "shocks": [resolved]}, tmp_path / f"{kind}-{start}-python")
+            b = eng.run_engine({**base, "shocks": [left_to_engine]}, tmp_path / f"{kind}-{start}-engine")
+            assert a["determinism_hash"] == b["determinism_hash"], (kind, start)

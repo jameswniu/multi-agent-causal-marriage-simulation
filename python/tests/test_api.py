@@ -279,9 +279,9 @@ def test_twins_world_available(client: TestClient, results_root: Path) -> None:
     assert set(w["counts_control"][0]) == {"married", "conflict", "separated", "divorced"}
     assert w["counts_control"][0]["married"] + w["counts_control"][0]["conflict"] == 40
     assert w["paired"][0]["name"] == "divorce_rate"
-    assert (Path(w["path"]) / "control" / "manifest.json").exists()
+    assert w["path"] == "smoke-twins" and (results_root / w["path"] / "control" / "manifest.json").exists()
     _no_nan(w)
-    sub = TestClient(create_app(Path(w["path"]) / "treatment", frontend_dist=results_root / "no-dist"))
+    sub = TestClient(create_app(results_root / w["path"] / "treatment", frontend_dist=results_root / "no-dist"))
     own = sub.get("/api/world").json()
     assert [s[:40] for s in own["states"]] == w["states_treatment"]
     assert client.get("/api/twins/world", params={"experiment": "zeta"}).json()["available"] is False
@@ -372,7 +372,7 @@ def test_run_endpoint_validation_conflict_and_success(client: TestClient, result
     ok = client.post("/api/experiments/run?wait=true", json=body)
     assert ok.status_code == 200, ok.text
     out = ok.json()
-    assert out["name"] == "api-run" and Path(out["dir"]) == results_root / "api-run"
+    assert out["name"] == "api-run" and out["dir"] == "api-run" and (results_root / out["dir"]).is_dir()
     assert out["summary"]["experiment"]["treatment"]["treatment_value"] == 60.0
     assert [s["target"] for s in out["summary"]["experiment"]["shocks"]] == ["treatment", "all"]
     assert (results_root / "api-run" / "config.json").exists()

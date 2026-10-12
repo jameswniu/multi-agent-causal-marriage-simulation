@@ -418,7 +418,7 @@ class TwinsCache:
             "counts_treatment": grid_counts(gt, all_mask, ARM_LETTERS),
             "legend": LEGEND,
             "paired": list(paired.get("paired", [])),
-            "path": str(self.path),
+            "path": self.path.name,
         }
 
 
@@ -483,7 +483,7 @@ class ExperimentStore:
 
     def dir_for(self, name: str) -> Path | None:
         """Results directory of an experiment name, or None when it is not a contained child."""
-        if not SAFE_NAME.match(name):
+        if not SAFE_NAME.fullmatch(name):
             return None
         path = self.root if (self.single and name == self.root.name) else self.results_root / name
         return path if self._contained(path) else None
@@ -494,7 +494,7 @@ class ExperimentStore:
             return sorted(n for n in {self.root.name, *self.extra} if self.dir_for(n) is not None)
         out = []
         for child in sorted(self.results_root.iterdir()):
-            if child.name.endswith(GOVERNANCE_SUFFIXES) or not SAFE_NAME.match(child.name):
+            if child.name.endswith(GOVERNANCE_SUFFIXES) or not SAFE_NAME.fullmatch(child.name):
                 continue
             if not self._contained(child):
                 continue
@@ -573,7 +573,7 @@ class ExperimentStore:
             items.append(
                 {
                     "name": name,
-                    "dir": str(d),
+                    "dir": d.name,
                     "n_couples": cfg.get("n_couples"),
                     "days": cfg.get("days"),
                     "seeds": cfg.get("seeds"),
@@ -608,13 +608,24 @@ FORK_BODY_KEYS = ("parent", "name", "shocks", "translations")
 WAIT_TIMEOUT_S = 900.0
 
 
-def job_error(e: BaseException) -> tuple[int, str]:
-    """Return the HTTP status and message a failed run reports."""
+def job_error(e: BaseException, results_root: Path | None = None) -> tuple[int, str]:
+    """Return the HTTP status and message a failed run reports, with server paths made relative."""
     if isinstance(e, runner.TargetError):
-        return 409, str(e)
-    if isinstance(e, ExperimentError | EngineError | ValueError):
-        return 400, str(e)
-    return 500, f"the run failed: {type(e).__name__}: {e}"
+        code, message = 409, str(e)
+    elif isinstance(e, ExperimentError | EngineError | ValueError):
+        code, message = 400, str(e)
+    else:
+        code, message = 500, f"the run failed: {type(e).__name__}: {e}"
+    return code, scrub_paths(message, results_root)
+
+
+def scrub_paths(message: str, results_root: Path | None = None) -> str:
+    """Say a server path relative to the results root, and the home directory as ~, never in full."""
+    if results_root is not None:
+        root = str(results_root)
+        message = message.replace(root + os.sep, "").replace(root, "results")
+    home = str(Path.home())
+    return message.replace(home + os.sep, "~" + os.sep).replace(home, "~")
 
 
 def check_public_run(raw: Any, config: pubmod.PublicConfig) -> None:
@@ -663,7 +674,7 @@ def parse_run_body(raw: Any) -> tuple[dict[str, Any], bool]:
             if isinstance(v, bool) or not isinstance(v, int) or v < 1 or v > cap:
                 raise ExperimentError(f"{key} must be an integer between 1 and {cap}, got {v!r}")
     name = body.get("name") or _default_run_name()
-    if not isinstance(name, str) or not SAFE_NAME.match(name) or name.endswith(GOVERNANCE_SUFFIXES):
+    if not isinstance(name, str) or not SAFE_NAME.fullmatch(name) or name.endswith(GOVERNANCE_SUFFIXES):
         raise ExperimentError(f"name must match {SAFE_NAME.pattern} and not end in -placebo or -twins")
     body["name"] = name
     analysis = body.get("analysis") or {}
@@ -747,7 +758,7 @@ def create_app(
         store.preferred_default = "example" if "example" in curated else (min(curated) if curated else None)
         store.public_default_only = True
         pub.start_sweeper(on_removed=store.invalidate)
-    runs = queue if queue is not None else jobq.JobQueue(error_mapper=job_error)
+    runs = queue if queue is not None else jobq.JobQueue(error_mapper=lambda e: job_error(e, store.results_root))
     app = FastAPI(title="LoveWorld results", version="0.3.0")
     app.state.store = store
     app.state.jobs = runs
@@ -878,7 +889,7 @@ def create_app(
         except jobq.JobFailed as e:
             raise HTTPException(status_code=e.status_code, detail=str(e)) from e
         target = Path(result["dir"])
-        return {"job_id": job.id, "name": name, "dir": str(target), "summary": sanitize(_summary(target) or {})}
+        return {"job_id": job.id, "name": name, "dir": target.name, "summary": sanitize(_summary(target) or {})}
 
     @app.post("/api/experiments/run")
     def run_experiment(body: dict[str, Any], request: Request, wait: bool = Query(False)) -> Any:
@@ -946,7 +957,7 @@ def create_app(
                 name = pubmod.visitor_name(sid or "000000000000", taken_names())
             else:
                 name = body.get("name") or f"{parent[:40]}-fork-{time.strftime('%Y%m%d-%H%M%S')}"
-            if not isinstance(name, str) or not SAFE_NAME.match(name) or name.endswith(GOVERNANCE_SUFFIXES):
+            if not isinstance(name, str) or not SAFE_NAME.fullmatch(name) or name.endswith(GOVERNANCE_SUFFIXES):
                 raise ExperimentError(f"name must match {SAFE_NAME.pattern} and not end in -placebo or -twins")
             if name == parent:
                 raise ExperimentError("a fork needs a name of its own")
@@ -1112,7 +1123,7 @@ def create_app(
         loaded = store.get(experiment)
         loaded.twins.load()
         if loaded.twins.world is None:
-            return {"available": False, "reason": f"no twins run found next to {loaded.dir} (run `loveworld twins`)"}
+            return {"available": False, "reason": f"no twins run found for {loaded.dir.name} (run `loveworld twins`)"}
         return loaded.twins.world
 
     @app.get("/api/twins/couples/{couple_id}")

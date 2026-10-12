@@ -42,6 +42,7 @@ from loveworld.schema import (
     SHIFTABLE_TRAITS,
     SHOCK_CATALOG,
     SHOCK_KINDS,
+    shock_last_day,
 )
 
 DEFAULT_MODEL = "claude-haiku-5-5"
@@ -184,8 +185,8 @@ def shock_words(spec: dict[str, Any]) -> str:
     start = int(spec.get("start_day", 0))
     end = spec.get("end_day")
     if end is None:
-        length = kind["default_length_days"] if kind else None
-        days = f"from day {start} to the end of the run" if length is None else f"days {start} to {start + int(length)}"
+        last = shock_last_day(str(spec.get("kind")), start, None)
+        days = f"from day {start} to the end of the run" if last is None else f"days {start} to {last}"
     else:
         days = f"day {start}" if int(end) == start else f"days {start} to {int(end)}"
     magnitude = float(spec.get("magnitude", 0.0))
@@ -590,7 +591,7 @@ class Translator:
         """Return a translation this server produced, from memory or from its record on disk, or None."""
         with self._lock:
             hit = self._by_id.get(translation_id)
-        if hit is not None or self._records is None or not _ID.match(translation_id):
+        if hit is not None or self._records is None or not _ID.fullmatch(translation_id):
             return hit
         path = self._records / f"{translation_id}.json"
         try:

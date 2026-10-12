@@ -6423,7 +6423,7 @@
   },
   "governance": {
     "placebo": {
-      "path": "/Users/james.niu/loveworld/results/retention-90d-placebo",
+      "path": "retention-90d-placebo",
       "treatment": {
         "parameter": "none",
         "control_value": null,
@@ -6644,7 +6644,7 @@
       "determinism_hash": "dc04b97f0a49335b10702a4a1fbdf7303bce0f7b04bdd79b750b5c4798ca4f94"
     },
     "twins": {
-      "path": "/Users/james.niu/loveworld/results/retention-90d-twins",
+      "path": "retention-90d-twins",
       "paired": [
         {
           "name": "divorce_rate",

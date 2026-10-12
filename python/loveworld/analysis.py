@@ -498,7 +498,7 @@ def sibling_dir(root: Path, name: str, kind: str) -> Path | None:
     Nothing read from a summary or manifest is ever used as a path: only a name, and only once it
     matches `SAFE_NAME` and lands inside the root.
     """
-    if not name or not SAFE_NAME.match(name):
+    if not name or not SAFE_NAME.fullmatch(name):
         return None
     root = Path(root).resolve()
     candidate = root / f"{name}-{kind}"
@@ -542,14 +542,14 @@ def link_governance(results_dir: Path, summary: dict[str, Any], anchor: Path | N
                 continue
             if kind == "placebo":
                 summary["governance"]["placebo"] = {
-                    "path": str(path.parent),
+                    "path": path.parent.name,
                     "treatment": o_exp.get("treatment"),
                     "outcomes": other.get("outcomes", []),
                     "determinism_hash": o_exp.get("determinism_hash"),
                 }
             else:
                 summary["governance"]["twins"] = {
-                    "path": str(path.parent),
+                    "path": path.parent.name,
                     "paired": other.get("paired", []),
                     "runs": other.get("runs", {}),
                     "identical_parameters": other.get("identical_parameters"),
