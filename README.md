@@ -1,11 +1,28 @@
-# LoveWorld
+<p align="center">
+  <img src="docs/figures/hero.svg" alt="LoveWorld, a causal simulation of agent marriages. 1,000 agent couples, one year, one memory setting changed between arms. Three tiles compare control with treatment: divorced within the year 1.6% against 21.4%, trust on the last day 0.65 against 0.20, conflicts per couple-year 7.8 against 15.7. Four stages, experiment file, Rust engine, analysis, dashboard. Footer: python3 tools/figures.py --write  from results/example/summary.json." width="100%">
+</p>
 
-A reproducible causal simulation of 1,000 married AI-agent couples over one year. Change one thing
-about how the agents remember, and measure what it does to divorce, trust, conflict and repair.
+<div align="center">
 
-Everything here is simulated. The agents run an explicit rule-based policy whose every weight is
-printed by one command. Findings describe this world and nothing about human couples. That line is
-kept on purpose: the point of the project is a clean experiment, not a prediction.
+<b><font size="6">LoveWorld</font></b>
+
+<br/>
+
+<a href="https://github.com/jameswniu/loveworld/actions/workflows/ci.yml"><img alt="ci" src="https://github.com/jameswniu/loveworld/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+<img alt="MIT license" src="https://img.shields.io/badge/license-MIT-57606a?style=flat-square&labelColor=1f2328">
+
+<br/><br/>
+
+A reproducible causal simulation of 1,000 married AI-agent couples over one year. Change one thing about how the agents remember, and measure what it does to divorce, trust, conflict and repair.<br/>
+Everything here is simulated. The agents run an explicit rule-based policy whose every weight is printed by one command. Findings describe this world and nothing about human couples. That line is kept on purpose, because the point of the project is a clean experiment, not a prediction.
+
+<br/>
+
+<code>experiment.yaml -> engine -> parquet + hashes -> effects -> dashboard</code>
+
+</div>
+
+---
 
 ## The experiment
 
@@ -26,13 +43,17 @@ Example run (`experiments/example.yaml`, 1,000 couples, 365 days, seeds 11/22/33
 | Conflicts reconciled (conditional) | 78% | 35% | -43 points | -47 to -39 |
 | Days to reconcile (conditional) | 4.6 | 7.4 | +2.8 | 2.3 to 3.3 |
 
-Two checks ship with every experiment. The placebo run gives both arms the same parameters: its
-divorce effect is -0.2 points with a confidence interval of -1.8 to +1.4, and its behavioural
-tables are byte-identical whichever arm label is applied. The twin run puts every couple through
-both arms on the same random streams: the paired divorce effect is +20.0 points (17.4 to 22.7 by
-bootstrap over couples), and 20.6% of couples end the year differently because of the intervention.
+<p align="center">
+  <img src="docs/figures/results.svg" alt="Example run, control against treatment. Ten outcomes with control and treatment bars and the effect with its 95 percent interval. Divorced within the year 1.6 percent against 21.4 percent, separated at least once 19.4 against 88.6, days married 362.3 against 328.1, trust on the last day 0.65 against 0.20, mean trust 0.64 against 0.33, conflicts per couple-year 7.8 against 15.7, and conditional on events after assignment, escalations per conflict 2.0 against 4.2, conflicts ending reconciled 78.0 percent against 35.1, days from conflict to repair 4.6 against 7.4, divorced agents who remarried 25.0 percent against 6.5 with an interval that crosses zero." width="100%">
+</p>
 
-The effect is large because retained grudges feed a loop in this world: more retained negative
+Two checks ship with every experiment. The placebo run gives both arms the same parameters, and its
+divorce effect is -0.2 points with a confidence interval of -1.8 to +1.4, with behavioural tables
+that are byte-identical whichever arm label is applied. The twin run puts every couple through both
+arms on the same random streams, and the paired divorce effect is +20.0 points (17.4 to 22.7 by
+bootstrap over couples), with 20.6% of couples ending the year differently because of the intervention.
+
+The effect is large because retained grudges feed a loop in this world. More retained negative
 memory means more frequent conflicts, less repair, lower trust, and so on. That loop is a property
 of the rules, all of which are inspectable and editable, and the sensitivity to the half-life is
 one line away (`experiments/retention-45d.yaml` roughly halves the effect).
@@ -40,15 +61,15 @@ one line away (`experiments/retention-45d.yaml` roughly halves the effect).
 ## Pick your own stressor
 
 Memory is one knob. The same harness takes any scheduled shock aimed at one arm, and the dashboard
-has a picker for them: job loss (a stress jump to one partner that fades over months), financial
-crisis (daily stress on both partners for a stretch of the year), office temptation (more and better
-outside options for one partner for a while), intimacy mismatch (one partner wants much more
-closeness than the other), a trait shift (one partner becomes, say, 0.3 more neurotic), daily texts
-(one partner sends affection every day), an anniversary and weekly date nights. Pick the shock, the
-partner, the days and the size, hit Run, and a fresh experiment with its placebo-grade statistics
-appears in the experiment dropdown about ten seconds later. Example files for four of them sit in
-`experiments/`. A shock aimed at everyone is a world event, so you can ask whether holding onto
-fights hurts more during a financial crisis.
+has a picker for them. The picker covers job loss (a stress jump to one partner that fades over
+months), financial crisis (daily stress on both partners for a stretch of the year), office
+temptation (more and better outside options for one partner for a while), intimacy mismatch (one
+partner wants much more closeness than the other), a trait shift (one partner becomes, say, 0.3
+more neurotic), daily texts (one partner sends affection every day), an anniversary and weekly
+date nights. Pick the shock, the partner, the days and the size, hit Run, and a fresh experiment
+with its placebo-grade statistics appears in the experiment dropdown about ten seconds later.
+Example files for four of them sit in `experiments/`. A shock aimed at everyone is a world event,
+so you can ask whether holding onto fights hurts more during a financial crisis.
 
 These shocks are stylised on purpose. A job loss is a number of stress, not a bank balance, and
 temptation is a probability, not a person. Each one is explicit, logged and switchable, so the
@@ -56,24 +77,16 @@ question "what does this do to this world" has one honest answer.
 
 ## How it works
 
-```mermaid
-flowchart LR
-    Y[experiments/example.yaml] --> P[Python: loveworld CLI]
-    P -->|config JSON| E[Rust engine on Bevy ECS]
-    E -->|Parquet tables + manifest with hashes| R[(results/)]
-    R --> A[Python analysis: effects, intervals, placebo, twins]
-    A --> S[summary.json]
-    S --> API[FastAPI]
-    R --> API
-    API --> D[React dashboard]
-```
+<p align="center">
+  <img src="docs/figures/how-it-works.svg" alt="How a run flows, from an experiment file to a dashboard with every step logged. Section 01, the experiment file. One YAML file names couples, days, three seeds, the treatment memory half-life and any shocks, and Python turns it into the engine's config JSON. Section 02, the engine. Rust on Bevy ECS, headless and deterministic, one schedule every day for stress, affect, the conflict decision, trust, memory decay, the market and the log, every draw keyed by seed and id, writing eight Parquet tables and a manifest with a SHA-256 per table that replay checks. Section 03, the analysis. Python reads the tables and writes summary.json with an effect per outcome, bootstrap intervals and permutation p-values, conditional outcomes flagged, plus the placebo and twins checks. Section 04, the dashboard. FastAPI serves the results and React shows them, replaying the year day by day, opening any couple or agent, and running a new experiment from the page in about ten seconds. The policy never reads the arm, and a test greps four modules for the word." width="100%">
+</p>
 
-The engine (`engine/`) is a headless Bevy ECS world. Agents and couples are entities; one schedule
-of systems runs each day in a fixed order: stress, affect (a Gottman-style influence equation
-between partners), the couple interaction with its conflict, repair and leave decisions, trust,
-memory pruning, the remarriage market, and the daily log. Every random draw comes from a stream
-keyed by (seed, domain, id), so results do not depend on how the ECS iterates and a couple's stream
-is identical across arms.
+The engine (`engine/`) is a headless Bevy ECS world. Agents and couples are entities, and one
+schedule of systems runs each day in a fixed order. Stress comes first, then affect (a
+Gottman-style influence equation between partners), the couple interaction with its conflict,
+repair and leave decisions, trust, memory pruning, the remarriage market, and the daily log. Every
+random draw comes from a stream keyed by (seed, domain, id), so results do not depend on how the
+ECS iterates and a couple's stream is identical across arms.
 
 The Python package (`python/`) turns an experiment file into an engine config, runs the engine,
 computes outcomes and treatment effects, and serves the results. The dashboard (`frontend/`) is a
@@ -82,7 +95,7 @@ the model and the causal design are described in `docs/design.md`.
 
 ## Run it
 
-Prerequisites: Rust (stable, via rustup), uv, Node 20 or newer.
+You need Rust (stable, via rustup), uv, and Node 20 or newer.
 
 ```bash
 make engine          # build the simulation engine (release)
@@ -92,6 +105,7 @@ make twins           # every couple under both arms on the same random streams
 make replay          # re-run the example and verify every table hash
 make dashboard       # build the dashboard and serve it with the API on http://127.0.0.1:8765
 make test            # Rust, Python and frontend test suites
+make figures         # redraw the README figures from results/example/summary.json
 ```
 
 A full run of 1,000 couples for a year takes about a second in the engine and about ten seconds
@@ -106,18 +120,27 @@ target/release/loveworld-engine default-config
 
 ## The dashboard
 
-The World page replays the year: play, pause, fast-forward at 1x, 10x or 50x days per second, with
-every couple as a tile coloured by state (married, in conflict, separated, divorced, dating again),
-control and treatment side by side, counters per arm and a ticker of the day's events. Click a
-tile for that couple's story: the state timeline, both partners' trust and affect, every conflict,
-and every decision with the utilities behind it. A second mode shows the same couples under both arms, each tile one couple
-twice, with a counter of how many fates differ that day. The other pages hold the causal readout:
-the effect table and forest plot, survival and trust curves by arm, recovery and conflict
-distributions, the agent explorer, the policy inspector, and the governance page with the placebo
-and twin results and the covariate balance table. Every couple and agent page has a collapsed
-"Under the hood" panel that lists, day by day, what each partner remembered and how much it weighed,
-how trust and affect moved, which action they chose and with what probabilities, and any shock that
-landed.
+<p align="center">
+  <img src="assets/world-randomized.png" alt="The World page on day 200 of 364. Two grids of 500 couples, one per arm. On the left, forgets fights in two weeks, 3 of 500 divorced, 57 in conflict, mean trust 0.65. On the right, holds onto fights for three months, 62 of 500 divorced, 208 in conflict, mean trust 0.30. Tiles are blue for married, outlined for a couple in conflict, orange for separated, dark for divorced, green for dating." width="100%">
+</p>
+
+<p align="center">
+  <a href="https://github.com/jameswniu/loveworld/raw/main/assets/loveworld-demo.mp4"><img src="assets/loveworld-demo.gif" alt="A two and a half minute screen recording of the World replay across the example run and two shock experiments, with a stop on the prior-art notes" width="360"></a>
+</p>
+<p align="center"><sub><a href="https://github.com/jameswniu/loveworld/raw/main/assets/loveworld-demo.mp4">Watch with sound</a></sub></p>
+
+The World page replays the year.
+
+- Play, pause and fast-forward at 1x, 10x or 50x days per second, with every couple as a tile coloured by state and control and treatment side by side.
+- Counters per arm and a ticker of the day's events.
+- Click a tile for that couple's story, the state timeline, both partners' trust and affect, every conflict, and every decision with the utilities behind it.
+- A second mode shows the same couples under both arms, each tile one couple twice, with a counter of how many fates differ that day.
+
+The other pages hold the causal readout.
+
+- The effect table and forest plot, survival and trust curves by arm, recovery and conflict distributions.
+- The agent explorer, the policy inspector, and the governance page with the placebo and twin results and the covariate balance table.
+- Every couple and agent page has a collapsed "Under the hood" panel that lists, day by day, what each partner remembered and how much it weighed, how trust and affect moved, which action they chose and with what probabilities, and any shock that landed.
 
 ## Governance
 
@@ -140,9 +163,9 @@ read the placebo as a whole, not outcome by outcome.
 
 ## What was borrowed
 
-The remarriage market follows Hills and Todd's MADAM model (JASSS 2008): singles accept a partner
-when compatibility clears a threshold that relaxes with time and is anchored to the match quality
-of the marriage that just ended. The daily affect update follows the influence equations in
+The remarriage market follows Hills and Todd's MADAM model (JASSS 2008), where singles accept a
+partner when compatibility clears a threshold that relaxes with time and is anchored to the match
+quality of the marriage that just ended. The daily affect update follows the influence equations in
 Gottman and Murray's mathematics of marriage. The memory stream, recency decay with importance
 weighting, follows Park and colleagues' Generative Agents (2023). The explicit action menu at
 conflict turning points and the auditable relationship state follow RELATE-Sim (Yue and
@@ -156,8 +179,8 @@ by two independent readers. In that record no model gives couples a conflict pro
 reunion, none gives agents a memory that decays, and none randomises an intervention inside one
 population; the nearest, Grow, Schnor and Van Bavel (2017), MADAM and SOCSIM, run marriage, divorce and
 remarriage in one population and dissolve marriages by trade-up or hazard rate. The claim is the first
-combination in this domain, not the invention of the tools: common random numbers, placebo runs and
-seeded replay are standard simulation methodology. Those earlier models are also fitted to census,
+combination in this domain, not the invention of the tools, since common random numbers, placebo runs
+and seeded replay are standard simulation methodology. Those earlier models are also fitted to census,
 survey or register data, and this one is not. The 14 and 90 day half-lives are design parameters; no
 human study in the reviewed record measures how long people hold on to a conflict.
 
@@ -165,8 +188,8 @@ human study in the reviewed record measures how long people hold on to a conflic
 
 Phase 2 renders logged episodes as dialogue with a cloned voice per agent and avatar video for
 selected scenes; it narrates decisions the engine already made, so it cannot touch the estimate.
-Phase 3 swaps in learned policies under the same harness: an LLM policy choosing from the same five
-actions, and a PyTorch policy whose hidden state can be intervened on directly. Later: multi-year
+Phase 3 swaps in learned policies under the same harness, an LLM policy choosing from the same five
+actions and a PyTorch policy whose hidden state can be intervened on directly. Later come multi-year
 and multi-generation runs, household economics, calibration against demographic rate schedules,
 and legal dissolution.
 
@@ -179,7 +202,10 @@ frontend/      Vite + React + TypeScript dashboard
 experiments/   example.yaml, retention-45d.yaml, contagion-block.yaml, job-loss.yaml, daily-texts.yaml,
                neuroticism-shift.yaml, crisis-under-retention.yaml, smoke.yaml
 results/       run outputs; results/example keeps the small tables and summary of the example run
-docs/          design.md (model and causal design), contracts.md (schemas, CLI, API), prior-art.md (what came before)
+docs/          design.md (model and causal design), contracts.md (schemas, CLI, API), prior-art.md (what came before),
+               figures/ (the README figures, drawn by tools/figures.py and checked in CI)
+tools/         figures.py, the figure generator with its fit guard
+assets/        dashboard screenshots and the demo recording
 ```
 
 ## License

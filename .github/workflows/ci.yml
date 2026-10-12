@@ -43,3 +43,8 @@ jobs:
           node-version: 22
       - run: cd frontend && npm ci
       - run: cd frontend && npm run lint && npm test -- --run && npm run build
+  figures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/figures.py --check

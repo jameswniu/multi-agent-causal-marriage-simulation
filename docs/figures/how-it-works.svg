@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1338" width="100%" role="img" aria-label="How a LoveWorld run flows">
+<rect x="0.75" y="0.75" width="1198.5" height="1336.5" rx="12" fill="#ffffff" stroke="#d0d7de" stroke-width="1.5"/>
+
+<text x="48" y="72" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="44" fill="#1f2328" font-weight="700" text-anchor="start">How a run flows</text>
+<text x="48" y="106" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#57606a" text-anchor="start">Experiment file to dashboard, every step logged</text>
+<rect x="792" y="36" width="360" height="76" rx="8" fill="#ffffff" stroke="#d0d7de" stroke-width="1.5"/>
+<text x="972" y="66" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="23" fill="#345c8f" text-anchor="middle">1,000 couples, 365 days</text>
+<text x="972" y="96" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="23" fill="#57606a" text-anchor="middle">one second in the engine</text>
+<text x="48" y="142" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="23" fill="#345c8f" font-weight="700" text-anchor="start" letter-spacing="1.5">01  THE EXPERIMENT FILE</text>
+<text x="488" y="142" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="23" fill="#57606a" text-anchor="start">One YAML file is the whole experiment</text>
+<line x1="48" y1="154" x2="1152" y2="154" stroke="#d0d7de" stroke-width="1"/>
+<rect x="48" y="162" width="1104" height="196" rx="8" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+<rect x="48" y="172" width="4" height="176" rx="2" fill="#345c8f"/>
+<text x="70" y="206" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="26" fill="#1f2328" font-weight="700" text-anchor="start">experiments/example.yaml</text>
+<text x="70" y="248" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#1f2328" text-anchor="start">Couples, days, three seeds, the treatment memory half-life, and any shocks.</text>
+<text x="70" y="284" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#1f2328" text-anchor="start">Python turns it into the engine's config JSON and keeps both.</text>
+<text x="70" y="334" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="23" fill="#57606a" text-anchor="start">loveworld run experiments/example.yaml</text>
+<text x="48" y="418" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="23" fill="#345c8f" font-weight="700" text-anchor="start" letter-spacing="1.5">02  THE ENGINE</text>
+<text x="488" y="418" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="23" fill="#57606a" text-anchor="start">Rust on Bevy ECS, headless, deterministic</text>
+<line x1="48" y1="430" x2="1152" y2="430" stroke="#d0d7de" stroke-width="1"/>
+<rect x="48" y="438" width="540" height="226" rx="8" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+<rect x="48" y="448" width="4" height="206" rx="2" fill="#345c8f"/>
+<text x="70" y="482" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="26" fill="#1f2328" font-weight="700" text-anchor="start">One schedule, every day</text>
+<text x="70" y="524" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#1f2328" text-anchor="start">Stress, affect, conflict decision,</text>
+<text x="70" y="560" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#1f2328" text-anchor="start">trust, memory decay, market, log.</text>
+<text x="70" y="596" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#1f2328" text-anchor="start">Every draw keyed by seed and id.</text>
+<text x="70" y="640" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="23" fill="#57606a" text-anchor="start">loveworld-engine run --config</text>
+<rect x="612" y="438" width="540" height="226" rx="8" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+<rect x="612" y="448" width="4" height="206" rx="2" fill="#345c8f"/>
+<text x="634" y="482" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="26" fill="#1f2328" font-weight="700" text-anchor="start">What it writes</text>
+<text x="634" y="524" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#1f2328" text-anchor="start">Eight Parquet tables, one manifest</text>
+<text x="634" y="560" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#1f2328" text-anchor="start">with a SHA-256 per table.</text>
+<text x="634" y="596" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#1f2328" text-anchor="start">Replay fails on any mismatch.</text>
+<text x="634" y="640" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="23" fill="#57606a" text-anchor="start">loveworld-engine replay --manifest</text>
+<text x="48" y="724" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="23" fill="#345c8f" font-weight="700" text-anchor="start" letter-spacing="1.5">03  THE ANALYSIS</text>
+<text x="488" y="724" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="23" fill="#57606a" text-anchor="start">Python reads the tables and writes summary.json</text>
+<line x1="48" y1="736" x2="1152" y2="736" stroke="#d0d7de" stroke-width="1"/>
+<rect x="48" y="744" width="540" height="226" rx="8" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+<rect x="48" y="754" width="4" height="206" rx="2" fill="#345c8f"/>
+<text x="70" y="788" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="26" fill="#1f2328" font-weight="700" text-anchor="start">Effects with intervals</text>
+<text x="70" y="830" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#1f2328" text-anchor="start">Effect per outcome, with bootstrap</text>
+<text x="70" y="866" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#1f2328" text-anchor="start">intervals and permutation p-values.</text>
+<text x="70" y="902" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#1f2328" text-anchor="start">Conditional outcomes are flagged.</text>
+<text x="70" y="946" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="23" fill="#57606a" text-anchor="start">loveworld analyze results/example</text>
+<rect x="612" y="744" width="540" height="226" rx="8" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+<rect x="612" y="754" width="4" height="206" rx="2" fill="#345c8f"/>
+<text x="634" y="788" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="26" fill="#1f2328" font-weight="700" text-anchor="start">Two checks on every experiment</text>
+<text x="634" y="830" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#1f2328" text-anchor="start">Placebo: equal parameters, both</text>
+<text x="634" y="866" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#1f2328" text-anchor="start">arms must match byte for byte.</text>
+<text x="634" y="902" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#1f2328" text-anchor="start">Twins: each couple under both arms.</text>
+<text x="634" y="946" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="23" fill="#57606a" text-anchor="start">make placebo   make twins</text>
+<text x="48" y="1030" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="23" fill="#345c8f" font-weight="700" text-anchor="start" letter-spacing="1.5">04  THE DASHBOARD</text>
+<text x="488" y="1030" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="23" fill="#57606a" text-anchor="start">FastAPI serves the results, React shows them</text>
+<line x1="48" y1="1042" x2="1152" y2="1042" stroke="#d0d7de" stroke-width="1"/>
+<rect x="48" y="1050" width="1104" height="196" rx="8" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+<rect x="48" y="1060" width="4" height="176" rx="2" fill="#345c8f"/>
+<text x="70" y="1094" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="26" fill="#1f2328" font-weight="700" text-anchor="start">World replay and the causal readout</text>
+<text x="70" y="1136" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#1f2328" text-anchor="start">Play the year day by day, open any couple or agent, read every decision.</text>
+<text x="70" y="1172" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#1f2328" text-anchor="start">Pick a shock and run a new experiment from the page in about ten seconds.</text>
+<text x="70" y="1222" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="23" fill="#57606a" text-anchor="start">make dashboard</text>
+<text x="600" y="1314" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="23" fill="#57606a" text-anchor="middle">The policy never reads the arm. A test greps four modules for the word.</text>
+</svg>

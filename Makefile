@@ -7,7 +7,7 @@ EXPERIMENT ?= $(abspath experiments/example.yaml)
 RESULTS ?= $(abspath results/example)
 PORT ?= 8765
 
-.PHONY: help engine engine-test python-sync python-test python-lint frontend-install frontend-test frontend-lint frontend-build test lint build example placebo twins replay serve dashboard clean
+.PHONY: help engine engine-test python-sync python-test python-lint frontend-install frontend-test frontend-lint frontend-build test lint build example placebo twins replay serve dashboard figures figures-check clean
 
 help:
 	@grep -E '^[a-z-]+:.*?## ' Makefile | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'
@@ -66,6 +66,12 @@ serve: ## Serve the API and built dashboard for every experiment under results/
 	$(PY) loveworld serve "$(abspath results)" --port $(PORT)
 
 dashboard: frontend-build serve ## Build the dashboard, then serve it
+
+figures: ## Redraw the README figures from results/example/summary.json
+	python3 tools/figures.py --write
+
+figures-check: ## Fail if a committed README figure differs from its generator
+	python3 tools/figures.py --check
 
 clean: ## Remove build outputs (keeps results/example)
 	rm -rf target frontend/dist python/.venv
