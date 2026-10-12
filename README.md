@@ -98,24 +98,26 @@ the model and the causal design are described in `docs/design.md`.
 You need Rust (stable, via rustup), uv, and Node 20 or newer.
 
 ```bash
-make engine          # build the simulation engine (release)
-make example         # run the example experiment and analysis into results/example
-make placebo         # same experiment with treatment parameters equal to control
-make twins           # every couple under both arms on the same random streams
-make replay          # re-run the example and verify every table hash
-make dashboard       # build the dashboard and serve it with the API on http://127.0.0.1:8765
-make test            # Rust, Python and frontend test suites
-make figures         # redraw the README figures from results/example/summary.json
+make engine            # build the simulation engine (release)
+make example           # run the example experiment and analysis into results/example
+make placebo           # same experiment with treatment parameters equal to control
+make twins             # every couple under both arms on the same random streams
+make replay            # re-run the example and verify every table hash
+make figures           # redraw the README figures from results/example/summary.json
+make frontend-install  # dashboard dependencies, once
+make build             # engine and dashboard bundle
+make test              # Rust, Python and frontend test suites
 ```
 
 A full run of 1,000 couples for a year takes about a second in the engine and about ten seconds
-with the analysis. The engine can also be driven directly:
+with the analysis. `make dashboard` then serves the API and the built dashboard on
+http://127.0.0.1:8765. The engine can also be driven directly:
 
 ```bash
+target/release/loveworld-engine default-config > cfg.json
 target/release/loveworld-engine run --config cfg.json --out results/mine
 target/release/loveworld-engine replay --manifest results/mine/manifest.json
 target/release/loveworld-engine policy-spec
-target/release/loveworld-engine default-config
 ```
 
 ## The dashboard
