@@ -315,6 +315,8 @@ export interface CoupleDetailResponse {
   decisions: DecisionRow[];
   episodes?: EpisodeRow[];
   legacies?: LegacyRow[];
+  /** Records the two partners sealed when an earlier marriage of theirs ended (newer servers). */
+  partner_legacies?: LegacyRow[];
 }
 
 export interface AgentDailyRow {
@@ -587,4 +589,37 @@ export interface EpisodeRow {
   intensity: number;
   source: string;
   amplified: boolean;
+}
+
+/** One colour view of the town: a logged daily number per couple on a fixed range. */
+export interface LensMeta {
+  name: string;
+  label: string;
+  words: string;
+  lo: number;
+  hi: number;
+  higher_is_worse: boolean;
+}
+
+export interface LensesResponse {
+  items: LensMeta[];
+}
+
+/** A lens for one run: `bytes[day * couples + i]` is couple `i` of /api/world on that day, 0 to 254 over
+ * [lo, hi], 255 when the couple does not exist that day. */
+export interface LensData {
+  name: string;
+  days: number;
+  couples: number;
+  lo: number;
+  hi: number;
+  worseHigh: boolean;
+  bytes: Uint8Array;
+}
+
+/** Event counts per day: `kinds[kind][group][day]`, groups control, treatment and remarriage. */
+export interface DayDigest {
+  days: number;
+  groups: string[];
+  kinds: Record<string, Record<string, number[]>>;
 }

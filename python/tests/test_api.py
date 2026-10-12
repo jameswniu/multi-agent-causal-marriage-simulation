@@ -127,7 +127,17 @@ def test_couples_listing_and_detail(client: TestClient) -> None:
     detail = client.get("/api/couples/0")
     assert detail.status_code == 200
     d = detail.json()
-    assert set(d) == {"couple", "agents", "daily", "events", "conflicts", "decisions", "episodes", "legacies"}
+    assert set(d) == {
+        "couple",
+        "agents",
+        "daily",
+        "events",
+        "conflicts",
+        "decisions",
+        "episodes",
+        "legacies",
+        "partner_legacies",
+    }
     assert d["couple"]["couple_id"] == 0
     assert [a["agent_id"] for a in d["agents"]] == [d["couple"]["agent_a"], d["couple"]["agent_b"]]
     assert len(d["daily"]) >= 1 and d["daily"][0]["day"] == 0
@@ -283,7 +293,17 @@ def test_twins_couple_detail(client: TestClient) -> None:
     body = r.json()
     assert set(body) == {"control", "treatment"}
     for arm in ("control", "treatment"):
-        detail_keys = {"couple", "agents", "daily", "events", "conflicts", "decisions", "episodes", "legacies"}
+        detail_keys = {
+            "couple",
+            "agents",
+            "daily",
+            "events",
+            "conflicts",
+            "decisions",
+            "episodes",
+            "legacies",
+            "partner_legacies",
+        }
         assert set(body[arm]) == detail_keys
         assert body[arm]["couple"]["couple_id"] == 3
         assert body[arm]["couple"]["arm"] == arm

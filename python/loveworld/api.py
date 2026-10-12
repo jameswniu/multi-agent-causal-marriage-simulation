@@ -22,7 +22,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from loveworld import forking, runner, translate
+from loveworld import forking, runner, translate, world_views
 from loveworld import jobs as jobq
 from loveworld import public as pubmod
 from loveworld.analysis import Tables, load_tables, sanitize, sibling_dir
@@ -180,6 +180,23 @@ class Loaded:
         self.events_sorted = t.events.sort_values(["day", "seq"], kind="stable")
         self.world = build_world(t)
         self.twins = TwinsCache(results_dir)
+        self._lenses: dict[str, bytes | None] = {}
+        self._digest: dict[str, Any] | None = None
+        self._views_lock = threading.Lock()
+
+    def lens(self, name: str) -> bytes | None:
+        """One lens as day-major bytes, built on first use and kept (None when the run lacks it)."""
+        with self._views_lock:
+            if name not in self._lenses:
+                self._lenses[name] = world_views.lens_bytes(self.tables, name)
+            return self._lenses[name]
+
+    def digest(self) -> dict[str, Any]:
+        """Event counts per day, group and kind, built on first use and kept."""
+        with self._views_lock:
+            if self._digest is None:
+                self._digest = world_views.day_digest(self.tables)
+            return self._digest
 
     @property
     def summary(self) -> dict[str, Any] | None:
@@ -234,7 +251,30 @@ def couple_detail(loaded: Loaded, couple_id: int) -> dict[str, Any] | None:
             if couple_id in loaded.legacies_by_couple
             else empty
         ),
+        "partner_legacies": partner_legacies(loaded, c, couple_id),
     }
+
+
+def partner_legacies(loaded: Loaded, couple: dict[str, Any], couple_id: int) -> list[dict[str, Any]]:
+    """Return the records the two partners sealed when an earlier marriage of theirs ended in divorce.
+
+    Only records sealed before this couple formed count, so an earlier couple never shows a record
+    from a partner's later marriage.
+    """
+    formed = couple.get("formed_day")
+    parts = []
+    for agent in (couple.get("agent_a"), couple.get("agent_b")):
+        if agent is None:
+            continue
+        g = loaded.legacies_by_agent.get(int(agent))
+        if g is not None and len(g):
+            keep = g["couple_id"] != couple_id
+            if formed is not None and pd.notna(formed):
+                keep &= g["day"] < int(formed)
+            parts.append(g[keep])
+    if not parts:
+        return []
+    return records(pd.concat(parts).sort_values(["day", "agent_id"]))
 
 
 def agent_detail(loaded: Loaded, agent_id: int) -> dict[str, Any] | None:
@@ -979,6 +1019,38 @@ def create_app(
     @app.get("/api/world")
     def world_view(experiment: str | None = Query(None)) -> dict[str, Any]:
         return store.get(experiment).world
+
+    @app.get("/api/lenses")
+    def lenses() -> dict[str, Any]:
+        return {"items": [lens.meta() for lens in world_views.LENSES.values()]}
+
+    @app.get("/api/lens/{name}")
+    def lens(name: str, experiment: str | None = Query(None)) -> Response:
+        meta = world_views.LENSES.get(name)
+        if meta is None:
+            known = ", ".join(world_views.LENSES)
+            raise HTTPException(status_code=404, detail=f"unknown lens {name!r} (known: {known})")
+        loaded = store.get(experiment)
+        data = loaded.lens(name)
+        if data is None:
+            why = f"this run has no {meta.label.lower()} column (an older engine wrote it)"
+            raise HTTPException(status_code=404, detail=why)
+        n = len(loaded.world["couples"])
+        return Response(
+            content=data,
+            media_type="application/octet-stream",
+            headers={
+                "X-Lens-Days": str(loaded.tables.days),
+                "X-Lens-Couples": str(n),
+                "X-Lens-Lo": repr(meta.lo),
+                "X-Lens-Hi": repr(meta.hi),
+                "X-Lens-Worse-High": "1" if meta.higher_is_worse else "0",
+            },
+        )
+
+    @app.get("/api/digest")
+    def digest(experiment: str | None = Query(None)) -> dict[str, Any]:
+        return store.get(experiment).digest()
 
     @app.get("/api/events")
     def events(

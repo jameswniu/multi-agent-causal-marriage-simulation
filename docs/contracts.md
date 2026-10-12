@@ -299,7 +299,8 @@ or Grid switch keeps the grids, which are also the fallback when WebGL is missin
 start, and the twins mode always uses them. The town reads only `/api/world` and
 `/api/couples?limit=10000`, for the two agent ids of every couple, and draws a pure layout from them
 (`frontend/src/town/layout.ts`). Control lots sit left of a central plaza and treatment lots right of
-it, in couple id order, 20 to a row. Remarried couples that marry at some point in the run get
+it, in couple id order, with as many lots to a row as make the whole town fit the canvas best (8 to 80,
+worked out again when the canvas resizes). Remarried couples that marry at some point in the run get
 new-home lots at the foot of the plaza, each roof half in the colour of the arm its partner first
 married in, and a pair that only dates never gets a lot.
 
@@ -308,7 +309,9 @@ home. `C` puts both outside and apart under a conflict sign. `S` sends one partn
 couple id, to the plaza edge on its district's side while the other stays home. `D` and `B` make both
 single, each at a fixed spot in the plaza, and `T` walks the pair together in the plaza's dating
 area. The walk between two days' places is cosmetic: it snaps at 50x and on jumps of more than one
-day, and it is never stored or read back. Below 24 screen pixels per lot only the houses are drawn.
+day, and it is never stored or read back. Below 24 screen pixels per lot each person is drawn as a
+dot that still walks, in its arm's colour at home, yellow in a conflict, red when one partner has
+walked out and grey in the plaza.
 The town must stay smooth at 50x with 2,000 figures. Measured on 2026-10-11 on an Apple M5 Pro
 (headless Chromium on Metal), the frame time averaged 8.3 ms with a 95th percentile of 9.2 ms, and
 updating every figure took 0.18 ms a frame.
@@ -772,3 +775,53 @@ GET /api/health -> {"ok", "experiments": [...], "public": bool,
 The dashboard reads `public` to hide the name and overwrite fields and apply the caps, and, when a
 `turnstile_site_key` is set, renders the check and sends its token as `cf-turnstile-response` on the
 next POST. Deployment is in `docs/deploy.md`.
+
+## 11. World page views: colour lenses, a day digest and the couple panel (added 2026-10-11)
+
+Three read-only views of a finished run keep the World page cheap to play. They read only the tables
+the engine wrote (`python/loveworld/world_views.py`) and are built once per experiment on first use.
+
+```
+GET /api/lenses            -> {"items": [{"name": "grudge", "label": "Grudge", "words": "...", "lo": 0.0, "hi": 1.5,
+                                          "higher_is_worse": true}, ...]}
+GET /api/lens/{name}       -> application/octet-stream, days x couples bytes, day-major, couples in /api/world order
+                              headers X-Lens-Days, X-Lens-Couples, X-Lens-Lo, X-Lens-Hi, X-Lens-Worse-High ("1" or "0")
+                              404 for an unknown lens, or a run whose daily table lacks the lens columns
+GET /api/digest            -> {"days": N, "groups": ["control", "treatment", "remarriage"],
+                               "kinds": {kind: {group: [count per day, N entries]}}}
+```
+
+Lenses are trust (`trust_a`, `trust_b`, range 0 to 1), stress (`stress_a`, `stress_b`, 0 to 1.5),
+grudge (`neg_a`, `neg_b`, 0 to 1.5), warmth (`pos_a`, `pos_b`, 0 to 1.5), satisfaction
+(`satisfaction_a`, `satisfaction_b`, 0 to 1) and days without warmth (`orphan_days`, 0 to 42). A
+couple's value on a day is the mean of the lens columns in its daily row. Byte `b` from 0 to 254
+stands for `lo + b / 254 * (hi - lo)`, values outside the range are clipped, and 255 means the couple
+has no daily row that day. Byte `day * couples + i` belongs to the couple at position `i` of
+`/api/world`'s `couples`. Ranges are fixed, so a colour means the same value in every experiment.
+
+The digest counts every event of the run by kind, day and group. A couple's group is its arm for an
+initial couple and `remarriage` otherwise, and every kind that occurs lists all three groups.
+
+`/api/couples/{id}` gains `"partner_legacies"`, the records the couple's two partners sealed when an
+earlier marriage of theirs ended in divorce before this couple formed (section 7), oldest first. The
+panel shows a record only from the day it was sealed.
+
+Dashboard. The town's toolbar picks a lens, which recolours every house on a green, yellow and red
+ramp from the good end to the bad end, with a key that gives each district's mean for the day. The
+page fetches a lens once per experiment and lens. A mini-map in the town's corner shows every lot and
+a box for the view, and a click moves the view there. When the town is under 600 pixels wide it shows
+one district at a time with a switch between control, the plaza and treatment, and on screens 640
+pixels wide or less the mini-map hides.
+
+Clicking a house, a married person or a grid tile opens a couple panel beside the town in place of
+leaving the page, and clicking a single in the plaza still opens that agent's page. It shows the couple's state on the replay's day, both partners' trust and mood over the
+run with a marker on that day, today's grudge and warmth loads, any sealed records, the last five
+events up to that day, and a link to the full couple page. Escape or its Close button closes it and
+returns focus to where it was opened. A Next event button jumps the replay to the inspected couple's
+next day with an event, leaving `memory_consolidated` out.
+
+The time bar labels the day as "Day 143, week 21". Under the scrubber a density strip draws, per arm
+and per day, a bar for conflicts started and ticks for separations and divorces from the digest, a
+band for each shock while it is active, and a cursor on the day, and a click jumps to that day. While
+the replay plays, the ticker shows the day's counts from the digest. The list of a day's events is
+fetched only while paused, 120 ms after the day stops changing.

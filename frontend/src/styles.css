@@ -225,7 +225,7 @@ details.tableview summary { cursor: pointer; color: var(--ink-2); font-size: 0.9
 .town-toolbar button { min-width: 2.2rem; }
 .town-hint { font-size: 0.9rem; }
 .town-hover { min-height: 1.4em; }
-.town-canvas { position: relative; width: 100%; height: max(560px, 70vh); border-radius: 6px; overflow: hidden; background: #7cc576; }
+.town-canvas { position: relative; width: 100%; height: clamp(560px, 70vh, 1100px); border-radius: 6px; overflow: hidden; background: #7cc576; }
 .town-canvas canvas { max-width: none; }
 .town-legend { display: flex; flex-wrap: wrap; gap: 0.6rem 1.2rem; font-size: 0.95rem; color: var(--ink-2); align-items: center; margin-top: 0.6rem; }
 .town-roof { display: inline-flex; vertical-align: -4px; margin-right: 0.4rem; }
@@ -242,3 +242,51 @@ details.tableview summary { cursor: pointer; color: var(--ink-2); font-size: 0.9
 .town-label span { font-size: 14px; line-height: 1.2; }
 .town-label-end { text-align: right; align-items: flex-end; }
 .town-label-mid { text-align: center; align-items: center; }
+
+/* World page time bar: the density strip under the scrubber. */
+.timestrip { display: grid; grid-template-columns: minmax(90px, 160px) 1fr; gap: 0.2rem 0.6rem; align-items: stretch; margin: 0.4rem 0 0.2rem; }
+.timestrip-labels { display: grid; grid-template-rows: 1fr 1fr; font-size: 0.875rem; color: var(--ink-2); }
+.timestrip-labels span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; align-self: center; }
+.timestrip-svg { width: 100%; height: 48px; cursor: pointer; background: var(--surface-raised); border: 1px solid var(--border); border-radius: 4px; }
+.timestrip-key { grid-column: 1 / -1; margin: 0; font-size: 0.875rem; }
+
+/* The town (or grid) with the couple panel beside it. */
+.world-main.with-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); gap: 1rem; align-items: start; }
+.world-view { min-width: 0; }
+.inspector { position: sticky; top: 0.5rem; max-height: calc(100vh - 1rem); overflow: auto; }
+.inspector-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+.inspector-head h3 { margin: 0; }
+.inspector h4 { margin: 0.8rem 0 0.3rem; font-size: 0.95rem; }
+.spark { margin: 0.4rem 0; }
+.spark figcaption { font-size: 0.9rem; }
+.spark svg { width: 100%; height: 56px; background: var(--surface-raised); border: 1px solid var(--border); border-radius: 4px; }
+.loads { display: grid; gap: 0.25rem; }
+.load { display: grid; grid-template-columns: 4.5rem 1fr 1fr auto; gap: 0.4rem; align-items: center; font-size: 0.9rem; }
+.load-bar { height: 8px; background: var(--surface-raised); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.load-bar > span { display: block; height: 100%; }
+.legacies { margin: 0; padding-left: 1.1rem; font-size: 0.9rem; }
+
+/* Town extras: the lens picker, the mini-map, the lens key and the phone district switch. */
+.town-lens { display: inline-flex; gap: 0.4rem; align-items: center; }
+.town-mini { position: absolute; right: 8px; bottom: 8px; border: 1px solid var(--ink-2); border-radius: 4px; background: #7cc576; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12); cursor: pointer; }
+.lens-key { margin-top: 0.6rem; font-size: 0.95rem; }
+.lens-key p { margin: 0.2rem 0; }
+.lens-ramp { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.lens-bar { display: inline-block; width: min(260px, 50vw); height: 12px; border-radius: 6px; border: 1px solid var(--border); }
+.lens-empty { display: inline-block; width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--border); }
+.town-districts { display: flex; width: 100%; margin: 0 0 0.4rem; }
+.town-districts button { flex: 1 1 0; overflow-wrap: normal; }
+.town-districts button:nth-child(2) { flex: 0 0 auto; }
+.day-control { flex-wrap: wrap; overflow-wrap: normal; }
+.day-control input[type="range"] { min-width: 120px; }
+
+@media (max-width: 900px) {
+  .world-main.with-panel { grid-template-columns: 1fr; }
+  .inspector { position: static; max-height: none; }
+}
+@media (max-width: 640px) {
+  .town-mini { display: none; }
+  .timestrip { grid-template-columns: 1fr; }
+  .timestrip-labels { display: none; }
+  .town-hint { display: none; }
+}

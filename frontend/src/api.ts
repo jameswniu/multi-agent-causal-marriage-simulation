@@ -5,6 +5,7 @@ import type {
   CouplesQuery,
   CouplesResponse,
   Curves,
+  DayDigest,
   Distributions,
   EventsDayResponse,
   ExperimentResponse,
@@ -12,6 +13,8 @@ import type {
   ForkRequest,
   HealthResponse,
   JobResponse,
+  LensData,
+  LensesResponse,
   Outcome,
   PolicySpec,
   RunRequest,
@@ -73,6 +76,8 @@ async function fromFixtures<T>(path: string, init?: RequestInit): Promise<T> {
   if (p === '/distributions') return m.getDistributions() as Promise<T>;
   if (p === '/policy') return m.getPolicy() as Promise<T>;
   if (p === '/world') return m.getWorld() as Promise<T>;
+  if (p === '/digest') return m.getDayDigest() as Promise<T>;
+  if (p === '/lenses') return m.listLenses() as Promise<T>;
   if (p === '/twins/world') return m.getTwinsWorld() as Promise<T>;
   if (p === '/events') return m.getEventsForDay(Number(q.get('day'))) as Promise<T>;
   if (p === '/couples') {
@@ -208,4 +213,47 @@ export function getTwinsWorld(): Promise<TwinsWorldResponse> {
 
 export function getEventsForDay(day: number, signal?: AbortSignal): Promise<EventsDayResponse> {
   return fetchJson<EventsDayResponse>(`/events?day=${day}`, { signal });
+}
+
+/** Event counts per day, group and kind for the whole run, fetched once instead of a list per day. */
+export function getDayDigest(): Promise<DayDigest> {
+  return fetchJson<DayDigest>('/digest');
+}
+
+/** The colour views the town offers. */
+export function listLenses(): Promise<LensesResponse> {
+  return fetchJson<LensesResponse>('/lenses');
+}
+
+/** One lens for the whole run as bytes, one per couple per day (see LensData). */
+export async function getLens(name: string): Promise<LensData> {
+  if (USE_FIXTURES) {
+    const m = await import('./test/mockApi');
+    return m.getLens(name);
+  }
+  const path = `/lens/${encodeURIComponent(name)}`;
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${withExperiment(path)}`, { headers: { Accept: 'application/octet-stream' } });
+  } catch (err) {
+    throw new ApiError(0, path, `Network error reaching ${path}: ${(err as Error).message}`);
+  }
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const body = (await res.json()) as { detail?: unknown };
+      if (body && typeof body.detail === 'string') detail = body.detail;
+    } catch {
+      // keep statusText
+    }
+    throw new ApiError(res.status, path, `${res.status} ${detail} (${path})`);
+  }
+  const num = (h: string) => Number(res.headers.get(h));
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  const days = num('X-Lens-Days');
+  const couples = num('X-Lens-Couples');
+  if (!Number.isFinite(days) || !Number.isFinite(couples) || bytes.length !== days * couples) {
+    throw new ApiError(res.status, path, `${path} returned ${bytes.length} bytes for ${days} days of ${couples} couples`);
+  }
+  return { name, days, couples, lo: num('X-Lens-Lo'), hi: num('X-Lens-Hi'), worseHigh: res.headers.get('X-Lens-Worse-High') === '1', bytes };
 }

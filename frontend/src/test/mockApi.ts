@@ -12,7 +12,7 @@ import twinsWorld from '../fixtures/twinsWorld.json';
 import experiments from '../fixtures/experiments.json';
 import experimentShockOnly from '../fixtures/experimentShockOnly.json';
 import shocksCatalog from '../fixtures/shocksCatalog.json';
-import type { AgentDetailResponse, CoupleDetailResponse, CouplesQuery, EventRow, ExperimentResponse, ExperimentsResponse, ForkRequest, HealthResponse, JobResponse, ParentRecord, PolicySpec, RunRequest, ShockSpec, ShocksCatalog, Summary, TranslateResponse, TwinsWorldResponse, WorldResponse } from '../types';
+import type { AgentDetailResponse, CoupleDetailResponse, CouplesQuery, DayDigest, EventRow, ExperimentResponse, ExperimentsResponse, ForkRequest, HealthResponse, JobResponse, LensData, LensMeta, ParentRecord, PolicySpec, RunRequest, ShocksCatalog, ShockSpec, Summary, TranslateResponse, TwinsWorldResponse, WorldResponse } from '../types';
 
 const exp = experiment as unknown as ExperimentResponse;
 const summary = exp.summary as Summary;
@@ -66,6 +66,8 @@ export const listCalls = { count: 0 };
 export function resetMockState(): void {
   extraExperiments = [];
   listCalls.count = 0;
+  lensCalls.count = 0;
+  digestCalls.count = 0;
   current = null;
   forks = {};
   jobs = {};
@@ -166,4 +168,63 @@ export class ApiError extends Error {
 }
 export const setCurrentExperiment = (name: string | null) => {
   current = name;
+};
+
+/** The six colour views, as the server lists them. */
+export const LENS_FIXTURES: LensMeta[] = [
+  { name: 'trust', label: 'Trust', words: 'how much the two partners trust each other, their average', lo: 0, hi: 1, higher_is_worse: false },
+  { name: 'stress', label: 'Stress', words: 'how stressed the two partners are, their average', lo: 0, hi: 1.5, higher_is_worse: true },
+  { name: 'grudge', label: 'Grudge', words: 'how much negative memory of each other the partners carry, their average', lo: 0, hi: 1.5, higher_is_worse: true },
+  { name: 'warmth', label: 'Warmth', words: 'how much warm memory of each other the partners carry, their average', lo: 0, hi: 1.5, higher_is_worse: false },
+  { name: 'satisfaction', label: 'Satisfaction', words: 'how satisfied the two partners are with the marriage, their average', lo: 0, hi: 1, higher_is_worse: false },
+  { name: 'orphan_days', label: 'Days without warmth', words: 'how many days in a row the couple has gone without a warm memory on both sides', lo: 0, hi: 42, higher_is_worse: true },
+];
+const LENS_COLUMNS: Record<string, string[]> = {
+  trust: ['trust_a', 'trust_b'],
+  stress: ['stress_a', 'stress_b'],
+  grudge: ['neg_a', 'neg_b'],
+  warmth: ['pos_a', 'pos_b'],
+  satisfaction: ['satisfaction_a', 'satisfaction_b'],
+  orphan_days: ['orphan_days'],
+};
+export const lensCalls = { count: 0 };
+export const digestCalls = { count: 0 };
+
+export const listLenses = async () => ({ items: LENS_FIXTURES });
+
+/** A lens built from the fixture couples' daily rows, quantised the way the server does it. */
+export const getLens = async (name: string): Promise<LensData> => {
+  lensCalls.count += 1;
+  const meta = LENS_FIXTURES.find((l) => l.name === name);
+  if (!meta) throw new Error(`404 unknown lens ${name}`);
+  const w = world as unknown as WorldResponse;
+  const n = w.couples.length;
+  const bytes = new Uint8Array(w.days * n).fill(255);
+  w.couples.forEach((cid, i) => {
+    const d = details[String(cid)];
+    for (const row of d?.daily ?? []) {
+      const vals = LENS_COLUMNS[name].map((c) => Number((row as unknown as Record<string, number | undefined>)[c] ?? 0));
+      const v = vals.reduce((p, q) => p + q, 0) / vals.length;
+      const t = Math.min(1, Math.max(0, (v - meta.lo) / (meta.hi - meta.lo)));
+      if (row.day >= 0 && row.day < w.days) bytes[row.day * n + i] = Math.round(t * 254);
+    }
+  });
+  return { name, days: w.days, couples: n, lo: meta.lo, hi: meta.hi, worseHigh: meta.higher_is_worse, bytes };
+};
+
+/** The day digest built from the fixture events, grouped by the fixture world's arms. */
+export const getDayDigest = async (): Promise<DayDigest> => {
+  digestCalls.count += 1;
+  const w = world as unknown as WorldResponse;
+  const group = new Map<number, string>();
+  w.couples.forEach((cid, i) => group.set(cid, w.origin[i] === 'remarriage' ? 'remarriage' : (w.arms[i] ?? 'remarriage')));
+  const kinds: DayDigest['kinds'] = {};
+  for (const items of Object.values(byDay)) {
+    for (const e of items) {
+      const g = group.get(e.couple_id) ?? 'remarriage';
+      kinds[e.kind] ??= { control: new Array(w.days).fill(0), treatment: new Array(w.days).fill(0), remarriage: new Array(w.days).fill(0) };
+      if (e.day >= 0 && e.day < w.days) kinds[e.kind][g][e.day] += 1;
+    }
+  }
+  return { days: w.days, groups: ['control', 'treatment', 'remarriage'], kinds };
 };

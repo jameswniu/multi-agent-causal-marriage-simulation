@@ -5,7 +5,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Application, Container, Graphics, Sprite, Texture } from 'pixi.js';
 import { listCouples } from '../api';
-import type { CoupleRow, WorldResponse } from '../types';
+import type { Arm, CoupleRow, LensData, LensMeta, Origin, WorldResponse } from '../types';
+import { LENS_EMPTY, cssColor, fmtLens, lensByte, lensColor, meanValue, rampColor } from './lens';
 import {
   DISTRICT_COLS,
   LOT_H,
@@ -73,6 +74,40 @@ interface Props {
   onPickCouple: (coupleId: number) => void;
   onPickAgent: (agentId: number) => void;
   onFallback: (reason: string) => void;
+  /** The colour views the server offers, and the one in use (null shows the arm roofs). */
+  lenses?: LensMeta[];
+  lensName?: string | null;
+  lens?: LensData | null;
+  lensError?: string | null;
+  onLensChange?: (name: string | null) => void;
+  onLensRetry?: () => void;
+  /** The couple open in the panel beside the town, ringed on the map. */
+  selectedCouple?: number | null;
+}
+
+/** Below this host width the town shows one district at a time with a switch. */
+export const PHONE_MAX_PX = 600;
+const MINI_W = 200;
+type District = 'control' | 'plaza' | 'treatment';
+
+/** Mini-map colour of a state letter, the same colours the town's dots use (remarried couples purple). */
+export function miniColor(ch: string, arm: Arm | null, origin: Origin | null): string | null {
+  switch (ch) {
+    case 'M':
+      return cssColor(dotTint('home', arm, origin));
+    case 'C':
+      return cssColor(dotTint('conflict', arm, origin));
+    case 'S':
+      return cssColor(dotTint('away', arm, origin));
+    case 'D':
+      return '#898781';
+    case 'T':
+      return '#1baf7a';
+    case 'B':
+      return '#c9c8c0';
+    default:
+      return null;
+  }
 }
 
 const POSTURE_CODE: Record<Posture, number> = { home: 0, conflict: 1, away: 2, single: 3, dating: 4 };
@@ -80,6 +115,11 @@ const POSTURE_CODE: Record<Posture, number> = { home: 0, conflict: 1, away: 2, s
 interface Scene {
   root: Container;
   houses: (Sprite | null)[];
+  /** Each house's own roof texture, restored when the lens is turned off. */
+  houseBase: (Texture | null)[];
+  /** A plain white house, tinted by the lens colour. */
+  plainHouse: Texture;
+  selection: Graphics;
   markers: (Sprite | null)[];
   figures: Sprite[];
   /** Each figure's own person sprite, swapped for the dot when people are drawn as dots. */
@@ -282,11 +322,62 @@ function buildScene(PIXI: Pixi, app: Application, layout: TownLayout, agents: Ag
   const highlight = new PIXI.Graphics();
   root.addChild(highlight);
 
-  return { root, houses, markers, figures, personTex, dot, figureLayer, markerLayer, highlight, owned, allTextures: [...Object.values(tex), ...owned] };
+  // A plain house for the colour views: white roof and walls, so a tint shows the lens colour.
+  const plainG = new PIXI.Graphics();
+  plainG.rect(0, 2, 32, 14).fill(0xffffff).stroke({ width: 1, color: 0x4a4a4a });
+  plainG.poly([0, 6, 16, 0, 32, 6]).fill(0xffffff).stroke({ width: 1, color: 0x4a4a4a });
+  plainG.rect(0, 16, 32, 16).fill(0xe8e8e8).stroke({ width: 1, color: 0x4a4a4a });
+  plainG.rect(19, 21, 7, 11).fill(0x8a8a8a);
+  plainG.rect(5, 21, 7, 6).fill(0xb8b8b8);
+  const plainHouse = app.renderer.generateTexture({ target: plainG, resolution: 2, antialias: false });
+  owned.push(plainHouse);
+  plainG.destroy();
+  const houseBase = houses.map((h) => (h ? h.texture : null));
+
+  const selection = new PIXI.Graphics();
+  root.addChild(selection);
+
+  return {
+    root,
+    houses,
+    houseBase,
+    plainHouse,
+    selection,
+    markers,
+    figures,
+    personTex,
+    dot,
+    figureLayer,
+    markerLayer,
+    highlight,
+    owned,
+    allTextures: [...Object.values(tex), ...owned],
+  };
 }
 
-export default function TownView({ world, day, speed, controlTitle, treatmentTitle, onPickCouple, onPickAgent, onFallback }: Props) {
+export default function TownView({
+  world,
+  day,
+  speed,
+  controlTitle,
+  treatmentTitle,
+  onPickCouple,
+  onPickAgent,
+  onFallback,
+  lenses = [],
+  lensName = null,
+  lens = null,
+  lensError = null,
+  onLensChange,
+  onLensRetry,
+  selectedCouple = null,
+}: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const lensRef = useRef<LensData | null>(lens);
+  const selectedRef = useRef<number | null>(selectedCouple);
+  const dirtyRef = useRef(true);
+  const [narrow, setNarrow] = useState(false);
+  const [district, setDistrict] = useState<District>('control');
   const [rows, setRows] = useState<CoupleRow[] | null>(null);
   const [rowsNote, setRowsNote] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -296,7 +387,23 @@ export default function TownView({ world, day, speed, controlTitle, treatmentTit
   const pickCouple = useRef(onPickCouple);
   const pickAgent = useRef(onPickAgent);
   const fallback = useRef(onFallback);
-  const camera = useRef<{ fit: () => void; open: () => void; zoom: (f: number) => void } | null>(null);
+  const camera = useRef<{ fit: () => void; open: () => void; zoom: (f: number) => void; focusDistrict: (d: District) => void } | null>(null);
+
+  useEffect(() => {
+    lensRef.current = lens && lensName && lens.name === lensName ? lens : null;
+    dirtyRef.current = true;
+  }, [lens, lensName]);
+  useEffect(() => {
+    selectedRef.current = selectedCouple;
+    dirtyRef.current = true;
+  }, [selectedCouple]);
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setNarrow(host.clientWidth > 0 && host.clientWidth < PHONE_MAX_PX));
+    ro.observe(host);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     dayRef.current = day;
@@ -477,7 +584,18 @@ export default function TownView({ world, day, speed, controlTitle, treatmentTit
         sc.root.y = 4 - (r.y - TITLE_BAND) * scale;
         clampCamera();
       };
-      camera.current = { fit, open, zoom: (f: number) => zoomAt(view().w / 2, view().h / 2, scale * f) };
+      const districtRect = (d: District): Rect => (d === 'control' ? layout.control : d === 'treatment' ? layout.treatment : layout.plaza);
+      // A phone shows one district at a time: fit its width and keep its title in view.
+      const focusDistrict = (d: District) => {
+        const r = districtRect(d);
+        const { w } = view();
+        const s = Math.min(MAX_SCALE, Math.max(minScale(), (w - 16) / (r.w + 24)));
+        applyScale(s);
+        sc.root.x = 8 - (r.x - 12) * s;
+        sc.root.y = 4 - (r.y - TITLE_BAND) * s;
+        clampCamera();
+      };
+      camera.current = { fit, open, zoom: (f: number) => zoomAt(view().w / 2, view().h / 2, scale * f), focusDistrict };
 
       // Labels: district titles, counts and the plaza, as HTML over the canvas at a fixed size.
       const labelBox = document.createElement('div');
@@ -499,7 +617,7 @@ export default function TownView({ world, day, speed, controlTitle, treatmentTit
       const lTreatment = makeLabel('town-label-start', treatmentTitle, `${layout.order.treatment.length.toLocaleString()} couples`);
       host.appendChild(labelBox);
       cleanups.push(() => labelBox.remove());
-      onCamera = () => {
+      const placeLabels = () => {
         const top = Math.max(4, sc.root.y + (MARGIN + 6) * scale);
         lControl.el.style.transform = `translate(${(sc.root.x + (layout.control.x + layout.control.w) * scale).toFixed(1)}px, ${top.toFixed(1)}px) translateX(-100%)`;
         lTreatment.el.style.transform = `translate(${(sc.root.x + layout.treatment.x * scale).toFixed(1)}px, ${top.toFixed(1)}px)`;
@@ -507,14 +625,88 @@ export default function TownView({ world, day, speed, controlTitle, treatmentTit
         lPlaza.span.style.display = layout.plaza.w * scale < 200 ? 'none' : '';
       };
 
+      // The couple open in the side panel gets a ring around its lot.
+      const indexOfCouple = new Map<number, number>();
+      world.couples.forEach((cid, idx) => indexOfCouple.set(cid, idx));
+      const drawSelection = () => {
+        sc.selection.clear();
+        const sel = selectedRef.current;
+        const idx = sel === null ? undefined : indexOfCouple.get(sel);
+        const lot = idx === undefined ? undefined : layout.lots[idx];
+        if (!lot) return;
+        sc.selection.roundRect(lot.x - 2, lot.y - 3, LOT_W + 4, LOT_H + 4, 7).stroke({ width: 4, color: 0x0b0b0b, alpha: 0.9 });
+        sc.selection.roundRect(lot.x, lot.y - 1, LOT_W, LOT_H, 6).stroke({ width: 2, color: 0xffffff, alpha: 0.95 });
+      };
+
+      // Mini-map: every lot as a small tile in its state (or lens) colour, and a box for the view.
+      const k = MINI_W / layout.width;
+      const miniH = Math.max(40, Math.round(layout.height * k));
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const mini = document.createElement('canvas');
+      mini.className = 'town-mini';
+      mini.width = Math.round(MINI_W * dpr);
+      mini.height = Math.round(miniH * dpr);
+      mini.style.width = `${MINI_W}px`;
+      mini.style.height = `${miniH}px`;
+      mini.setAttribute('role', 'img');
+      mini.setAttribute('aria-label', 'Map of the whole town. The box shows what the view covers, and a click on the map moves the view there.');
+      mini.dataset.testid = 'town-mini';
+      host.appendChild(mini);
+      const mctx = mini.getContext('2d');
+      const drawMini = () => {
+        if (!mctx) return;
+        const d = Math.min(Math.max(0, dayRef.current), world.states.length - 1);
+        const states = world.states[d] ?? '';
+        const lensNow = lensRef.current;
+        mctx.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
+        mctx.fillStyle = '#7cc576';
+        mctx.fillRect(0, 0, layout.width, layout.height);
+        mctx.fillStyle = '#f5a05e';
+        mctx.fillRect(layout.plaza.x, layout.plaza.y, layout.plaza.w, layout.plaza.h);
+        world.couples.forEach((_, idx) => {
+          const lot = layout.lots[idx];
+          if (!lot) return;
+          const ch = states[idx] ?? '-';
+          if (ch === '-') return;
+          const color = lensNow ? cssColor(lensColor(lensByte(lensNow, d, idx), lensNow.worseHigh)) : miniColor(ch, world.arms[idx], world.origin[idx]);
+          if (!color) return;
+          mctx.fillStyle = color;
+          mctx.fillRect(lot.x + 4, lot.y + 4, LOT_W - 8, LOT_H - 10);
+        });
+        const { w, h } = view();
+        mctx.strokeStyle = '#0b0b0b';
+        mctx.lineWidth = 2 / k;
+        mctx.strokeRect(-sc.root.x / scale, -sc.root.y / scale, w / scale, h / scale);
+      };
+      onCamera = () => {
+        placeLabels();
+        drawMini();
+      };
+      const onMini = (ev: MouseEvent) => {
+        const r = mini.getBoundingClientRect();
+        const wx = (ev.clientX - r.left) / k;
+        const wy = (ev.clientY - r.top) / k;
+        const { w, h } = view();
+        sc.root.x = w / 2 - wx * scale;
+        sc.root.y = h / 2 - wy * scale;
+        clampCamera();
+      };
+      mini.addEventListener('click', onMini);
+      cleanups.push(() => {
+        mini.removeEventListener('click', onMini);
+        mini.remove();
+      });
+
       // A resize that keeps the same columns still moves the canvas edges: re-clamp the camera,
       // which also repositions the labels.
       const onResize = () => clampCamera();
       theApp.renderer.on('resize', onResize);
       cleanups.push(() => theApp.renderer.off('resize', onResize));
 
-      // Open where people are visible: the whole town if a house is big enough, else the left district.
-      if (LOT_W * fitScale(layout, view().w, view().h) >= ROOFS_ONLY_BELOW) fit();
+      // Open where people are visible: one district on a phone, else the whole town when a house is
+      // big enough to show its people, else the left district fitted.
+      if (host.clientWidth > 0 && host.clientWidth < PHONE_MAX_PX) focusDistrict('control');
+      else if (LOT_W * fitScale(layout, view().w, view().h) >= ROOFS_ONLY_BELOW) fit();
       else focusLeft();
 
       // Figures: targets come from the day's states; positions walk toward them each frame.
@@ -543,13 +735,22 @@ export default function TownView({ world, day, speed, controlTitle, treatmentTit
           tints[i] = dotTint(p.posture, p.couple === null ? null : (world.arms[p.couple] ?? null), p.couple === null ? null : (world.origin[p.couple] ?? null));
           if (dotMode) sc.figures[i].tint = tints[i];
         }
+        const lensNow = lensRef.current;
         world.couples.forEach((_, idx) => {
           const st = houseState(states[idx] ?? '-', world.origin[idx]);
           const h = sc.houses[idx];
           if (h) {
             h.visible = st.visible;
-            h.alpha = st.dim ? 0.45 : 1;
-            h.tint = st.dim ? 0x9a9a9a : 0xffffff;
+            if (lensNow) {
+              if (h.texture !== sc.plainHouse) h.texture = sc.plainHouse;
+              h.tint = lensColor(lensByte(lensNow, d, idx), lensNow.worseHigh);
+              h.alpha = st.dim ? 0.55 : 1;
+            } else {
+              const base = sc.houseBase[idx];
+              if (base && h.texture !== base) h.texture = base;
+              h.alpha = st.dim ? 0.45 : 1;
+              h.tint = st.dim ? 0x9a9a9a : 0xffffff;
+            }
           }
           const m = sc.markers[idx];
           if (m) m.visible = st.conflict;
@@ -563,10 +764,13 @@ export default function TownView({ world, day, speed, controlTitle, treatmentTit
         const t0 = performance.now();
         const d = dayRef.current;
         const sp = speedRef.current;
-        if (d !== lastDay) {
-          snapFrame = snapFrame || shouldSnap(lastDay, d, sp);
+        if (d !== lastDay || dirtyRef.current) {
+          if (d !== lastDay) snapFrame = snapFrame || shouldSnap(lastDay, d, sp);
           retarget(d);
           lastDay = d;
+          dirtyRef.current = false;
+          drawSelection();
+          drawMini();
         }
         const walk = walkSpeed(sp);
         const dt = Math.min(0.1, theApp.ticker.deltaMS / 1000);
@@ -710,8 +914,9 @@ export default function TownView({ world, day, speed, controlTitle, treatmentTit
         if (canvas.hasPointerCapture(ev.pointerId)) canvas.releasePointerCapture(ev.pointerId);
         if (!wasClick) return;
         const info = describe(p.wx, p.wy);
-        if (info.agent !== null) pickAgent.current(info.agent);
-        else if (info.couple !== null) pickCouple.current(info.couple);
+        // A figure that belongs to a couple opens that couple's panel; a single opens the agent.
+        if (info.couple !== null) pickCouple.current(info.couple);
+        else if (info.agent !== null) pickAgent.current(info.agent);
       };
       const onLeave = () => {
         sc.highlight.clear();
@@ -838,6 +1043,17 @@ export default function TownView({ world, day, speed, controlTitle, treatmentTit
     };
   }, [agents, layout, world, controlTitle, treatmentTitle, cols]);
 
+  const pickDistrict = useCallback((d: District) => {
+    setDistrict(d);
+    camera.current?.focusDistrict(d);
+  }, []);
+  useEffect(() => {
+    if (narrow && ready) camera.current?.focusDistrict(district);
+    // Only when the layout switches to the phone view or the town becomes ready.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [narrow, ready]);
+  const activeLens = lens && lensName && lens.name === lensName ? lens : null;
+  const lensMeta = lensName ? lenses.find((l) => l.name === lensName) ?? null : null;
   const zoomIn = useCallback(() => camera.current?.zoom(1.4), []);
   const zoomOut = useCallback(() => camera.current?.zoom(1 / 1.4), []);
   const fitAll = useCallback(() => camera.current?.fit(), []);
@@ -858,12 +1074,37 @@ export default function TownView({ world, day, speed, controlTitle, treatmentTit
         <button type="button" onClick={fitAll} disabled={!ready}>
           Whole town
         </button>
+        {lenses.length && onLensChange ? (
+          <label className="town-lens">
+            Colour houses by
+            <select value={lensName ?? ''} onChange={(e) => onLensChange(e.target.value || null)} aria-label="Colour houses by" data-testid="lens-select">
+              <option value="">Arm (roof colours)</option>
+              {lenses.map((l) => (
+                <option key={l.name} value={l.name}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <span className="muted town-hint">Drag to move, scroll to zoom, click a house or a person to open it. With the keyboard, tab into the town and use the arrow keys.</span>
       </div>
       <p className="chart-sub town-hover" aria-live="polite" data-testid="town-hover">
         {hover || (ready ? `${world.couples.length.toLocaleString()} couples and ${(agents?.length ?? 0).toLocaleString()} people. Hover a house or a person for their state today.` : 'Building the town...')}
       </p>
+      {narrow ? (
+        <div className="segmented town-districts" role="group" aria-label="District">
+          {(['control', 'plaza', 'treatment'] as District[]).map((d) => (
+            <button key={d} type="button" onClick={() => pickDistrict(d)} aria-pressed={district === d} disabled={!ready}>
+              {d === 'control' ? controlTitle : d === 'treatment' ? treatmentTitle : 'Plaza'}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <div ref={hostRef} className="town-canvas" />
+      {lensMeta ? (
+        <LensKey meta={lensMeta} data={activeLens} error={lensError} onRetry={onLensRetry} day={day} world={world} controlTitle={controlTitle} treatmentTitle={treatmentTitle} />
+      ) : null}
       {rowsNote ? <p className="muted">{rowsNote}</p> : null}
       <TownLegend controlTitle={controlTitle} treatmentTitle={treatmentTitle} />
       <p className="muted town-footnote" data-testid="town-footnote">
@@ -905,6 +1146,73 @@ export function TownLegend({ controlTitle, treatmentTitle }: { controlTitle: str
       <span>Divorced, the house dims and both walk to the plaza</span>
       <span>Dating again, pairs strolling in the plaza</span>
       <span>Zoomed far out, each person is a dot: their arm colour at home, yellow in a conflict, red when one has walked out, grey in the plaza</span>
+    </div>
+  );
+}
+
+/** The key under the town while a lens is on: what the colour means, its range, and each arm's average today. */
+function LensKey({
+  meta,
+  data,
+  error,
+  onRetry,
+  day,
+  world,
+  controlTitle,
+  treatmentTitle,
+}: {
+  meta: LensMeta;
+  data: LensData | null;
+  error: string | null;
+  onRetry?: () => void;
+  day: number;
+  world: WorldResponse;
+  controlTitle: string;
+  treatmentTitle: string;
+}) {
+  const groups = useMemo(() => {
+    const control: number[] = [];
+    const treatment: number[] = [];
+    world.couples.forEach((_, i) => {
+      if (world.origin[i] === 'remarriage') return;
+      (world.arms[i] === 'treatment' ? treatment : control).push(i);
+    });
+    return { control, treatment };
+  }, [world]);
+  const lowWord = meta.higher_is_worse ? 'green is low' : 'green is high';
+  const stops = [0, 0.25, 0.5, 0.75, 1].map((t) => `${cssColor(rampColor(t))} ${t * 100}%`).join(', ');
+  const c = data ? meanValue(data, day, groups.control) : null;
+  const t = data ? meanValue(data, day, groups.treatment) : null;
+  return (
+    <div className="lens-key" data-testid="lens-key">
+      <p>
+        <strong>{meta.label}</strong>: {meta.words}. Each house shows its couple on this day, {lowWord} and red is the bad end. A grey house has no couple that day.
+      </p>
+      <div className="lens-ramp">
+        <span>{fmtLens(meta.higher_is_worse ? meta.lo : meta.hi, meta.hi)}</span>
+        <span className="lens-bar" style={{ background: `linear-gradient(to right, ${stops})` }} aria-hidden="true" />
+        <span>{fmtLens(meta.higher_is_worse ? meta.hi : meta.lo, meta.hi)}</span>
+        <span className="lens-empty" style={{ background: cssColor(LENS_EMPTY) }} aria-hidden="true" />
+        <span className="muted">no couple</span>
+      </div>
+      {error ? (
+        <div className="status error" role="alert">
+          Could not load this view: {error}
+          {onRetry ? (
+            <div>
+              <button type="button" onClick={onRetry}>
+                Try again
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : !data ? (
+        <p className="muted">Loading the colours...</p>
+      ) : (
+        <p data-testid="lens-means">
+          Average today: {controlTitle} {c === null ? 'none' : fmtLens(c, meta.hi)}, {treatmentTitle} {t === null ? 'none' : fmtLens(t, meta.hi)}.
+        </p>
+      )}
     </div>
   );
 }

@@ -296,14 +296,70 @@ describe('pages', () => {
     await screen.findByRole('heading', { name: 'Agent 7' });
   });
 
-  it('a World tile opens the couple with the experiment query', async () => {
+  it('a World tile opens the couple panel, whose link keeps the experiment query', async () => {
     at('/world?experiment=job-loss-api');
     await screen.findByRole('heading', { name: 'World replay' });
     const grid = screen.getByTestId('grid-control');
     fireEvent.focus(grid);
     fireEvent.keyDown(grid, { key: 'ArrowRight' });
     fireEvent.keyDown(grid, { key: 'Enter' });
+    const panel = await screen.findByTestId('inspector');
+    expect(within(panel).getByRole('heading', { name: 'Couple 2' })).toBeInTheDocument();
+    // The page stays on the World replay; the full couple page is one link away.
+    expect(screen.getByTestId('loc')).toHaveTextContent('/world?experiment=job-loss-api');
+    const open = await within(panel).findByTestId('inspector-open');
+    expect(open.getAttribute('href')).toBe('/couples/2?experiment=job-loss-api');
+    fireEvent.click(open);
     await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/couples/2?experiment=job-loss-api'));
+  });
+
+  it('the couple panel shows the day, both partners over the run and the latest events, steps to the next event and closes on Escape', async () => {
+    at('/world');
+    await screen.findByRole('heading', { name: 'World replay' });
+    const grid = screen.getByTestId('grid-treatment');
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: 'Enter' });
+    const panel = await screen.findByTestId('inspector');
+    expect(await within(panel).findByTestId('inspector-state')).toHaveTextContent('Day 0, week 1:');
+    expect(within(panel).getByRole('img', { name: /Trust \(0 to 1\) of both partners/ })).toBeInTheDocument();
+    expect(within(panel).getByTestId('inspector-loads')).toHaveTextContent('Grudge');
+    // The close button takes focus so the keyboard can leave the panel at once.
+    expect(document.activeElement).toBe(within(panel).getByRole('button', { name: 'Close the couple panel' }));
+    const next = screen.getByTestId('next-event');
+    await waitFor(() => expect(next).not.toBeDisabled());
+    const before = Number((screen.getByTestId('day-label').textContent ?? '').match(/Day (\d+)/)?.[1]);
+    fireEvent.click(next);
+    await waitFor(() => expect(Number((screen.getByTestId('day-label').textContent ?? '').match(/Day (\d+)/)?.[1])).toBeGreaterThan(before));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('inspector')).not.toBeInTheDocument());
+    expect(screen.queryByTestId('next-event')).not.toBeInTheDocument();
+  });
+
+  it('the time bar labels the day and week, draws the density strip, and shows each shock as a band', async () => {
+    at('/world?experiment=job-loss-api');
+    await screen.findByRole('heading', { name: 'World replay' });
+    expect(screen.getByTestId('day-label')).toHaveTextContent('Day 0, week 1');
+    fireEvent.keyDown(window, { key: 'ArrowRight', shiftKey: true });
+    await waitFor(() => expect(screen.getByTestId('day-label')).toHaveTextContent('Day 10, week 2'));
+    const strip = screen.getByTestId('timestrip');
+    expect(within(strip).getByRole('img', { name: /Events per day for each arm/ })).toBeInTheDocument();
+    await waitFor(() => expect(within(strip).getAllByTestId('shock-band').length).toBeGreaterThan(0));
+    expect(within(strip).getByTestId('timestrip-cursor').getAttribute('x')).toBe('10');
+  });
+
+  it('playing counts the day from the digest without asking for each day, and a pause lists the day once', async () => {
+    const spy = vi.spyOn(mock, 'getEventsForDay');
+    at('/world');
+    await screen.findByRole('heading', { name: 'World replay' });
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Play' }));
+    await screen.findByTestId('day-counts');
+    await waitFor(() => expect(Number((screen.getByTestId('day-label').textContent ?? '').match(/Day (\d+)/)?.[1])).toBeGreaterThanOrEqual(3));
+    expect(spy).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+    expect(await screen.findByTestId('ticker')).toBeInTheDocument();
+    spy.mockRestore();
   });
 
   it('an unknown experiment in the URL renders a top-level error once the list loads', async () => {

@@ -4,8 +4,8 @@
 // the day's events.
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ExpLink, useExpNavigate } from '../nav';
-import { getCurves, getEventsForDay, getExperiment, getTwinsWorld, getWorld } from '../api';
-import type { ArmCounts, Curves, EventRow, ExperimentResponse, TwinsWorldResponse, WorldResponse } from '../types';
+import { getCouple, getCurves, getDayDigest, getEventsForDay, getExperiment, getLens, getTwinsWorld, getWorld, listLenses } from '../api';
+import type { ArmCounts, CoupleDetailResponse, Curves, DayDigest, EventRow, ExperimentResponse, LensData, LensMeta, ShockSpec, TwinsWorldResponse, WorldResponse } from '../types';
 import { useAsync } from '../useAsync';
 import { ErrorBox, Loading } from '../components/Status';
 import Banner from '../components/Banner';
@@ -13,8 +13,11 @@ import WorldGrid, { charStyle } from '../components/WorldGrid';
 import TileLegend from '../components/TileLegend';
 import Scoreboard, { pct } from '../components/Scoreboard';
 import EventMarkers from '../components/EventMarkers';
-import { differenceClause, sharedClause, useArmContext, whatDiffers, type ArmLabels, type Catalog, type Intervention } from '../arms';
+import { differenceClause, sharedClause, shockShort, useArmContext, whatDiffers, type ArmLabels, type Catalog, type Intervention } from '../arms';
 import { supportsWebGL } from '../town/webgl';
+import TimeStrip from '../components/TimeStrip';
+import Inspector from '../town/Inspector';
+import { countsForDay, dayLabel, densitySeries, kindWords, nextEventDay, shockBands } from '../town/timebar';
 
 const TownView = lazy(() => import('../town/TownView'));
 
@@ -23,6 +26,8 @@ type Mode = 'randomized' | 'twins';
 type View = 'town' | 'grid';
 
 const EVENT_CACHE_MAX = 400;
+/** A paused day's event list is fetched after this pause, so scrubbing asks once, not per day. */
+const EVENT_FETCH_DELAY_MS = 120;
 
 interface TickerState {
   day: number | null;
@@ -30,10 +35,6 @@ interface TickerState {
   error: string | null;
 }
 
-/**
- * Events for one day at a time through the per-day endpoint. One request in flight; a newer day
- * aborts the older request; failures are never cached and surface as an error with retry.
- */
 /** Memory housekeeping events: logged for the developer view, kept out of the day's ticker. */
 const HOUSEKEEPING = new Set(['memory_consolidated']);
 
@@ -43,6 +44,12 @@ export function splitTicker(items: EventRow[]): { shown: EventRow[]; housekeepin
   return { shown, housekeeping: items.length - shown.length };
 }
 
+/**
+ * Events for one paused day at a time through the per-day endpoint, after a short pause so a scrub
+ * asks once. While the replay plays the hook is disabled and the page shows the day digest's
+ * counts instead, so playback makes no request per day. One request in flight; a newer day aborts
+ * the older request; failures are never cached and surface as an error with retry.
+ */
 function useDayEvents(day: number, enabled: boolean) {
   const cache = useRef<Map<number, EventRow[]>>(new Map());
   const ctrl = useRef<AbortController | null>(null);
@@ -59,23 +66,28 @@ function useDayEvents(day: number, enabled: boolean) {
     const c = new AbortController();
     ctrl.current = c;
     setState((s) => ({ day, items: s.day === day ? s.items : null, error: null }));
-    getEventsForDay(day, c.signal).then(
-      (r) => {
-        if (c.signal.aborted) return;
-        const items = [...r.items].sort((a, b) => a.seq - b.seq);
-        cache.current.set(day, items);
-        if (cache.current.size > EVENT_CACHE_MAX) {
-          const oldest = cache.current.keys().next().value;
-          if (oldest !== undefined) cache.current.delete(oldest);
-        }
-        setState({ day, items, error: null });
-      },
-      (err: unknown) => {
-        if (c.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) return;
-        setState({ day, items: null, error: err instanceof Error ? err.message : String(err) });
-      },
-    );
-    return () => c.abort();
+    const fetchDay = () =>
+      getEventsForDay(day, c.signal).then(
+        (r) => {
+          if (c.signal.aborted) return;
+          const items = [...r.items].sort((a, b) => a.seq - b.seq);
+          cache.current.set(day, items);
+          if (cache.current.size > EVENT_CACHE_MAX) {
+            const oldest = cache.current.keys().next().value;
+            if (oldest !== undefined) cache.current.delete(oldest);
+          }
+          setState({ day, items, error: null });
+        },
+        (err: unknown) => {
+          if (c.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) return;
+          setState({ day, items: null, error: err instanceof Error ? err.message : String(err) });
+        },
+      );
+    const timer = window.setTimeout(fetchDay, EVENT_FETCH_DELAY_MS);
+    return () => {
+      window.clearTimeout(timer);
+      c.abort();
+    };
   }, [day, enabled, attempt]);
   useEffect(() => () => ctrl.current?.abort(), []);
   const retry = useCallback(() => setAttempt((a) => a + 1), []);
@@ -179,6 +191,22 @@ async function loadAll(): Promise<[WorldResponse, ExperimentResponse | null, Cur
   return [w, e, c];
 }
 
+async function loadDigest(): Promise<DayDigest | null> {
+  try {
+    return await getDayDigest();
+  } catch {
+    return null;
+  }
+}
+
+async function loadLenses(): Promise<LensMeta[]> {
+  try {
+    return (await listLenses()).items;
+  } catch {
+    return [];
+  }
+}
+
 async function loadTwins(): Promise<TwinsWorldResponse> {
   try {
     return await getTwinsWorld();
@@ -204,7 +232,78 @@ export default function World() {
   const world = data?.[0] ?? null;
   const curves = data?.[2] ?? null;
   const twinsData = twins.data && twins.data.available ? twins.data : null;
-  const ticker = useDayEvents(day, mode === 'randomized' && !!data);
+  // The day's event list is fetched only while paused; playing shows the digest's counts.
+  const ticker = useDayEvents(day, mode === 'randomized' && !!data && !playing);
+  const digest = useAsync(loadDigest, []);
+  const lensList = useAsync(loadLenses, []);
+  const [lensName, setLensName] = useState<string | null>(null);
+  // Lenses and errors are kept per name and tagged with the world they came from, so switching
+  // experiments never shows another run's colours.
+  const [lensLoaded, setLensLoaded] = useState<Record<string, { world: WorldResponse; data: LensData | null; error: string | null }>>({});
+  useEffect(() => {
+    if (!lensName || !world) return;
+    const have = lensLoaded[lensName];
+    if (have && have.world === world && (have.data || have.error)) return;
+    let live = true;
+    getLens(lensName).then(
+      (data) => {
+        if (live) setLensLoaded((prev) => ({ ...prev, [lensName]: { world, data, error: null } }));
+      },
+      (err: unknown) => {
+        if (live) setLensLoaded((prev) => ({ ...prev, [lensName]: { world, data: null, error: err instanceof Error ? err.message : String(err) } }));
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [lensName, world, lensLoaded]);
+  const retryLens = useCallback(() => {
+    if (!lensName) return;
+    setLensLoaded((prev) => {
+      const next = { ...prev };
+      delete next[lensName];
+      return next;
+    });
+  }, [lensName]);
+  const lensEntry = lensName ? lensLoaded[lensName] : undefined;
+  const lensFresh = lensEntry && lensEntry.world === world ? lensEntry : null;
+
+  // The couple panel: a click on a house opens it beside the town instead of leaving the page.
+  const [inspectFor, setInspectFor] = useState<{ world: WorldResponse | null; id: number } | null>(null);
+  const inspect = inspectFor && inspectFor.world === world ? inspectFor.id : null;
+  const [coupleAttempt, setCoupleAttempt] = useState(0);
+  const [coupleState, setCoupleState] = useState<{ id: number; attempt: number; detail: CoupleDetailResponse | null; error: string | null } | null>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (inspect === null) return;
+    let live = true;
+    getCouple(inspect).then(
+      (d) => {
+        if (live) setCoupleState({ id: inspect, attempt: coupleAttempt, detail: d, error: null });
+      },
+      (err: unknown) => {
+        if (live) setCoupleState({ id: inspect, attempt: coupleAttempt, detail: null, error: err instanceof Error ? err.message : String(err) });
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [inspect, coupleAttempt]);
+  const openInspector = useCallback(
+    (id: number) => {
+      const el = document.activeElement;
+      opener.current = el instanceof HTMLElement ? el : null;
+      setInspectFor({ world, id });
+    },
+    [world],
+  );
+  const closeInspector = useCallback(() => {
+    setInspectFor(null);
+    const el = opener.current;
+    opener.current = null;
+    if (el && el.isConnected) el.focus();
+  }, []);
+  const retryCouple = useCallback(() => setCoupleAttempt((a) => a + 1), []);
   const days = mode === 'twins' && twinsData ? twinsData.days : (world?.days ?? 1);
   const maxDay = Math.max(0, days - 1);
 
@@ -279,6 +378,20 @@ export default function World() {
   const trustT = curves?.trust.treatment_mean[Math.min(d, curves.trust.treatment_mean.length - 1)];
   const pick = (id: number) => navigate(`/couples/${id}`);
   const pickAgent = (id: number) => navigate(`/agents/${id}`);
+  const inspecting = mode === 'randomized' && inspect !== null;
+  const coupleCurrent = coupleState && coupleState.id === inspect && coupleState.attempt === coupleAttempt ? coupleState : null;
+  const coupleDetail = coupleCurrent ? coupleCurrent.detail : null;
+  const nextDay = coupleDetail ? nextEventDay(coupleDetail.events, d) : null;
+  const runShocks: ShockSpec[] = data?.[1]?.summary?.experiment?.shocks ?? [...arms.intervention.treatmentShocks, ...arms.intervention.worldShocks];
+  const bands = shockBands(runShocks, arms.catalog, world.days, (s) => shockShort(s, arms.catalog));
+  const density = densitySeries(digest.data ?? null, world.days);
+  const inspectArm = (() => {
+    if (inspect === null) return null;
+    const i = world.couples.indexOf(inspect);
+    if (i < 0) return null;
+    if (world.origin[i] === 'remarriage') return 'Remarried, formed after a divorce';
+    return world.arms[i] === 'treatment' ? treatmentTitle : controlTitle;
+  })();
   const townFallback = (reason: string) => {
     setTownNote(`Showing the grid because ${reason}.`);
     setView('grid');
@@ -343,6 +456,21 @@ export default function World() {
           <button onClick={() => setPlaying((p) => !p)} aria-pressed={playing}>
             {playing ? 'Pause' : 'Play'}
           </button>
+          {inspecting ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (nextDay === null) return;
+                setPlaying(false);
+                setDay(nextDay);
+              }}
+              disabled={nextDay === null}
+              data-testid="next-event"
+              title={nextDay === null ? `No later event for couple ${inspect}` : `Jump to day ${nextDay}`}
+            >
+              Next event for couple {inspect}
+            </button>
+          ) : null}
           <label>
             Speed
             <select value={speed} onChange={(e) => setSpeed(Number(e.target.value) as (typeof SPEEDS)[number])} aria-label="Speed in days per second">
@@ -354,17 +482,31 @@ export default function World() {
             </select>
             <span className="muted">days per second</span>
           </label>
-          <label style={{ flex: '1 1 240px' }}>
+          <label className="day-control" style={{ flex: '1 1 240px' }}>
             Day
             <input type="range" min={0} max={maxDay} value={d} onChange={(e) => setDay(Number(e.target.value))} aria-label="Day" style={{ flex: 1 }} />
-            <strong data-testid="day-label">{d}</strong>
-            <span className="muted">of {maxDay}</span>
+            <strong data-testid="day-label">{dayLabel(d)}</strong>
+            <span className="muted">last day {maxDay}</span>
           </label>
         </div>
         {!twinsData && twinsReason && twinsReason !== 'loading' ? (
           <p className="muted" data-testid="twins-reason">
             Same couples, both arms is unavailable: {twinsReason}
           </p>
+        ) : null}
+        {mode === 'randomized' ? (
+          <TimeStrip
+            days={world.days}
+            day={d}
+            density={density}
+            bands={bands}
+            controlTitle={controlTitle}
+            treatmentTitle={treatmentTitle}
+            onSeek={(x) => {
+              setPlaying(false);
+              setDay(x);
+            }}
+          />
         ) : null}
         <p className="muted">Arrow keys step a day, shift and arrow ten, space plays.</p>
         {townNote ? (
@@ -414,15 +556,33 @@ export default function World() {
         </>
       ) : (
         <>
+          <div className={inspecting ? 'world-main with-panel' : 'world-main'}>
+          <div className="world-view">
           {showTown ? (
             <Suspense fallback={<Loading what="the town" />}>
-              <TownView world={world} day={d} speed={speed} controlTitle={controlTitle} treatmentTitle={treatmentTitle} onPickCouple={pick} onPickAgent={pickAgent} onFallback={townFallback} />
+              <TownView
+                world={world}
+                day={d}
+                speed={speed}
+                controlTitle={controlTitle}
+                treatmentTitle={treatmentTitle}
+                onPickCouple={openInspector}
+                onPickAgent={pickAgent}
+                onFallback={townFallback}
+                lenses={lensList.data ?? []}
+                lensName={lensName}
+                lens={lensFresh ? lensFresh.data : null}
+                lensError={lensFresh ? lensFresh.error : null}
+                onLensChange={setLensName}
+                onLensRetry={retryLens}
+                selectedCouple={inspect}
+              />
             </Suspense>
           ) : (
             <>
               <div className="grid-2">
-                <WorldGrid title={controlTitle} subtitle={controlSub} couples={world.couples} states={world.states} indices={groups.control} day={d} onPick={pick} testId="grid-control" />
-                <WorldGrid title={treatmentTitle} subtitle={treatmentSub} couples={world.couples} states={world.states} indices={groups.treatment} day={d} onPick={pick} testId="grid-treatment" />
+                <WorldGrid title={controlTitle} subtitle={controlSub} couples={world.couples} states={world.states} indices={groups.control} day={d} onPick={openInspector} testId="grid-control" />
+                <WorldGrid title={treatmentTitle} subtitle={treatmentSub} couples={world.couples} states={world.states} indices={groups.treatment} day={d} onPick={openInspector} testId="grid-treatment" />
               </div>
               <WorldGrid
                 title={`After divorce, dating and remarriage${counts ? `: ${counts.remarriage.dating} dating, ${counts.remarriage.married} married today` : ''}`}
@@ -432,11 +592,24 @@ export default function World() {
                 indices={groups.remarriage}
                 day={d}
                 tile={10}
-                onPick={pick}
+                onPick={openInspector}
                 testId="grid-remarriage"
               />
             </>
           )}
+          </div>
+          {inspecting && inspect !== null ? (
+            <Inspector
+              coupleId={inspect}
+              detail={coupleDetail}
+              error={coupleCurrent ? coupleCurrent.error : null}
+              day={d}
+              armWords={inspectArm}
+              onClose={closeInspector}
+              onRetry={retryCouple}
+            />
+          ) : null}
+          </div>
           <div className="grid-2">
             <div className="card">
               <h3>Counts on day {d}</h3>
@@ -444,7 +617,9 @@ export default function World() {
             </div>
             <div className="card">
               <h3>Events on day {d}</h3>
-              {ticker.error ? (
+              {playing ? (
+                <DayCounts digest={digest.data ?? null} day={d} controlTitle={controlTitle} treatmentTitle={treatmentTitle} />
+              ) : ticker.error ? (
                 <div className="status error" role="alert" data-testid="ticker-error">
                   Could not load the events for day {d}: {ticker.error}
                   <div>
@@ -477,6 +652,45 @@ export default function World() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+/** The day's event counts from the digest, shown while the replay plays instead of fetching the list. */
+function DayCounts({ digest, day, controlTitle, treatmentTitle }: { digest: DayDigest | null; day: number; controlTitle: string; treatmentTitle: string }) {
+  if (!digest) return <p className="muted">Counts appear when the run's day digest loads; pause to list the day's events.</p>;
+  const { rows, housekeeping } = countsForDay(digest, day);
+  return (
+    <div data-testid="day-counts">
+      {rows.length === 0 ? (
+        <p className="muted">No events this day.</p>
+      ) : (
+        <div className="table-wrap">
+          <table className="data" aria-label={`Event counts on day ${day}`}>
+            <thead>
+              <tr>
+                <th>Event</th>
+                <th className="num" title={controlTitle}>Control</th>
+                <th className="num" title={treatmentTitle}>Treatment</th>
+                <th className="num">Remarried</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.slice(0, 8).map((r) => (
+                <tr key={r.kind}>
+                  <td>{kindWords(r.kind)}</td>
+                  <td className="num">{r.control}</td>
+                  <td className="num">{r.treatment}</td>
+                  <td className="num">{r.remarriage}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="muted">
+        Counted while playing{housekeeping > 0 ? `, plus ${housekeeping} memory ${housekeeping === 1 ? 'consolidation' : 'consolidations'}` : ''}. Pause to list the day's events one by one.
+      </p>
     </div>
   );
 }
