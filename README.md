@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/figures/hero.svg" alt="LoveWorld, a causal simulation of agent marriages. 1,000 agent couples, one year, one memory setting changed between arms. Three tiles compare control with treatment: divorced within the year 1.6% against 21.4%, trust on the last day 0.65 against 0.20, conflicts per couple-year 7.8 against 15.7. Four stages, experiment file, Rust engine, analysis, dashboard. Footer: python3 tools/figures.py --write  from results/example/summary.json." width="100%">
+  <img src="docs/figures/hero.svg" alt="What does a grudge do to a marriage? LoveWorld runs 1,000 agent couples for one year, with one memory setting changed between the arms. Blue is the arm that forgets fights in 2 weeks, orange the arm that holds onto fights for 3 months. Divorced in a year, 1.6% against 21.4%, up 19.8 points, 95% CI 16.2 to 23.6. Trust at year end, 0.65 against 0.20, down 0.45, 95% CI -0.48 to -0.42. Conflicts per couple, 7.8 against 15.7, up 7.8 a year, 95% CI 7.0 to 8.6. Redrawn from the example run by python3 tools/figures.py --write." width="100%">
 </p>
 
 <div align="center">
@@ -9,7 +9,7 @@
 <br/>
 
 <a href="https://github.com/jameswniu/loveworld/actions/workflows/ci.yml"><img alt="ci" src="https://github.com/jameswniu/loveworld/actions/workflows/ci.yml/badge.svg?branch=main"></a>
-<img alt="MIT license" src="https://img.shields.io/badge/license-MIT-57606a?style=flat-square&labelColor=1f2328">
+<img alt="MIT license" src="https://img.shields.io/badge/license-MIT-4a5263?style=flat-square&labelColor=0e1119">
 
 <br/><br/>
 
@@ -44,7 +44,7 @@ Example run (`experiments/example.yaml`, 1,000 couples, 365 days, seeds 11/22/33
 | Days to reconcile (conditional) | 4.6 | 7.4 | +2.8 | 2.3 to 3.3 |
 
 <p align="center">
-  <img src="docs/figures/results.svg" alt="Example run, control against treatment. Ten outcomes with control and treatment bars and the effect with its 95 percent interval. Divorced within the year 1.6 percent against 21.4 percent, separated at least once 19.4 against 88.6, days married 362.3 against 328.1, trust on the last day 0.65 against 0.20, mean trust 0.64 against 0.33, conflicts per couple-year 7.8 against 15.7, and conditional on events after assignment, escalations per conflict 2.0 against 4.2, conflicts ending reconciled 78.0 percent against 35.1, days from conflict to repair 4.6 against 7.4, divorced agents who remarried 25.0 percent against 6.5 with an interval that crosses zero." width="100%">
+  <img src="docs/figures/results.svg" alt="Example run, control against treatment. 1,000 couples over 365 days, seeds 11, 22, 33. Bars are arm means, row by row. The right column is treatment minus control with its 95% bootstrap interval. Measured on every couple: divorced within the year 1.6% against 21.4%, effect +19.8 points, 95% CI 16.2 to 23.6; separated at least once 19.4% against 88.6%, effect +69.2 points, 95% CI 64.8 to 73.8; days married until divorce or end 362.3 against 328.1, effect -34.3, 95% CI -41.8 to -26.8; trust on the last day 0.65 against 0.20, effect -0.45, 95% CI -0.48 to -0.42; mean trust over the year 0.64 against 0.33, effect -0.31, 95% CI -0.34 to -0.29; conflicts per couple-year 7.8 against 15.7, effect +7.8, 95% CI 7.0 to 8.6. Conditional on events after assignment: escalations per conflict 2.0 against 4.2, effect +2.3, 95% CI 1.9 to 2.6; conflicts ending reconciled 78.0% against 35.1%, effect -42.9 points, 95% CI -47.2 to -38.8; days from conflict to repair 4.6 against 7.4, effect +2.8, 95% CI 2.3 to 3.3; divorced agents who remarried 25.0% against 6.5%, effect -18.5 points, 95% CI -45.8 to 6.3, an interval that crosses zero. Blue bars are control with a 14-day conflict memory, orange bars treatment with a 90-day one." width="100%">
 </p>
 
 Two checks ship with every experiment. The placebo run gives both arms the same parameters, and its
@@ -78,7 +78,7 @@ question "what does this do to this world" has one honest answer.
 ## How it works
 
 <p align="center">
-  <img src="docs/figures/how-it-works.svg" alt="How a run flows, from an experiment file to a dashboard with every step logged. Section 01, the experiment file. One YAML file names couples, days, three seeds, the treatment memory half-life and any shocks, and Python turns it into the engine's config JSON. Section 02, the engine. Rust on Bevy ECS, headless and deterministic, one schedule every day for stress, affect, the conflict decision, trust, memory decay, the market and the log, every draw keyed by seed and id, writing eight Parquet tables and a manifest with a SHA-256 per table that replay checks. Section 03, the analysis. Python reads the tables and writes summary.json with an effect per outcome, bootstrap intervals and permutation p-values, conditional outcomes flagged, plus the placebo and twins checks. Section 04, the dashboard. FastAPI serves the results and React shows them, replaying the year day by day, opening any couple or agent, and running a new experiment from the page in about ten seconds. The policy never reads the arm, and a test greps four modules for the word." width="100%">
+  <img src="docs/figures/how-it-works.svg" alt="How a run flows, from an experiment file to a dashboard with every step logged. 1,000 couples, 365 days, one second in the engine. Section 01, the experiment file. One YAML file is the whole experiment. experiments/example.yaml. Couples, days, three seeds, the treatment memory half-life, and any shocks. Python turns it into the engine's config JSON and keeps both. Section 02, the engine. Rust on Bevy ECS, headless, deterministic. One schedule, every day. Stress, affect, conflict decision, trust, memory decay, market, log. Every draw keyed by seed and id. What it writes. Eight Parquet tables, one manifest with a SHA-256 per table. Replay fails on any mismatch. Section 03, the analysis. Python reads the tables and writes summary.json. Effects with intervals. Effect per outcome, with bootstrap intervals and permutation p-values. Conditional outcomes are flagged. Two checks on every experiment. Placebo: equal parameters, both arms must match byte for byte. Twins: each couple under both arms. Section 04, the dashboard. FastAPI serves the results, React shows them. World replay and the causal readout. Play the year day by day, open any couple or agent, read every decision. Pick a shock and run a new experiment from the page in about ten seconds. The policy never reads the arm. A test greps four modules for the word." width="100%">
 </p>
 
 The engine (`engine/`) is a headless Bevy ECS world. Agents and couples are entities, and one

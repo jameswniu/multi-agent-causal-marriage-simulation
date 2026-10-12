@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Generate the README figures from the repository's own numbers.
 
-Three SVGs land in docs/figures: a hero card, a map of how a run flows, and a results panel read
+Three SVGs land in docs/figures: a hero band, a map of how a run flows, and a results panel read
 from results/example/summary.json. Every text run passes a fit guard, so a string that would
-overflow its box fails generation with the string named, and nothing in the panels is typed by hand.
+overflow its box fails generation with the string named, and nothing in the panels is typed by
+hand. Each figure's alt text is generated from the same numbers, and the README's copy of it is
+kept in step, so a new run cannot leave a stale number in the page's text either.
 
-    python3 tools/figures.py --write    # regenerate the SVGs in place
+    python3 tools/figures.py --write    # regenerate the SVGs and the README alt text in place
     python3 tools/figures.py --check    # regenerate in memory and fail on any difference
 """
 
@@ -13,25 +15,35 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+import os
+import re
 import sys
+import tempfile
 from pathlib import Path
 from xml.sax.saxutils import escape
 
 ROOT = Path(__file__).resolve().parent.parent
 SUMMARY = ROOT / "results" / "example" / "summary.json"
 OUT = ROOT / "docs" / "figures"
+README = ROOT / "README.md"
 
 VIEW_W = 1200
 PAD = 48
 
-PAPER = "#ffffff"
-PANEL = "#f6f8fa"
-HAIRLINE = "#d0d7de"
-INK = "#1f2328"
-MUTED = "#57606a"
-ACCENT = "#345c8f"
-CONTROL = "#2a78d6"
-TREATMENT = "#d95926"
+# One dark palette, owned by this repository. ROSE is the single accent and appears only on the
+# hero's top rule and on headings. CONTROL and TREATMENT encode the two arms wherever they appear,
+# the same blue and orange the dashboard uses, lightened to read on the dark ground.
+GROUND = "#0e1119"
+RAISED = "#161a24"
+TRACK = "#232a3a"
+HAIRLINE = "#2b3242"
+INK = "#eef0f4"
+SOFT = "#c9cdd6"
+DIM = "#9aa1ae"
+ROSE = "#d4627c"
+CONTROL = "#6ea8fe"
+TREATMENT = "#f5a05e"
 
 SANS = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
 MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
@@ -43,31 +55,56 @@ def fits(text: str, size: float, box_w: float, pad: float, bold: bool = False, w
     """Refuse a text run that would overflow its box, naming the string."""
     if size < MIN_FONT:
         raise SystemExit(f"font {size} under the {MIN_FONT} floor {where}: {text!r}")
-    factor = 0.62 if bold else 0.58
-    if mono:
-        factor = 0.62
+    factor = 0.62 if bold or mono else 0.58
     est = len(text) * size * factor
     room = box_w - 2 * pad
     if est > room:
         raise SystemExit(f"text does not fit {where}: {text!r} needs {est:.0f} of {room:.0f}")
 
 
+def width(text: str, size: float, bold: bool = False, mono: bool = False) -> float:
+    """The same width estimate the fit guard uses, for laying out runs side by side."""
+    return len(text) * size * (0.62 if bold or mono else 0.58)
+
+
+def fits_row(total: float, room: float, where: str, parts: list[str]) -> None:
+    """Refuse a row of runs laid side by side whose combined width overflows, naming the runs."""
+    if total > room:
+        raise SystemExit(f"row does not fit {where}: {parts!r} needs {total:.0f} of {room:.0f}")
+
+
+def attr(s: str) -> str:
+    return escape(s, {'"': "&quot;"})
+
+
 def text(x: float, y: float, s: str, size: float, fill: str = INK, bold: bool = False, anchor: str = "start", mono: bool = False, spacing: float = 0) -> str:
     family = MONO if mono else SANS
     weight = ' font-weight="700"' if bold else ""
     ls = f' letter-spacing="{spacing}"' if spacing else ""
-    return f'<text x="{x:.0f}" y="{y:.0f}" font-family="{family}" font-size="{size}" fill="{fill}"{weight} text-anchor="{anchor}"{ls}>{escape(s)}</text>'
+    return f'<text x="{x:.0f}" y="{y:.0f}" font-family="{attr(family)}" font-size="{size}" fill="{fill}"{weight} text-anchor="{anchor}"{ls}>{escape(s)}</text>'
 
 
-def card(x: float, y: float, w: float, h: float, fill: str = PANEL) -> str:
-    return f'<rect x="{x:.0f}" y="{y:.0f}" width="{w:.0f}" height="{h:.0f}" rx="8" fill="{fill}" stroke="{HAIRLINE}" stroke-width="1.5"/>'
+def card(x: float, y: float, w: float, h: float, fill: str = RAISED) -> str:
+    return f'<rect x="{x:.0f}" y="{y:.0f}" width="{w:.0f}" height="{h:.0f}" rx="10" fill="{fill}" stroke="{HAIRLINE}" stroke-width="1.5"/>'
 
 
-def open_svg(h: int, label: str) -> str:
-    return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {VIEW_W} {h}" width="100%" role="img" aria-label="{escape(label)}">\n'
-        f'<rect x="0.75" y="0.75" width="{VIEW_W - 1.5}" height="{h - 1.5}" rx="12" fill="{PAPER}" stroke="{HAIRLINE}" stroke-width="1.5"/>\n'
-    )
+def bar(x: float, y: float, w: float, h: float, fill: str) -> str:
+    return f'<rect x="{x:.0f}" y="{y:.0f}" width="{w:.0f}" height="{h:.0f}" rx="4" fill="{fill}"/>'
+
+
+def open_svg(h: int, label: str, rule: bool = False) -> str:
+    """The dark ground with rounded corners, and the rose rule along the top when asked for."""
+    parts = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {VIEW_W} {h}" width="100%" role="img" aria-label="{attr(label)}">',
+        f'<clipPath id="frame"><rect width="{VIEW_W}" height="{h}" rx="14"/></clipPath>',
+        '<g clip-path="url(#frame)">',
+        f'<rect width="{VIEW_W}" height="{h}" fill="{GROUND}"/>',
+    ]
+    if rule:
+        parts.append(f'<rect width="{VIEW_W}" height="5" fill="{ROSE}"/>')
+    parts.append("</g>")
+    parts.append(f'<rect x="0.75" y="0.75" width="{VIEW_W - 1.5}" height="{h - 1.5}" rx="14" fill="none" stroke="{HAIRLINE}" stroke-width="1.5"/>')
+    return "\n".join(parts) + "\n"
 
 
 def load_summary() -> dict:
@@ -86,110 +123,176 @@ def pct(v: float) -> str:
     return f"{v * 100:.1f}%"
 
 
-def num(v: float, unit: str) -> str:
-    if unit.startswith("trust"):
-        return f"{v:.2f}"
-    return f"{v:.1f}"
+def digits(o: dict) -> int:
+    return 2 if o["unit"].startswith("trust") else 1
 
 
-def signed(v: float, digits: int = 1) -> str:
-    s = f"{v:+.{digits}f}"
-    return s.replace("-", "−") if False else s
+def fmt_value(o: dict, v: float) -> str:
+    return pct(v) if o["type"] == "binary" else f"{v:.{digits(o)}f}"
+
+
+def js_round(x: float) -> int:
+    """Round half up, as the dashboard's Math.round does, so both say the same span."""
+    return int(math.floor(x + 0.5))
+
+
+def human_duration(days: float) -> str:
+    """Days to a rounded human span, the dashboard's humanDuration: days, then weeks, then months."""
+    if not math.isfinite(days) or days <= 0:
+        return f"{days:g} days"
+    if days < 7:
+        d = js_round(days)
+        return f"{d} day" if d == 1 else f"{d} days"
+    if days < 60:
+        w = max(1, js_round(days / 7))
+        return f"{w} week" if w == 1 else f"{w} weeks"
+    return f"{max(2, js_round(days / 30))} months"
+
+
+def memory_values(summary: dict) -> tuple[float, float] | None:
+    """The conflict half-lives of the two arms, when the experiment changes them."""
+    t = summary["experiment"].get("treatment") or {}
+    cv, tv = t.get("control_value"), t.get("treatment_value")
+    if t.get("parameter") != "conflict_half_life_days" or not isinstance(cv, (int, float)) or not isinstance(tv, (int, float)) or cv == tv:
+        return None
+    return float(cv), float(tv)
+
+
+def arm_words(summary: dict) -> tuple[str, str]:
+    """What a first-time reader sees for each arm, in the dashboard's own words."""
+    mem = memory_values(summary)
+    if mem is None:
+        return "Control", "Treatment"
+    cv, tv = mem
+
+    def words(own: float, other: float) -> str:
+        return f"Holds onto fights for {human_duration(own)}" if own > other else f"Forgets fights in {human_duration(own)}"
+
+    return words(cv, tv), words(tv, cv)
+
+
+def days_words(v: float) -> str:
+    return f"{v:g}-day"
+
+
+def effect_words(o: dict, per: str = "") -> tuple[str, str]:
+    """The effect in plain words and its interval, for one outcome."""
+    ate = o["ate"]
+    scale = 100 if o["type"] == "binary" else 1
+    d = 1 if o["type"] == "binary" else digits(o)
+    size = f"{abs(ate) * scale:.{d}f}"
+    unit = " points" if o["type"] == "binary" else (f" {per}" if per else "")
+    if ate > 0:
+        head = f"Up {size}{unit}"
+    elif ate < 0:
+        head = f"Down {size}{unit}"
+    else:
+        head = "No change"
+    ci = f"95% CI {o['ci_low'] * scale:.{d}f} to {o['ci_high'] * scale:.{d}f}"
+    return head, ci
 
 
 # ---------------------------------------------------------------- hero
 
+def hero_tiles(days: int) -> list[tuple[str, str, str]]:
+    """Outcome, heading and the per-unit word of each hero card; the headings follow the run length."""
+    year = days == 365
+    return [
+        ("divorce_rate", "Divorced in a year" if year else f"Divorced in {days} days", ""),
+        ("final_trust", "Trust at year end" if year else "Trust on the last day", ""),
+        ("conflict_rate", "Conflicts per couple", "a year"),
+    ]
+
 
 def hero(summary: dict) -> tuple[str, str]:
     exp = summary["experiment"]
-    div = outcome(summary, "divorce_rate")
-    trust = outcome(summary, "final_trust")
-    conf = outcome(summary, "conflict_rate")
-    seeds = exp["seeds"]
+    title = "What does a grudge do to a marriage?"
+    span = "one year" if exp["days"] == 365 else f"{exp['days']} days"
+    sub = f"{exp['n_couples']:,} agent couples, {span}, one memory setting changed"
+    c_words, t_words = arm_words(summary)
+    lead = "Redrawn from the example run by"
+    cmd = "python3 tools/figures.py --write"
 
-    kicker = "Causal simulation of agent marriages"
-    title = "LoveWorld"
-    sub = f"{exp['n_couples']:,} agent couples, one year, one memory setting changed between arms"
-    tiles = [
-        ("Divorced within the year", pct(div["control_mean"]), pct(div["treatment_mean"])),
-        ("Trust on the last day", num(trust["control_mean"], trust["unit"]), num(trust["treatment_mean"], trust["unit"])),
-        ("Conflicts per couple-year", num(conf["control_mean"], conf["unit"]), num(conf["treatment_mean"], conf["unit"])),
-    ]
-    pills = ["experiment file", "Rust engine", "analysis", "dashboard"]
-    footer = "python3 tools/figures.py --write  from results/example/summary.json"
-
-    h = 468
-    p = [open_svg(h, "LoveWorld, a causal simulation of agent marriages")]
+    h = 516
     cx = VIEW_W / 2
-    fits(kicker, 24, VIEW_W, PAD, where="hero kicker")
-    p.append(text(cx, 66, kicker.upper(), 24, MUTED, anchor="middle", spacing=2))
-    fits(title, 52, VIEW_W, PAD, bold=True, where="hero title")
-    p.append(text(cx, 128, title, 52, INK, bold=True, anchor="middle"))
+    p = [open_svg(h, f"{title} {sub}", rule=True)]
+    fits(title, 46, VIEW_W, PAD, bold=True, where="hero title")
+    p.append(text(cx, 90, title, 46, INK, bold=True, anchor="middle"))
     fits(sub, 26, VIEW_W, PAD, where="hero subtitle")
-    p.append(text(cx, 170, sub, 26, MUTED, anchor="middle"))
+    p.append(text(cx, 134, sub, 26, DIM, anchor="middle"))
 
-    gap = 12
-    tile_w = (VIEW_W - 2 * PAD - 2 * gap) / 3
-    tile_h = 150
-    ty = 206
-    for i, (label, c, t) in enumerate(tiles):
-        x = PAD + i * (tile_w + gap)
+    # The legend says what blue and orange mean before any number does.
+    sw, sgap, igap = 18, 12, 52
+    items = [(c_words, CONTROL), (t_words, TREATMENT)]
+    total = sum(sw + sgap + width(w, 23) for w, _ in items) + igap
+    fits_row(total, VIEW_W - 2 * PAD, "hero legend", [w for w, _ in items])
+    x = cx - total / 2
+    for words, color in items:
+        p.append(bar(x, 162, sw, sw, color))
+        p.append(text(x + sw + sgap, 178, words, 23, SOFT))
+        x += sw + sgap + width(words, 23) + igap
+
+    gap = 20
+    side = 40
+    tile_w = (VIEW_W - 2 * side - 2 * gap) / 3
+    tile_h = 248
+    ty = 204
+    inner = 24
+    tiles = []
+    for i, (name, label, per) in enumerate(hero_tiles(exp["days"])):
+        o = outcome(summary, name)
+        x = side + i * (tile_w + gap)
         p.append(card(x, ty, tile_w, tile_h))
-        fits(label, 23, tile_w, 12, where=f"hero tile {i} label")
-        p.append(text(x + tile_w / 2, ty + 40, label, 23, MUTED, anchor="middle"))
-        pair = f"{c}  vs  {t}"
-        fits(pair, 36, tile_w, 12, bold=True, where=f"hero tile {i} value")
-        # Control in blue, treatment in orange: the colour is the arm encoding the app uses. Each
-        # run is placed explicitly so the spacing does not depend on whitespace handling.
-        w_c = len(c) * 36 * 0.62
-        w_t = len(t) * 36 * 0.62
-        w_vs = 72
-        start = x + tile_w / 2 - (w_c + w_vs + w_t) / 2
-        p.append(text(start, ty + 92, c, 36, CONTROL, bold=True))
-        p.append(text(start + w_c + w_vs / 2, ty + 92, "vs", 26, MUTED, anchor="middle"))
-        p.append(text(start + w_c + w_vs, ty + 92, t, 36, TREATMENT, bold=True))
-        cap = "control vs treatment"
-        fits(cap, 23, tile_w, 12, where=f"hero tile {i} caption")
-        p.append(text(x + tile_w / 2, ty + 128, cap, 23, MUTED, anchor="middle"))
+        fits(label, 24, tile_w, inner, bold=True, where=f"hero tile {i} heading")
+        p.append(text(x + inner, ty + 46, label, 24, ROSE, bold=True))
 
-    py = 392
-    pill_h = 40
-    pill_gap = 16
-    widths = [len(s) * 24 * 0.58 + 40 for s in pills]
-    total = sum(widths) + pill_gap * (len(pills) - 1)
-    x = (VIEW_W - total) / 2
-    for i, (s, w) in enumerate(zip(pills, widths)):
-        active = s == "Rust engine"
-        fill = ACCENT if active else PAPER
-        color = PAPER if active else INK
-        p.append(f'<rect x="{x:.0f}" y="{py}" width="{w:.0f}" height="{pill_h}" rx="20" fill="{fill}" stroke="{HAIRLINE if not active else ACCENT}" stroke-width="1.5"/>')
-        fits(s, 24, w, 16, where=f"hero pill {i}")
-        p.append(text(x + w / 2, py + 27, s, 24, color, anchor="middle"))
-        x += w + pill_gap
+        values = [(o["control_mean"], CONTROL), (o["treatment_mean"], TREATMENT)]
+        labels = [fmt_value(o, v) for v, _ in values]
+        val_w = max(width(s, 34, bold=True) for s in labels)
+        bx = x + inner + val_w + 18
+        bw = x + tile_w - inner - bx
+        if bw < 60:
+            raise SystemExit(f"hero tile {i}: no room left for the bars beside {labels}")
+        top = max(abs(v) for v, _ in values) or 1.0
+        for k, ((v, color), s) in enumerate(zip(values, labels)):
+            fits(s, 34, val_w + 2 * inner, inner, bold=True, where=f"hero tile {i} value {k}")
+            base = ty + 104 + k * 52
+            p.append(text(x + inner, base, s, 34, color, bold=True))
+            p.append(bar(bx, base - 22, bw, 22, TRACK))
+            p.append(bar(bx, base - 22, max(4.0, bw * abs(v) / top), 22, color))
 
-    fits(footer, 23, VIEW_W, PAD, where="hero footer", mono=True)
-    p.append(text(cx, h - 18, footer, 23, MUTED, anchor="middle", mono=True))
+        head, ci = effect_words(o, per)
+        fits(head, 24, tile_w, inner, bold=True, where=f"hero tile {i} effect")
+        p.append(text(x + inner, ty + 202, head, 24, INK, bold=True))
+        fits(ci, 23, tile_w, inner, where=f"hero tile {i} interval")
+        p.append(text(x + inner, ty + 232, ci, 23, DIM))
+        tiles.append((label, labels, head, ci))
+
+    lw, cw = width(lead, 23), width(cmd, 23, mono=True)
+    fits_row(lw + 12 + cw, VIEW_W - 2 * PAD, "hero footer", [lead, cmd])
+    # One text run with the command as a tspan, so the browser spaces the two fonts itself.
+    p.append(
+        f'<text x="{cx:.0f}" y="{h - 26}" font-family="{attr(SANS)}" font-size="23" fill="{DIM}" text-anchor="middle">'
+        f'{escape(lead)} <tspan font-family="{attr(MONO)}">{escape(cmd)}</tspan></text>'
+    )
     p.append("</svg>\n")
 
-    alt = (
-        f"LoveWorld, a causal simulation of agent marriages. {sub}. Three tiles compare control with treatment: "
-        f"divorced within the year {tiles[0][1]} against {tiles[0][2]}, trust on the last day {tiles[1][1]} against {tiles[1][2]}, "
-        f"conflicts per couple-year {tiles[2][1]} against {tiles[2][2]}. Four stages, experiment file, Rust engine, analysis, dashboard. "
-        f"Footer: {footer}."
-    )
-    return "\n".join(p), alt
+    if memory_values(summary) is None:
+        arms = "Blue is the control arm, orange the treatment arm."
+    else:
+        arms = f"Blue is the arm that {c_words.lower()}, orange the arm that {t_words.lower()}."
+    parts = [f"{title} LoveWorld runs {exp['n_couples']:,} agent couples for {span}, with one memory setting changed between the arms.", arms]
+    for label, (c, t), head, ci in tiles:
+        parts.append(f"{label}, {c} against {t}, {head.lower()}, {ci}.")
+    parts.append(f"{lead} {cmd}.")
+    return "\n".join(p), " ".join(parts)
 
 
 # ---------------------------------------------------------------- how a run flows
 
 
-def how_it_works(summary: dict) -> str:
-    exp = summary["experiment"]
-    title = "How a run flows"
-    sub = "Experiment file to dashboard, every step logged"
-    stat = (f"{exp['n_couples']:,} couples, {exp['days']} days", "one second in the engine")
-
-    sections = [
+def map_sections() -> list[dict]:
+    return [
         {
             "code": "01",
             "head": "THE EXPERIMENT FILE",
@@ -199,7 +302,6 @@ def how_it_works(summary: dict) -> str:
                     "title": "experiments/example.yaml",
                     "lines": ["Couples, days, three seeds, the treatment memory half-life, and any shocks.", "Python turns it into the engine's config JSON and keeps both."],
                     "foot": "loveworld run experiments/example.yaml",
-                    "foot_mono": True,
                 },
             ],
         },
@@ -212,13 +314,11 @@ def how_it_works(summary: dict) -> str:
                     "title": "One schedule, every day",
                     "lines": ["Stress, affect, conflict decision,", "trust, memory decay, market, log.", "Every draw keyed by seed and id."],
                     "foot": "loveworld-engine run --config",
-                    "foot_mono": True,
                 },
                 {
                     "title": "What it writes",
                     "lines": ["Eight Parquet tables, one manifest", "with a SHA-256 per table.", "Replay fails on any mismatch."],
                     "foot": "loveworld-engine replay --manifest",
-                    "foot_mono": True,
                 },
             ],
         },
@@ -231,13 +331,11 @@ def how_it_works(summary: dict) -> str:
                     "title": "Effects with intervals",
                     "lines": ["Effect per outcome, with bootstrap", "intervals and permutation p-values.", "Conditional outcomes are flagged."],
                     "foot": "loveworld analyze results/example",
-                    "foot_mono": True,
                 },
                 {
                     "title": "Two checks on every experiment",
                     "lines": ["Placebo: equal parameters, both", "arms must match byte for byte.", "Twins: each couple under both arms."],
-                    "foot": "make placebo   make twins",
-                    "foot_mono": True,
+                    "foot": "make placebo && make twins",
                 },
             ],
         },
@@ -250,42 +348,49 @@ def how_it_works(summary: dict) -> str:
                     "title": "World replay and the causal readout",
                     "lines": ["Play the year day by day, open any couple or agent, read every decision.", "Pick a shock and run a new experiment from the page in about ten seconds."],
                     "foot": "make dashboard",
-                    "foot_mono": True,
                 },
             ],
         },
     ]
-    closing = "The policy never reads the arm. A test greps four modules for the word."
 
-    # Layout.
-    y = 118
+
+MAP_TITLE = "How a run flows"
+MAP_SUB = "Experiment file to dashboard, every step logged"
+MAP_CLOSING = "The policy never reads the arm. A test greps four modules for the word."
+
+
+def how_it_works(summary: dict) -> tuple[str, str]:
+    exp = summary["experiment"]
+    stat = (f"{exp['n_couples']:,} couples, {exp['days']} days", "one second in the engine")
+    sections = map_sections()
+
+    y = 136
     section_tops: list[tuple[dict, int, int]] = []
     for s in sections:
-        n = len(s["cards"])
         card_h = 196 if max(len(c["lines"]) for c in s["cards"]) <= 2 else 226
         section_tops.append((s, y, card_h))
         y += 44 + card_h + 36
     h = y + 56
 
-    p = [open_svg(h, "How a LoveWorld run flows")]
-    fits(title, 44, 760, 0, bold=True, where="map title")
-    p.append(text(PAD, 72, title, 44, INK, bold=True))
-    box_w = 360
+    p = [open_svg(h, f"{MAP_TITLE}. {MAP_SUB}.")]
+    fits(MAP_TITLE, 44, 760, 0, bold=True, where="map title")
+    p.append(text(PAD, 72, MAP_TITLE, 44, INK, bold=True))
+    box_w = 380
     box_x = VIEW_W - PAD - box_w
-    fits(sub, 24, box_x - PAD, 24, where="map subtitle")
-    p.append(text(PAD, 106, sub, 24, MUTED))
-    p.append(card(box_x, 36, box_w, 76, PAPER))
+    fits(MAP_SUB, 24, box_x - PAD, 24, where="map subtitle")
+    p.append(text(PAD, 106, MAP_SUB, 24, DIM))
+    p.append(card(box_x, 36, box_w, 76))
     for i, line in enumerate(stat):
-        fits(line, 23, box_w, 18, where=f"stat box line {i}")
-        p.append(text(box_x + box_w / 2, 66 + i * 30, line, 23, ACCENT if i == 0 else MUTED, anchor="middle"))
+        fits(line, 23, box_w, 18, bold=i == 0, where=f"stat box line {i}")
+        p.append(text(box_x + box_w / 2, 66 + i * 30, line, 23, INK if i == 0 else DIM, bold=i == 0, anchor="middle"))
 
     inner_w = VIEW_W - 2 * PAD
     for s, top, card_h in section_tops:
         head = f"{s['code']}  {s['head']}"
         fits(head, 23, 420, 0, bold=True, where=f"section {s['code']} head")
-        p.append(text(PAD, top + 24, head, 23, ACCENT, bold=True, spacing=1.5))
+        p.append(text(PAD, top + 24, head, 23, ROSE, bold=True, spacing=1.5))
         fits(s["note"], 23, inner_w - 440, 0, where=f"section {s['code']} note")
-        p.append(text(PAD + 440, top + 24, s["note"], 23, MUTED))
+        p.append(text(PAD + 440, top + 24, s["note"], 23, DIM))
         p.append(f'<line x1="{PAD}" y1="{top + 36}" x2="{VIEW_W - PAD}" y2="{top + 36}" stroke="{HAIRLINE}" stroke-width="1"/>')
         n = len(s["cards"])
         gap = 24
@@ -294,20 +399,25 @@ def how_it_works(summary: dict) -> str:
         for i, c in enumerate(s["cards"]):
             cx = PAD + i * (cw + gap)
             p.append(card(cx, cy, cw, card_h))
-            p.append(f'<rect x="{cx:.0f}" y="{cy + 10}" width="4" height="{card_h - 20}" rx="2" fill="{ACCENT}"/>')
-            tx = cx + 22
-            fits(c["title"], 26, cw, 22, bold=True, where=f"section {s['code']} card {i} title")
+            tx = cx + 24
+            fits(c["title"], 26, cw, 24, bold=True, where=f"section {s['code']} card {i} title")
             p.append(text(tx, cy + 44, c["title"], 26, INK, bold=True))
             for j, ln in enumerate(c["lines"]):
-                fits(ln, 24, cw, 22, where=f"section {s['code']} card {i} line {j}")
-                p.append(text(tx, cy + 86 + j * 36, ln, 24, INK))
-            fits(c["foot"], 23, cw, 22, where=f"section {s['code']} card {i} foot", mono=c["foot_mono"])
-            p.append(text(tx, cy + card_h - 24, c["foot"], 23, MUTED, mono=c["foot_mono"]))
+                fits(ln, 24, cw, 24, where=f"section {s['code']} card {i} line {j}")
+                p.append(text(tx, cy + 86 + j * 36, ln, 24, SOFT))
+            fits(c["foot"], 23, cw, 24, where=f"section {s['code']} card {i} foot", mono=True)
+            p.append(text(tx, cy + card_h - 24, c["foot"], 23, DIM, mono=True))
 
-    fits(closing, 23, VIEW_W, PAD, where="map closing")
-    p.append(text(VIEW_W / 2, h - 24, closing, 23, MUTED, anchor="middle"))
+    fits(MAP_CLOSING, 23, VIEW_W, PAD, where="map closing")
+    p.append(text(VIEW_W / 2, h - 24, MAP_CLOSING, 23, DIM, anchor="middle"))
     p.append("</svg>\n")
-    return "\n".join(p)
+
+    alt = [f"{MAP_TITLE}, from an experiment file to a dashboard with every step logged. {stat[0]}, {stat[1]}."]
+    for s in sections:
+        cards = " ".join(f"{c['title']}. {' '.join(c['lines'])}" for c in s["cards"])
+        alt.append(f"Section {s['code']}, {s['head'].lower()}. {s['note']}. {cards}")
+    alt.append(MAP_CLOSING)
+    return "\n".join(p), " ".join(alt)
 
 
 # ---------------------------------------------------------------- results panel
@@ -326,19 +436,23 @@ SHORT = {
 }
 
 
-def fmt_value(o: dict, v: float) -> str:
-    return pct(v) if o["type"] == "binary" else num(v, o["unit"])
-
-
 def fmt_effect(o: dict) -> tuple[str, str]:
     """The effect line and its interval line for one row."""
     if o["type"] == "binary":
         return f"{o['ate'] * 100:+.1f} points", f"95% CI {o['ci_low'] * 100:.1f} to {o['ci_high'] * 100:.1f}"
-    d = 2 if o["unit"].startswith("trust") else 1
+    d = digits(o)
     return f"{o['ate']:+.{d}f}", f"95% CI {o['ci_low']:.{d}f} to {o['ci_high']:.{d}f}"
 
 
-def results(summary: dict) -> str:
+def legend_words(summary: dict) -> tuple[str, str]:
+    mem = memory_values(summary)
+    if mem is None:
+        return "control", "treatment"
+    cv, tv = mem
+    return f"control, {days_words(cv)} conflict memory", f"treatment, {days_words(tv)} conflict memory"
+
+
+def results(summary: dict) -> tuple[str, str]:
     exp = summary["experiment"]
     seeds = exp["seeds"]
     rows = [o for o in summary["outcomes"] if o["name"] in SHORT]
@@ -353,13 +467,13 @@ def results(summary: dict) -> str:
     top = 150
     h = top + group_h * 2 + row_h * len(rows) + 76
 
-    p = [open_svg(h, "Example run results, control against treatment")]
+    p = [open_svg(h, title)]
     fits(title, 44, VIEW_W, PAD, bold=True, where="results title")
     p.append(text(PAD, 72, title, 44, INK, bold=True))
     fits(sub, 24, VIEW_W, PAD, where="results subtitle")
-    p.append(text(PAD, 106, sub, 24, MUTED))
+    p.append(text(PAD, 106, sub, 24, DIM))
     fits(sub2, 24, VIEW_W, PAD, where="results subtitle 2")
-    p.append(text(PAD, 136, sub2, 24, MUTED))
+    p.append(text(PAD, 136, sub2, 24, DIM))
 
     label_x = PAD
     label_w = 470
@@ -371,18 +485,18 @@ def results(summary: dict) -> str:
 
     def group(y: int, name: str, items: list[dict]) -> int:
         fits(name, 23, VIEW_W, PAD, bold=True, where=f"group {name}")
-        p.append(text(PAD, y + 34, name.upper(), 23, ACCENT, bold=True, spacing=1.5))
+        p.append(text(PAD, y + 34, name.upper(), 23, ROSE, bold=True, spacing=1.5))
         p.append(f'<line x1="{PAD}" y1="{y + 44}" x2="{VIEW_W - PAD}" y2="{y + 44}" stroke="{HAIRLINE}" stroke-width="1"/>')
         y += group_h
         for o in items:
             label = SHORT[o["name"]]
             fits(label, 24, label_w, 0, where=f"row {o['name']} label")
-            p.append(text(label_x, y + 40, label, 24, INK))
+            p.append(text(label_x, y + 40, label, 24, SOFT))
             scale = max(abs(o["control_mean"]), abs(o["treatment_mean"])) or 1.0
             for k, (mean, color) in enumerate(((o["control_mean"], CONTROL), (o["treatment_mean"], TREATMENT))):
                 by = y + 14 + k * 20
-                bl = max(2.0, bar_w * abs(mean) / scale)
-                p.append(f'<rect x="{bar_x}" y="{by}" width="{bl:.0f}" height="14" rx="3" fill="{color}"/>')
+                p.append(bar(bar_x, by, bar_w, 14, TRACK))
+                p.append(bar(bar_x, by, max(3.0, bar_w * abs(mean) / scale), 14, color))
                 v = fmt_value(o, mean)
                 fits(v, 23, val_w, 0, where=f"row {o['name']} value {k}")
                 p.append(text(bar_x + bar_w + 12, by + 12, v, 23, color))
@@ -390,7 +504,7 @@ def results(summary: dict) -> str:
             fits(eff, 24, eff_w, 0, bold=True, where=f"row {o['name']} effect")
             p.append(text(VIEW_W - PAD, y + 28, eff, 24, INK, bold=True, anchor="end"))
             fits(ci, 23, eff_w, 0, where=f"row {o['name']} interval")
-            p.append(text(VIEW_W - PAD, y + 54, ci, 23, MUTED, anchor="end"))
+            p.append(text(VIEW_W - PAD, y + 54, ci, 23, DIM, anchor="end"))
             p.append(f'<line x1="{PAD}" y1="{y + row_h}" x2="{VIEW_W - PAD}" y2="{y + row_h}" stroke="{HAIRLINE}" stroke-width="0.75"/>')
             y += row_h
         return y
@@ -399,46 +513,111 @@ def results(summary: dict) -> str:
     y = group(y, "Measured on every couple", plain)
     y = group(y, "Conditional on events after assignment", cond)
 
+    lc, lt = legend_words(summary)
+    sw, sgap, igap = 22, 10, 40
+    total = sw + sgap + width(lc, 23) + igap + sw + sgap + width(lt, 23)
+    fits_row(total, VIEW_W - 2 * PAD, "results legend", [lc, lt])
     legend_y = h - 26
-    p.append(f'<rect x="{PAD}" y="{legend_y - 12}" width="22" height="14" rx="3" fill="{CONTROL}"/>')
-    lc, lt = "control, 14-day conflict memory", "treatment, 90-day conflict memory"
-    fits(lc, 23, 430, 0, where="legend control")
-    fits(lt, 23, 450, 0, where="legend treatment")
-    p.append(text(PAD + 32, legend_y, lc, 23, MUTED))
-    p.append(f'<rect x="{PAD + 470}" y="{legend_y - 12}" width="22" height="14" rx="3" fill="{TREATMENT}"/>')
-    p.append(text(PAD + 502, legend_y, lt, 23, MUTED))
+    x = PAD
+    for words, color in ((lc, CONTROL), (lt, TREATMENT)):
+        p.append(bar(x, legend_y - 14, sw, 14, color))
+        p.append(text(x + sw + sgap, legend_y, words, 23, DIM))
+        x += sw + sgap + width(words, 23) + igap
     p.append("</svg>\n")
-    return "\n".join(p)
+
+    mem = memory_values(summary)
+    if mem is None:
+        bars = "Blue bars are control, orange bars treatment."
+    else:
+        bars = f"Blue bars are control with a {days_words(mem[0])} conflict memory, orange bars treatment with a {days_words(mem[1])} one."
+
+    def row_alt(o: dict) -> str:
+        eff, ci = fmt_effect(o)
+        crosses = ", an interval that crosses zero" if o["ci_low"] < 0 < o["ci_high"] else ""
+        return f"{SHORT[o['name']].lower()} {fmt_value(o, o['control_mean'])} against {fmt_value(o, o['treatment_mean'])}, effect {eff}, {ci}{crosses}"
+
+    alt = (
+        f"{title}. {sub} {sub2} Measured on every couple: {'; '.join(row_alt(o) for o in plain)}. "
+        f"Conditional on events after assignment: {'; '.join(row_alt(o) for o in cond)}. {bars}"
+    )
+    return "\n".join(p), alt
 
 
 # ---------------------------------------------------------------- main
 
 
-def render() -> dict[str, str]:
+def render() -> tuple[dict[str, str], dict[str, str]]:
+    """The SVG bodies by file name, and the alt text by the same names."""
     summary = load_summary()
-    hero_svg, alt = hero(summary)
-    return {
-        "hero.svg": hero_svg,
-        "hero.alt.txt": alt + "\n",
-        "how-it-works.svg": how_it_works(summary),
-        "results.svg": results(summary),
-    }
+    hero_svg, hero_alt = hero(summary)
+    map_svg, map_alt = how_it_works(summary)
+    results_svg, results_alt = results(summary)
+    svgs = {"hero.svg": hero_svg, "how-it-works.svg": map_svg, "results.svg": results_svg}
+    alts = {"hero.svg": hero_alt, "how-it-works.svg": map_alt, "results.svg": results_alt}
+    return svgs, alts
+
+
+def img_pattern(name: str) -> re.Pattern[str]:
+    return re.compile(r'(<img src="docs/figures/' + re.escape(name) + r'" alt=")([^"]*)(")')
+
+
+def readme_with_alts(readme: str, alts: dict[str, str]) -> str:
+    """The README with each figure's alt attribute set to its generated text."""
+    for name, alt in alts.items():
+        pat = img_pattern(name)
+        found = pat.findall(readme)
+        if len(found) != 1:
+            raise SystemExit(f"README.md must embed docs/figures/{name} exactly once as <img src=... alt=...>, found {len(found)}")
+        value = attr(alt)
+        readme = pat.sub(lambda m: m.group(1) + value + m.group(3), readme)
+    return readme
+
+
+def write_all(files: dict[Path, str]) -> None:
+    """Stage every output beside its target, then rename them all into place.
+
+    Disk-full and permission errors happen while staging, before anything is replaced, so a failed
+    write changes nothing; the renames that follow need no new space. A kill between two renames
+    can still leave a mixed set, which --check, run by make figures-check and in CI, names.
+    """
+    staged: list[tuple[Path, Path]] = []
+    try:
+        for path, body in files.items():
+            fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+            staged.append((Path(tmp), path))
+            with os.fdopen(fd, "w") as fh:
+                fh.write(body)
+            # mkstemp creates the file private; keep the mode the replaced file had, else 0644.
+            os.chmod(tmp, path.stat().st_mode & 0o777 if path.exists() else 0o644)
+    except BaseException:
+        for tmp, _ in staged:
+            tmp.unlink(missing_ok=True)
+        raise
+    for tmp, path in staged:
+        os.replace(tmp, path)
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     mode = ap.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--write", action="store_true", help="write docs/figures/*.svg")
-    mode.add_argument("--check", action="store_true", help="fail if a committed figure differs from a fresh render")
+    mode.add_argument("--write", action="store_true", help="write docs/figures/*.svg and the README alt text")
+    mode.add_argument("--check", action="store_true", help="fail if a committed figure or its README alt text differs from a fresh render")
     args = ap.parse_args()
-    files = render()
+    svgs, alts = render()
+    readme = README.read_text()
+    fresh_readme = readme_with_alts(readme, alts)
     if args.write:
         OUT.mkdir(parents=True, exist_ok=True)
-        for name, body in files.items():
-            (OUT / name).write_text(body)
-            print(f"wrote docs/figures/{name}")
+        files = {OUT / name: body for name, body in svgs.items()}
+        if fresh_readme != readme:
+            files[README] = fresh_readme
+        write_all(files)
+        for path in files:
+            print(f"wrote {path.relative_to(ROOT)}")
         return 0
-    stale = [name for name, body in files.items() if not (OUT / name).exists() or (OUT / name).read_text() != body]
+    stale = [name for name, body in svgs.items() if not (OUT / name).exists() or (OUT / name).read_text() != body]
+    if fresh_readme != readme:
+        stale.append("README.md alt text")
     if stale:
         print("figures are stale, run python3 tools/figures.py --write: " + ", ".join(stale), file=sys.stderr)
         return 1
