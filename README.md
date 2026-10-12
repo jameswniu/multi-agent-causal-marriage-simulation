@@ -48,15 +48,15 @@ The World page plays the year back as a town, one house for each couple.
 
 ## Try a shock
 
-Describe a life event in plain words, and the app runs it on a copy of the town.
+Describe a life event in plain words, and the town runs it again right where you watch.
 
 <p align="center">
-  <img src="assets/shock-box-v1.gif" width="720" alt="The New experiment page. The sentence His mother moves in for two months starting in month four goes into the describe box, and Translate turns it into a shock card that raises stress for both partners and lowers one partner's mood from day 90 to day 150 in the treatment arm. Run starts the engine, and the new world opens with a table that compares every couple with itself in the world it was forked from.">
+  <img src="assets/shock-in-place-v1.gif" width="100%" alt="The World page of the example town. Shock this world opens a box above the town, the sentence his mother moves in for two months starting in month four goes in, and Translate turns it into a shock card that raises stress and lowers mood for both partners from day 90 to day 150 in the treatment arm. Run waits its turn and runs, then the page switches to the new world and replays it from day 80 at ten days a second. From day 90, pink rings light up around the houses on the right, the couples who hold onto fights, and the counter above the town climbs to about 290 of 1,000 couples that differ from the original that day.">
 </p>
 
 - An LLM (a large language model, here Claude Haiku) turns the sentence into a shock card you can read and edit before anything runs.
-- The copy keeps the same couples and the same random draws, so every difference is the shock's doing.
-- Runs wait in a short queue, and each finished run opens as its own experiment beside the original.
+- The new world keeps the same couples and the same random draws, so every ring is the shock's doing.
+- A switch draws the original town on the same day, and the new world's Overview compares each couple's whole year.
 
 ## What it found
 

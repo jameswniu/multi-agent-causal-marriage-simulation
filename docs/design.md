@@ -249,7 +249,7 @@ The World page replays the year as a town drawn with PixiJS inside the React app
 - A couple in a conflict stands outside and apart under a yellow sign, a separated partner waits at the edge of the plaza, and a divorce dims the house and sends both people to the plaza, where some date and remarry into new homes.
 - A time bar plays, pauses and scrubs the year at 1, 10 or 50 days a second, and colour lenses repaint every house by trust, stress, grudge, warmth, satisfaction or days without warmth.
 - Clicking a house opens the couple panel with both partners' trust and mood over the year, their memory that day and the latest events, and the full couple and agent pages show every decision with the utilities behind it.
-- Shock this world opens the plain-words shock box on a fork of the world being watched, and the fork's overview compares every couple with itself in the parent world.
+- Shock this world opens the plain-words shock box right above the town. Run forks the world being watched, the page switches to the new world and replays it from just before the shock, and a ring marks every house whose couple differs that day from the same couple in the parent world, with a counter and a switch that draws the parent on the same day. The fork's Overview compares every couple's whole year with itself in the parent world.
 
 Where a person stands is a layout of their state that day, since the engine has no space. The town
 art is Kenney's public-domain Tiny Town and Tiny Dungeon tiles, credited in

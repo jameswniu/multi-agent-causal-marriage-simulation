@@ -396,8 +396,9 @@ A top-bar experiment select (persisted in the URL as `?experiment=`) feeds every
 treatment arm (default equal to control, so a shock-only experiment is possible), a shock picker
 built from `/api/shocks/catalog` (kind, which partner, start and end day, magnitude slider, and
 whether it hits the treatment arm only or everyone), and a Run button that posts to
-`/api/experiments/run`, shows progress, and selects the new experiment on success. Since section 10 a
-"Start from" picker comes first: it defaults to the world in the URL, which forks that world instead.
+`/api/experiments/run`, shows progress, and opens the new experiment on the World page when it is done
+(section 12). Since section 10 a "Start from" picker comes first: it defaults to the world in the URL,
+which forks that world instead.
 
 Positive kinds, same shape, same logging:
 
@@ -717,6 +718,16 @@ Engine runs execute one at a time, in arrival order, on a worker thread inside t
 POST fork validate the request first (all the 400 and 409 answers above happen before anything is
 queued), then queue the run and answer 202 at once.
 
+Every run and fork queued this way also runs its twins, inside the same job: each couple under both
+arms on the run's own config and seeds, into `<name>-twins`, the way `loveworld twins` does it for an
+experiment file. The run and its twins are simulated and analysed side by side in one staging
+directory and published together (`runner.run_with_twins`), so the run's `summary.json` links them under
+`governance.twins`, and a run that fails at any step, an overwrite included, leaves the earlier run and
+its own twins as they were. The job's run cap, queue limit and public rules therefore cover the twins
+too. A `<name>-twins` directory that already exists is a 409 before anything is queued, unless a run sets
+`overwrite` (a fork never does). With identical arms, as in a run with no intervention, the twins never
+differ, and `/api/twins/world` reports zero diverged couples on every day.
+
 ```
 GET /api/jobs/{job_id} -> {"job_id", "kind": "run" | "fork", "name", "state": "queued" | "running" | "done" | "failed",
                            "position" (1 is next, null unless queued), "error", "created", "started", "finished"}
@@ -747,7 +758,8 @@ results root, not a single results directory.
   endpoints show the curated worlds plus the visitor's own. A visitor may have one run queued or
   running at a time (429 otherwise).
 - Visitor runs are deleted after `LOVEWORLD_VISITOR_TTL_HOURS` (default 24) by a sweeper that runs at
-  startup and every ten minutes; curated names are never swept.
+  startup and every ten minutes, together with the `-twins` (or `-placebo`) run beside each, which ages
+  with its run. Curated names and their siblings are never swept.
 - A public run may set only `treatment.conflict_half_life_days`, `treatment.shocks`, `world.shocks`,
   `n_couples` and `days`. `engine`, `control`, `seeds`, `overwrite` and any other treatment key are a
   400, the analysis is fixed by the server (500 bootstrap and 500 permutation resamples, seed 7, 95%
@@ -825,3 +837,49 @@ and per day, a bar for conflicts started and ticks for separations and divorces 
 band for each shock while it is active, and a cursor on the day, and a click jumps to that day. While
 the replay plays, the ticker shows the day's counts from the digest. The list of a day's events is
 fetched only while paused, 120 ms after the day stops changing.
+
+## 12. Shocking a world in place (added 2026-10-12)
+
+"Shock this world" on the World page opens the shock composer right above the town, in place of
+sending the visitor to the New experiment page. It is the same composer that page uses
+(`frontend/src/components/ShockComposer.tsx`, with the pure request builders in
+`frontend/src/shockForm.ts`): the plain-words box, the editable shock card, the same validation, the
+bot check in public mode, and the fork-plus-job flow of section 10. The panel only forks the world
+being watched, leaves the name to the server, and shows the run waiting its turn and running inline.
+
+When the job is done, the page switches to the new world in place: the URL's `experiment` becomes the
+child, and the World page replays it at ten days a second from ten days before the earliest day any
+added shock acts (a custom shock acts from its earliest effect), or from day 0 without shocks. The
+replay starts once the town is drawn and the parent world has loaded, and never waits more than eight
+seconds for them. Run on the New experiment page lands the same way.
+
+A forked world's World page reads its parent's states as well (`/api/world?experiment=<parent>`) and
+compares the two worlds day by day under "Compared with the world it came from"
+(`frontend/src/worldDiff.ts`). Only the couples both worlds start with are compared, matched by couple
+id, since a remarriage can pair different people under the same id. Each day:
+
+- Every house whose couple's state letter differs from the same couple's in the parent gets a ring, in
+  one colour (`#ff2bd6`) that no arm, state or lens uses, about three screen pixels wide at any zoom,
+  and the mini-map outlines the same lots.
+- A counter reads "N of 1,000 couples differ from <parent> today".
+- A switch draws the parent on the same day instead, with the parent's own couples table and arm
+  labels and the same rings. The scoreboard, the counts and the events stay with the child and say so,
+  colour lenses are hidden, and a house opened then opens that couple in the parent.
+- The couple-by-couple table over the whole year stays on the child's Overview, under Versus its
+  parent, and the panel links to it.
+
+The town opens on the whole town, or on one district at a time on a phone. Plus and minus zoom, drag
+pans, the wheel zooms about the pointer, and Whole town returns to the opening view. There is no
+separate plaza view. Switching between the child and its parent keeps the camera where it was.
+
+A run with no intervention (equal memory in both arms and no shock aimed at one arm alone) says so where
+the gap between the arms shows, in a box on the World page that stays through the replay and in a
+headline on its Overview. Every run started from the app brings its twins (section 10), and when the
+run's summary links them the words lead with them: run on the same 1,000 couples, the two settings give
+identical results, and 0 of 1,000 couples end differently (identical behaviour tables, or every paired
+outcome unchanged). The gap between the two halves follows as the second line, since they are
+different couples and two different groups never come out exactly even, with the divorce gap
+(treatment minus control), its interval and whether that interval includes zero. Without twins the
+first line says both halves follow identical rules, so the gap comes only from splitting the couples in
+two. The "Same couples, both arms" view of such a run reports 0 couples whose fate differs on every day.
+
