@@ -12,11 +12,18 @@ import { useAsync } from '../useAsync';
 import { useExperiment } from '../experiment';
 import { useExpNavigate } from '../nav';
 import { ErrorBox, Loading } from '../components/Status';
-import { effectWords, humanDuration, shockWords, toCatalog } from '../arms';
+import { effectWords, humanDuration, shockWords, toCatalog, type Catalog } from '../arms';
+import { shockEnd } from '../town/timebar';
 import { changedSinceTranslation, isTraitKind, rowSpec, validateRun, type RunForm, type RunRules, type ShockForm } from '../validation';
 import { mountTurnstile } from '../turnstile';
 
 let nextId = 1;
+
+/** What an empty end day means for a built-in shock, resolved as the engine resolves it. A kind with a catalog length ends that many days after its start, and anything else runs to the end. */
+function openEndHint(s: ShockForm, catalog: Catalog | null, days: number): string {
+  const end = shockEnd({ ...s, end_day: null }, catalog, days);
+  return end >= days - 1 ? 'to the end' : `day ${end}`;
+}
 
 function draftFor(k: ShockKind): ShockForm {
   return {
@@ -175,8 +182,8 @@ export default function NewExperiment() {
         ? `The list of worlds did not load, so the couples and days of ${startFrom} are unknown; reload the page to fork it.`
         : `${startFrom} is not a world you can start from here; pick another under Start from.`;
   const rules = useMemo<RunRules>(
-    () => ({ nameAssigned: isPublic, fork: forking, parentProblem, maxCouples: health.data?.limits?.max_couples, maxDays: health.data?.limits?.max_days }),
-    [isPublic, forking, parentProblem, health.data],
+    () => ({ nameAssigned: isPublic, fork: forking, parentProblem, parentShocks: parentItem?.intervention?.shocks ?? null, maxCouples: health.data?.limits?.max_couples, maxDays: health.data?.limits?.max_days }),
+    [isPublic, forking, parentProblem, parentItem, health.data],
   );
   // Until the server says whether this is public mode (and so whether a bot check guards POSTs), nothing is sent;
   // a health check that failed blocks sending too, rather than guessing the local mode.
@@ -476,7 +483,7 @@ export default function NewExperiment() {
                     max={days - 1}
                     step={1}
                     value={s.end_day ?? ''}
-                    placeholder="to the end"
+                    placeholder={openEndHint(s, catalogMap, runDays)}
                     onChange={(e) => update(s.id, { end_day: e.target.value === '' ? null : Number(e.target.value) })}
                     aria-label="End day"
                   />

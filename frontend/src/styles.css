@@ -248,6 +248,11 @@ details.tableview summary { cursor: pointer; color: var(--ink-2); font-size: 0.9
 .timestrip-labels { display: grid; grid-template-rows: 1fr 1fr; font-size: 0.875rem; color: var(--ink-2); }
 .timestrip-labels span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; align-self: center; }
 .timestrip-svg { width: 100%; height: 48px; cursor: pointer; background: var(--surface-raised); border: 1px solid var(--border); border-radius: 4px; }
+.timestrip-track { position: relative; }
+/* The strip's thousands of day bars sit on their own layer and are drawn once per run. Without it, each
+   day's changing numbers elsewhere re-rasterise them, which cost more than half the frame rate without a GPU. */
+.timestrip-track > .timestrip-svg { display: block; will-change: transform; }
+.timestrip-cursor { position: absolute; top: 1px; bottom: 1px; min-width: 2px; background: var(--ink); pointer-events: none; will-change: transform; }
 .timestrip-key { grid-column: 1 / -1; margin: 0; font-size: 0.875rem; }
 
 /* The town (or grid) with the couple panel beside it. */

@@ -344,7 +344,9 @@ describe('pages', () => {
     const strip = screen.getByTestId('timestrip');
     expect(within(strip).getByRole('img', { name: /Events per day for each arm/ })).toBeInTheDocument();
     await waitFor(() => expect(within(strip).getAllByTestId('shock-band').length).toBeGreaterThan(0));
-    expect(within(strip).getByTestId('timestrip-cursor').getAttribute('x')).toBe('10');
+    expect(within(strip).getByTestId('timestrip-cursor').getAttribute('data-day')).toBe('10');
+    // Today's cursor rides above the drawn strip, so moving it never repaints the strip's bars.
+    expect(strip.querySelector('svg [data-testid="timestrip-cursor"]')).toBeNull();
   });
 
   it('playing counts the day from the digest without asking for each day, and a pause lists the day once', async () => {
@@ -370,6 +372,19 @@ describe('pages', () => {
     expect(select.value).toBe('');
     fireEvent.change(select, { target: { value: 'retention-90d' } });
     expect(await screen.findByRole('heading', { name: 'retention-90d' })).toBeInTheDocument();
+  });
+
+  it('New experiment says where an emptied end day ends, the way the engine resolves it', async () => {
+    at('/new');
+    await screen.findByRole('heading', { name: 'New experiment' });
+    fireEvent.click(screen.getByRole('button', { name: 'Add shock' }));
+    const row = screen.getByTestId('shock-row');
+    fireEvent.change(within(row).getByLabelText('End day'), { target: { value: '' } });
+    // A job loss with no end day lasts its catalog length, 120 days from its start on day 90.
+    expect((within(row).getByLabelText('End day') as HTMLInputElement).placeholder).toBe('day 210');
+    fireEvent.change(within(row).getByLabelText('Shock kind'), { target: { value: 'daily_texts' } });
+    fireEvent.change(within(row).getByLabelText('End day'), { target: { value: '' } });
+    expect((within(row).getByLabelText('End day') as HTMLInputElement).placeholder).toBe('to the end');
   });
 
   it('New experiment supports a trait shift with a required trait selector', async () => {

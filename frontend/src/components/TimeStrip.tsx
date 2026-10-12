@@ -100,10 +100,19 @@ export default function TimeStrip({ days, day, density, bands, controlTitle, tre
           Treatment
         </span>
       </div>
-      <svg viewBox={`0 0 ${n} ${H}`} preserveAspectRatio="none" role="img" aria-label={label} onClick={seek} className="timestrip-svg">
-        <StripBody days={n} density={density} bands={bands} />
-        <rect x={Math.min(day, n - 1)} y={0} width={Math.max(1, n / 300)} height={H} fill="var(--ink)" data-testid="timestrip-cursor" />
-      </svg>
+      <div className="timestrip-track">
+        <svg viewBox={`0 0 ${n} ${H}`} preserveAspectRatio="none" role="img" aria-label={label} onClick={seek} className="timestrip-svg">
+          <StripBody days={n} density={density} bands={bands} />
+        </svg>
+        {/* Today's cursor sits on its own layer, so moving it each day never repaints the drawn strip. */}
+        <div
+          className="timestrip-cursor"
+          style={{ left: `calc(1px + (100% - 2px) * ${Math.min(day, n - 1) / n})`, width: `calc((100% - 2px) * ${Math.max(1 / 300, 1 / n)})` }}
+          data-testid="timestrip-cursor"
+          data-day={Math.min(day, n - 1)}
+          aria-hidden="true"
+        />
+      </div>
       <p className="muted timestrip-key">
         Bars are conflicts started each day, red ticks separations, dark ticks divorces, and a shaded band means a shock is active. Click to jump to a day.
       </p>

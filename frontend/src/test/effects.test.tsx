@@ -127,6 +127,20 @@ describe('custom shocks in the run form', () => {
     expect(validateRun(two('mother moves in', 'father moves in'), kinds, effectCatalog)).toEqual([]);
   });
 
+  it('refuses a fork whose new custom shock shares a log name with one the parent world already runs', () => {
+    const kinds = (shocksCatalog as { kinds: ShockKind[] }).kinds;
+    const parentShocks: ShockSpec[] = [
+      { kind: 'custom', target: 'all', member: 'random', start_day: 10, end_day: 40, magnitude: 0, label: "Mother's move-in", effects: [] },
+      { kind: 'job_loss', target: 'treatment', member: 'a', start_day: 60, end_day: 180, magnitude: 1.5 },
+    ];
+    const form = formWith(customRow({ label: 'mother s move in' }));
+    const forkRules = { fork: true, parentShocks };
+    expect(validateRun(form, kinds, effectCatalog, forkRules).join(' ')).toContain('the parent world already runs');
+    expect(validateRun(formWith(customRow({ label: 'father moves in' })), kinds, effectCatalog, forkRules)).toEqual([]);
+    // A run that is not a fork keeps no parent shocks, so the same name is fine there.
+    expect(validateRun(form, kinds, effectCatalog, { parentShocks })).toEqual([]);
+  });
+
   it('sends a custom shock with its name and effects and no magnitude', () => {
     const kinds = (shocksCatalog as { kinds: ShockKind[] }).kinds;
     const req = buildRequest(formWith(customRow()), kinds);

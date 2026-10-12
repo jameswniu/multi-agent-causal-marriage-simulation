@@ -365,6 +365,15 @@ export default function World() {
   }, [world]);
   const allTwins = useMemo(() => (twinsData ? twinsData.couples.map((_, i) => i) : []), [twinsData]);
 
+  // Built once per run, not per day, so the strip under the scrubber keeps its drawn bars while the
+  // replay plays; rebuilding them each day redrew the whole strip on every frame.
+  const runDays = world?.days ?? 0;
+  const runShocks: ShockSpec[] = useMemo(
+    () => data?.[1]?.summary?.experiment?.shocks ?? [...arms.intervention.treatmentShocks, ...arms.intervention.worldShocks],
+    [data, arms.intervention],
+  );
+  const bands = useMemo(() => shockBands(runShocks, arms.catalog, runDays, (s) => shockShort(s, arms.catalog)), [runShocks, arms.catalog, runDays]);
+  const density = useMemo(() => densitySeries(digest.data ?? null, runDays), [digest.data, runDays]);
   if (error) return <ErrorBox message={error} />;
   if (!world) return <Loading what="the world" />;
 
@@ -382,9 +391,6 @@ export default function World() {
   const coupleCurrent = coupleState && coupleState.id === inspect && coupleState.attempt === coupleAttempt ? coupleState : null;
   const coupleDetail = coupleCurrent ? coupleCurrent.detail : null;
   const nextDay = coupleDetail ? nextEventDay(coupleDetail.events, d) : null;
-  const runShocks: ShockSpec[] = data?.[1]?.summary?.experiment?.shocks ?? [...arms.intervention.treatmentShocks, ...arms.intervention.worldShocks];
-  const bands = shockBands(runShocks, arms.catalog, world.days, (s) => shockShort(s, arms.catalog));
-  const density = densitySeries(digest.data ?? null, world.days);
   const inspectArm = (() => {
     if (inspect === null) return null;
     const i = world.couples.indexOf(inspect);

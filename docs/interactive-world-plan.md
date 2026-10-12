@@ -200,6 +200,8 @@ Translator accuracy, the latency of both models and real token counts are unmeas
 
 Frame time with 2,000 animated figures at 50x is unmeasured, and so is whether Kenney's characters have the frames the postures want. The M0 gate falls back to the existing canvas and to position-only postures.
 
+Without a GPU the town replays slower than it did before the lenses landed. Measured in Chrome's software renderer (SwiftShader) at 50 days a second, the World page played about 31 frames a second at 1440 by 900 before the lenses build, fell to about 8 after it, and is back to about 20 now. Each day's changing numbers had made the browser redraw the density strip's thousands of bars, so the strip now sits on its own layer with its cursor beside it. At 1800 by 1000 the page plays about 21 frames a second against 23 to 26 before. The remaining gap is the daily redraw of the numbers themselves, so a visitor without a GPU gets a usable but slower replay. These figures come from a busy laptop.
+
 Memory and CPU on the real host are unmeasured. The figures here come from macOS on a busy laptop, so M0 and M4 re-measure on Linux and on the Fly machine before the caps are fixed. The engine run, not the token bill, is the real denial-of-service surface, which is why runs get their own queue, pace and disk ceiling.
 
 The member-stream fix and the toolchain pin move existing hashes. Both ship as versioned changes, with old manifests replayed against the build that wrote them.

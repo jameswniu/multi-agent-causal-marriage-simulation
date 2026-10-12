@@ -140,6 +140,8 @@ export interface RunRules {
   fork?: boolean;
   /** Why the parent's couples and days are not known yet (the list is loading, or it is not listed); blocks a fork. */
   parentProblem?: string | null;
+  /** The shocks the parent world already runs; a fork keeps them, so a new custom shock must not share a logged name with one. */
+  parentShocks?: ShockSpec[] | null;
   maxCouples?: number;
   maxDays?: number;
 }
@@ -192,11 +194,17 @@ export function validateRun(form: RunForm, kinds: ShockKind[], effects?: EffectC
       errors.push(`${label}: only a trait shift takes a trait.`);
     }
   });
-  // Logs name a custom shock by its slug, so two custom shocks must not share one.
+  // Logs name a custom shock by its slug, so two custom shocks must not share one, the parent's included.
   const named = new Map<string, number>();
+  const inherited = new Set<string>();
+  if (rules.fork) for (const p of rules.parentShocks ?? []) if (p.kind === 'custom') inherited.add(labelSlug(p.label ?? ''));
   form.shocks.forEach((s, i) => {
     if (s.kind !== 'custom') return;
     const slug = labelSlug(s.label ?? '');
+    if (inherited.has(slug)) {
+      errors.push(`Shock ${i + 1} (${s.label}): its name is logged as ${slug}, the same as a custom shock the parent world already runs; give it its own name.`);
+      return;
+    }
     const first = named.get(slug);
     if (first === undefined) named.set(slug, i);
     else errors.push(`Shock ${i + 1} (${s.label}): its name is logged as ${slug}, the same as shock ${first + 1}; give each custom shock its own name.`);
