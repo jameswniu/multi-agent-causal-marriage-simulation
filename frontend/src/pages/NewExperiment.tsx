@@ -138,7 +138,9 @@ export default function NewExperiment() {
   const exp = useExperiment();
   const catalog = useAsync(getShocksCatalog, []);
   const current = useAsync(() => getExperiment().catch(() => null), []);
-  const health = useAsync(() => getHealth().catch(() => null), []);
+  // Asked again whenever the visitor presses Check again after a failed health check.
+  const [healthTry, setHealthTry] = useState(0);
+  const health = useAsync(() => getHealth().catch(() => null), [healthTry]);
   const controlHalfLife = current.data?.summary?.experiment.treatment.control_value ?? 14;
   const [name, setName] = useState(() => `exp-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}`);
   const [nCouples, setNCouples] = useState(1000);
@@ -176,8 +178,10 @@ export default function NewExperiment() {
     () => ({ nameAssigned: isPublic, fork: forking, parentProblem, maxCouples: health.data?.limits?.max_couples, maxDays: health.data?.limits?.max_days }),
     [isPublic, forking, parentProblem, health.data],
   );
-  // Until the server says whether this is public mode (and so whether a bot check guards POSTs), nothing is sent.
-  const settling = health.loading;
+  // Until the server says whether this is public mode (and so whether a bot check guards POSTs), nothing is sent;
+  // a health check that failed blocks sending too, rather than guessing the local mode.
+  const settling = health.loading || health.data?.ok !== true;
+  const healthMissing = !health.loading && health.data?.ok !== true;
   const form = useMemo<RunForm>(() => ({ name, nCouples: runCouples, days: runDays, treatmentHalfLife: halfLife, shocks, overwrite }), [name, runCouples, runDays, halfLife, shocks, overwrite]);
   const effectCatalog = catalog.data?.effects ?? null;
   const errors = useMemo(() => validateRun(form, kinds, effectCatalog, rules), [form, kinds, effectCatalog, rules]);
@@ -213,7 +217,8 @@ export default function NewExperiment() {
   /** Send the description to the server's translator and add the shock it maps to as an editable row. */
   const translate = async () => {
     const text = describeText.trim();
-    if (!text || translateState.kind === 'working') return;
+    // The keyboard shortcut reaches here too, so the same conditions that disable the button apply.
+    if (!text || translateState.kind === 'working' || settling || parentProblem !== null) return;
     setTranslateState({ kind: 'working' });
     try {
       const res = await translateShock(text, runDays);
@@ -246,6 +251,7 @@ export default function NewExperiment() {
 
   /** Validate, queue the run (a fork or a fresh one), and follow it. Shared by the Run and Try again buttons. */
   const run = async () => {
+    if (settling || status.kind === 'running') return;
     const problems = validateRun(form, kinds, effectCatalog, rules);
     if (problems.length) {
       setShowErrors(true);
@@ -513,6 +519,16 @@ export default function NewExperiment() {
           </ul>
         ) : null}
         {siteKey ? <div ref={turnstileRef} className="turnstile" data-testid="turnstile" /> : null}
+        {healthMissing ? (
+          <div className="status error" role="alert" data-testid="health-missing">
+            The server did not say how it is set up, so nothing can be run from this page yet.
+            <div>
+              <button type="button" onClick={() => setHealthTry((n) => n + 1)}>
+                Check again
+              </button>
+            </div>
+          </div>
+        ) : null}
         <div className="filters" style={{ marginTop: '1rem' }}>
           <button type="submit" disabled={running || settling} data-testid="run">
             {running ? 'Running...' : forking ? 'Run this world with the shocks' : 'Run experiment'}

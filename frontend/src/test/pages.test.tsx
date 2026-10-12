@@ -552,6 +552,29 @@ describe('forked worlds and the run queue', () => {
     fork.mockRestore();
   });
 
+  it('sends nothing when the server never said how it is set up, says so, and can ask again', async () => {
+    const health = vi.spyOn(mock, 'getHealth').mockRejectedValue(new Error('offline'));
+    const run = vi.spyOn(mock, 'runExperiment');
+    at('/new');
+    await screen.findByRole('heading', { name: 'New experiment' });
+    expect(await screen.findByTestId('health-missing')).toHaveTextContent('nothing can be run from this page yet');
+    expect(screen.getByTestId('run')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('run'));
+    const translate = vi.spyOn(mock, 'translateShock');
+    const box = screen.getByLabelText('Describe what happens');
+    fireEvent.change(box, { target: { value: 'He loses his job' } });
+    fireEvent.keyDown(box, { key: 'Enter', ctrlKey: true });
+    expect(run).not.toHaveBeenCalled();
+    expect(translate).not.toHaveBeenCalled();
+    translate.mockRestore();
+    // Once the server answers again, Check again brings the page back without a reload.
+    health.mockRestore();
+    fireEvent.click(within(screen.getByTestId('health-missing')).getByRole('button', { name: 'Check again' }));
+    await waitFor(() => expect(screen.queryByTestId('health-missing')).not.toBeInTheDocument());
+    expect(screen.getByTestId('run')).toBeEnabled();
+    run.mockRestore();
+  });
+
   it('can start from a fresh population instead', async () => {
     const spy = vi.spyOn(mock, 'runExperiment');
     const fork = vi.spyOn(mock, 'forkExperiment');
