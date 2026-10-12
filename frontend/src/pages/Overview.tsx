@@ -1,5 +1,6 @@
 // The Overview page: one experiment's setup, its average treatment effects with intervals and the
 // run manifest, plus, for a forked world, the couple-by-couple comparison with the world it came from.
+// A run with no intervention says up front that its gap is what splitting the couples in two produces.
 import { getExperiment } from '../api';
 import { useAsync } from '../useAsync';
 import Banner from '../components/Banner';
@@ -11,6 +12,7 @@ import { ErrorBox, Loading } from '../components/Status';
 import { fmtShare, safeFixed, shortHash } from '../format';
 import { useArmContext, whatDiffers } from '../arms';
 import VersusParent from '../components/VersusParent';
+import { chanceWords, noIntervention } from '../nullRun';
 
 export default function Overview() {
   const { data, error, loading } = useAsync(getExperiment, []);
@@ -22,10 +24,18 @@ export default function Overview() {
   const divorce = summary?.outcomes.find((o) => o.name === 'divorce_rate');
   const trust = summary?.outcomes.find((o) => o.name === 'final_trust');
   const labels = arms.labels;
+  // A run with no intervention leads with its twins, then the gap between its two halves of different couples.
+  const chance = exp && noIntervention(exp.treatment, exp.shocks) ? chanceWords(divorce, manifest.n_couples, summary?.governance?.twins) : null;
   return (
     <div className={loading ? 'stale' : ''}>
       <Banner />
       <h1>{manifest.name}</h1>
+      {chance ? (
+        <div className="takeaway" data-testid="chance-headline">
+          <p className="takeaway-lead">{chance.lead}</p>
+          {chance.detail ? <p className="takeaway-detail">{chance.detail}</p> : null}
+        </div>
+      ) : null}
       <p className="muted">{summary?.disclaimer ?? 'Simulation output; no analysis summary has been written yet.'}</p>
       <div className="kpis">
         <StatTile label="Couples" value={manifest.n_couples.toLocaleString()} sub={`${(summary?.arms.control.couples ?? manifest.n_couples / 2).toLocaleString()} control, ${(summary?.arms.treatment.couples ?? manifest.n_couples / 2).toLocaleString()} treatment`} />

@@ -1,6 +1,6 @@
 // Page tests for the World page's Town and Grid views: the grid stays when the browser has no
 // WebGL, and a town that cannot start falls back to the grid with a note instead of a blank card.
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as mock from './mockApi';
@@ -75,6 +75,11 @@ describe('World town view', () => {
     const town = await screen.findByTestId('town');
     expect(town).toHaveTextContent('Positions are a layout.');
     expect(town).toHaveTextContent('In a conflict, both outside and apart');
+    // The camera keeps zoom and the whole town; there is no separate plaza view, and no ring key on a world that is not a fork.
+    const camera = within(town).getByRole('group', { name: 'Town camera' });
+    expect(within(camera).getAllByRole('button').map((b) => b.textContent)).toEqual(['+', '-', 'Whole town']);
+    expect(screen.queryByRole('button', { name: /plaza/i })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('ring-key')).not.toBeInTheDocument();
     expect(screen.getByTestId('framing')).toHaveTextContent('Both districts start from the same');
     fireEvent.click(screen.getByRole('button', { name: 'Grid' }));
     await waitFor(() => expect(screen.getByTestId('grid-control')).toBeInTheDocument());

@@ -12,7 +12,6 @@ import {
   LOT_H,
   LOT_W,
   MARGIN,
-  ROOFS_ONLY_BELOW,
   TITLE_BAND,
   buildAgents,
   buildLayout,
@@ -20,7 +19,6 @@ import {
   dotTint,
   dotWorldSize,
   everMarried,
-  fitScale,
   townCounts,
   focusOrder,
   hash01,
@@ -28,6 +26,7 @@ import {
   lotAt,
   moveFocus,
   placeAgent,
+  ringWidth,
   roofsOnly,
   shouldSnap,
   stateWords,
@@ -43,9 +42,11 @@ type Pixi = typeof import('pixi.js');
 
 const ASSET = '/assets/kenney';
 const PEOPLE = 8;
-/** Screen pixels per lot when the town first opens: figures readable, both districts in view. */
-const OPEN_LOT_PX = 36;
 const MAX_SCALE = 4;
+/** The ring around a house whose couple differs from the world this one is compared with: one colour that no arm, state or lens uses. */
+export const DIFF_RING = 0xff2bd6;
+/** Screen pixels the ring is drawn at when the whole town is in view, so it reads at every zoom. */
+const DIFF_RING_PX = 3;
 const DRAG_PX = 5;
 const STATS_WINDOW = 120;
 /** How long the town waits for the couples table before drawing stand-in people instead. */
@@ -83,6 +84,12 @@ interface Props {
   onLensRetry?: () => void;
   /** The couple open in the panel beside the town, ringed on the map. */
   selectedCouple?: number | null;
+  /** World indices of the couples to ring today: those whose state differs from the world this one is compared with. Null draws no rings and no ring key. */
+  rings?: number[] | null;
+  /** Whose couples table to read when `world` is not the experiment in the URL (the world a fork came from). */
+  experiment?: string | null;
+  /** Called each time the town has been built and is drawing. */
+  onReady?: () => void;
 }
 
 /** Below this host width the town shows one district at a time with a switch. */
@@ -119,6 +126,8 @@ interface Scene {
   houseBase: (Texture | null)[];
   /** A plain white house, tinted by the lens colour. */
   plainHouse: Texture;
+  /** Rings around the houses that differ from the compared world, drawn over the houses and under the people. */
+  rings: Graphics;
   selection: Graphics;
   markers: (Sprite | null)[];
   figures: Sprite[];
@@ -280,6 +289,8 @@ function buildScene(PIXI: Pixi, app: Application, layout: TownLayout, agents: Ag
     return s;
   });
   root.addChild(houseLayer);
+  const rings = new PIXI.Graphics();
+  root.addChild(rings);
 
   // Conflict markers: a small yellow sign above the roof, shown only while the couple fights.
   const g = new PIXI.Graphics();
@@ -342,6 +353,7 @@ function buildScene(PIXI: Pixi, app: Application, layout: TownLayout, agents: Ag
     houses,
     houseBase,
     plainHouse,
+    rings,
     selection,
     markers,
     figures,
@@ -371,15 +383,22 @@ export default function TownView({
   onLensChange,
   onLensRetry,
   selectedCouple = null,
+  rings = null,
+  experiment = null,
+  onReady,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const lensRef = useRef<LensData | null>(lens);
   const selectedRef = useRef<number | null>(selectedCouple);
+  const ringsRef = useRef<number[] | null>(rings);
   const dirtyRef = useRef(true);
+  // New rings only redraw the rings and the mini-map, not every figure.
+  const ringsDirtyRef = useRef(true);
   const [narrow, setNarrow] = useState(false);
   const [district, setDistrict] = useState<District>('control');
-  const [rows, setRows] = useState<CoupleRow[] | null>(null);
-  const [rowsNote, setRowsNote] = useState<string | null>(null);
+  // The couples table belongs to one world, so each world drawn in this town keeps its own: a table
+  // read for another world is never used for this one, and flipping back to a world rebuilds at once.
+  const [rowsBy, setRowsBy] = useState<Map<WorldResponse, { rows: CoupleRow[]; note: string | null }>>(() => new Map());
   const [ready, setReady] = useState(false);
   const [hover, setHover] = useState('');
   const dayRef = useRef(day);
@@ -387,7 +406,10 @@ export default function TownView({
   const pickCouple = useRef(onPickCouple);
   const pickAgent = useRef(onPickAgent);
   const fallback = useRef(onFallback);
-  const camera = useRef<{ fit: () => void; open: () => void; zoom: (f: number) => void; focusDistrict: (d: District) => void } | null>(null);
+  const readyRef = useRef(onReady);
+  const camera = useRef<{ fit: () => void; zoom: (f: number) => void; focusDistrict: (d: District) => void } | null>(null);
+  // Where the camera stood, so switching the world drawn (this one or the one it came from) keeps the view.
+  const savedCamera = useRef<{ scale: number; x: number; y: number; cols: number } | null>(null);
 
   useEffect(() => {
     lensRef.current = lens && lensName && lens.name === lensName ? lens : null;
@@ -397,6 +419,10 @@ export default function TownView({
     selectedRef.current = selectedCouple;
     dirtyRef.current = true;
   }, [selectedCouple]);
+  useEffect(() => {
+    ringsRef.current = rings;
+    ringsDirtyRef.current = true;
+  }, [rings]);
   useEffect(() => {
     const host = hostRef.current;
     if (!host || typeof ResizeObserver === 'undefined') return;
@@ -415,31 +441,33 @@ export default function TownView({
     pickCouple.current = onPickCouple;
     pickAgent.current = onPickAgent;
     fallback.current = onFallback;
-  }, [onPickCouple, onPickAgent, onFallback]);
+    readyRef.current = onReady;
+  }, [onPickCouple, onPickAgent, onFallback, onReady]);
 
+  const rowsEntry = rowsBy.get(world) ?? null;
+  const haveRows = rowsEntry !== null;
   useEffect(() => {
+    if (haveRows) return;
     let cancelled = false;
     let settled = false;
-    const standIns = (why: string) => {
+    const keep = (rows: CoupleRow[], note: string | null) => {
       if (cancelled || settled) return;
       settled = true;
-      setRowsNote(`${why}, so each couple's two people are drawn as stand-ins and a divorced agent is not followed into a new couple.`);
-      setRows([]);
+      setRowsBy((prev) => new Map(prev).set(world, { rows, note }));
     };
+    const standIns = (why: string) => keep([], `${why}, so each couple's two people are drawn as stand-ins and a divorced agent is not followed into a new couple.`);
     const timer = window.setTimeout(() => standIns(`The couples table did not arrive within ${COUPLES_TIMEOUT_MS / 1000} seconds`), COUPLES_TIMEOUT_MS);
-    listCouples({ limit: 10000 }).then(
-      (r) => {
-        if (cancelled || settled) return;
-        settled = true;
-        setRows(r.items);
-      },
+    listCouples({ limit: 10000 }, experiment).then(
+      (r) => keep(r.items, null),
       (err: unknown) => standIns(`Could not load the couples table (${err instanceof Error ? err.message : String(err)})`),
     );
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [world]);
+  }, [world, experiment, haveRows]);
+  const rows = rowsEntry ? rowsEntry.rows : null;
+  const rowsNote = rowsEntry ? rowsEntry.note : null;
 
   // Columns per district follow the canvas shape, so a wide window gets a wide town that fills it.
   const homes = useMemo(() => everMarried(world), [world]);
@@ -498,8 +526,10 @@ export default function TownView({
       const sc = scene;
       const theApp = app;
 
-      // Camera: pan, zoom about a point, the opening view on the plaza, and the whole town.
+      // Camera: pan, zoom about a point, and the whole town, which is the opening view.
       let scale = 1;
+      // The rings keep their width on screen, so a new zoom draws them again.
+      let ringsStale = true;
       let nearest: boolean | null = null;
       let dotMode: boolean | null = null;
       let onCamera = () => {};
@@ -529,10 +559,12 @@ export default function TownView({
         const th = layout.height * scale;
         sc.root.x = tw <= w ? (w - tw) / 2 : Math.min(w * 0.08, Math.max(w * 0.92 - tw, sc.root.x));
         sc.root.y = th <= h ? (h - th) / 2 : Math.min(h * 0.08, Math.max(h * 0.92 - th, sc.root.y));
+        savedCamera.current = { scale, x: sc.root.x, y: sc.root.y, cols: layout.districtCols };
         onCamera();
       };
       const applyScale = (s: number) => {
         scale = s;
+        ringsStale = true;
         sc.root.scale.set(s);
         const dots = roofsOnly(s);
         sc.markerLayer.visible = !dots;
@@ -564,26 +596,6 @@ export default function TownView({
         applyScale(minScale() / 0.9);
         clampCamera();
       };
-      const open = () => {
-        const { w } = view();
-        const s = Math.max(minScale(), OPEN_LOT_PX / LOT_W);
-        applyScale(s);
-        sc.root.x = w / 2 - (layout.plaza.x + layout.plaza.w / 2) * s;
-        sc.root.y = 4 - 12 * s;
-        clampCamera();
-      };
-      // The left district, fitted so its people read as figures where the width allows it.
-      const focusLeft = () => {
-        const r: Rect = layout.control;
-        const { w, h } = view();
-        const widthFit = (w - 16) / (r.w + 24);
-        const both = Math.min(widthFit, (h - 16) / (r.h + TITLE_BAND + 16));
-        const s = Math.min(MAX_SCALE, widthFit, Math.max(both, (ROOFS_ONLY_BELOW + 1) / LOT_W));
-        applyScale(Math.max(minScale(), s));
-        sc.root.x = 8 - (r.x - 12) * scale;
-        sc.root.y = 4 - (r.y - TITLE_BAND) * scale;
-        clampCamera();
-      };
       const districtRect = (d: District): Rect => (d === 'control' ? layout.control : d === 'treatment' ? layout.treatment : layout.plaza);
       // A phone shows one district at a time: fit its width and keep its title in view.
       const focusDistrict = (d: District) => {
@@ -595,7 +607,7 @@ export default function TownView({
         sc.root.y = 4 - (r.y - TITLE_BAND) * s;
         clampCamera();
       };
-      camera.current = { fit, open, zoom: (f: number) => zoomAt(view().w / 2, view().h / 2, scale * f), focusDistrict };
+      camera.current = { fit, zoom: (f: number) => zoomAt(view().w / 2, view().h / 2, scale * f), focusDistrict };
 
       // Labels: district titles, counts and the plaza, as HTML over the canvas at a fixed size.
       const labelBox = document.createElement('div');
@@ -619,6 +631,9 @@ export default function TownView({
       cleanups.push(() => labelBox.remove());
       const placeLabels = () => {
         const top = Math.max(4, sc.root.y + (MARGIN + 6) * scale);
+        // A long title (an arm with shocks in its name) stops at its district's edge instead of running off the canvas.
+        lControl.el.style.maxWidth = `${Math.max(120, layout.control.w * scale).toFixed(0)}px`;
+        lTreatment.el.style.maxWidth = `${Math.max(120, layout.treatment.w * scale).toFixed(0)}px`;
         lControl.el.style.transform = `translate(${(sc.root.x + (layout.control.x + layout.control.w) * scale).toFixed(1)}px, ${top.toFixed(1)}px) translateX(-100%)`;
         lTreatment.el.style.transform = `translate(${(sc.root.x + layout.treatment.x * scale).toFixed(1)}px, ${top.toFixed(1)}px)`;
         lPlaza.el.style.transform = `translate(${(sc.root.x + (layout.plaza.x + layout.plaza.w / 2) * scale).toFixed(1)}px, ${top.toFixed(1)}px) translateX(-50%)`;
@@ -636,6 +651,21 @@ export default function TownView({
         if (!lot) return;
         sc.selection.roundRect(lot.x - 2, lot.y - 3, LOT_W + 4, LOT_H + 4, 7).stroke({ width: 4, color: 0x0b0b0b, alpha: 0.9 });
         sc.selection.roundRect(lot.x, lot.y - 1, LOT_W, LOT_H, 6).stroke({ width: 2, color: 0xffffff, alpha: 0.95 });
+      };
+
+      // Every couple that differs from the compared world today gets a ring around its house, a few
+      // screen pixels wide at any zoom so it still reads with the whole town in view.
+      const drawRings = () => {
+        sc.rings.clear();
+        const list = ringsRef.current;
+        if (!list || !list.length) return;
+        const width = ringWidth(scale, DIFF_RING_PX);
+        for (const idx of list) {
+          const lot = layout.lots[idx];
+          if (!lot) continue;
+          sc.rings.roundRect(lot.x + 3, lot.y + 1, LOT_W - 6, LOT_H - 8, 7);
+        }
+        sc.rings.stroke({ width, color: DIFF_RING, alpha: 0.95 });
       };
 
       // Mini-map: every lot as a small tile in its state (or lens) colour, and a box for the view.
@@ -673,6 +703,15 @@ export default function TownView({
           mctx.fillStyle = color;
           mctx.fillRect(lot.x + 4, lot.y + 4, LOT_W - 8, LOT_H - 10);
         });
+        const ringed = ringsRef.current;
+        if (ringed && ringed.length) {
+          mctx.strokeStyle = cssColor(DIFF_RING);
+          mctx.lineWidth = 1.5 / k;
+          for (const idx of ringed) {
+            const lot = layout.lots[idx];
+            if (lot) mctx.strokeRect(lot.x + 2, lot.y + 2, LOT_W - 4, LOT_H - 6);
+          }
+        }
         const { w, h } = view();
         mctx.strokeStyle = '#0b0b0b';
         mctx.lineWidth = 2 / k;
@@ -703,11 +742,16 @@ export default function TownView({
       theApp.renderer.on('resize', onResize);
       cleanups.push(() => theApp.renderer.off('resize', onResize));
 
-      // Open where people are visible: one district on a phone, else the whole town when a house is
-      // big enough to show its people, else the left district fitted.
+      // Open on the whole town, or on one district on a phone. When only the world drawn changed (this
+      // one or the one it came from), the camera stays where it was.
+      const kept = savedCamera.current;
       if (host.clientWidth > 0 && host.clientWidth < PHONE_MAX_PX) focusDistrict('control');
-      else if (LOT_W * fitScale(layout, view().w, view().h) >= ROOFS_ONLY_BELOW) fit();
-      else focusLeft();
+      else if (kept && kept.cols === layout.districtCols) {
+        applyScale(Math.min(MAX_SCALE, Math.max(minScale(), kept.scale)));
+        sc.root.x = kept.x;
+        sc.root.y = kept.y;
+        clampCamera();
+      } else fit();
 
       // Figures: targets come from the day's states; positions walk toward them each frame.
       const tx = new Float32Array(n);
@@ -769,8 +813,18 @@ export default function TownView({
           retarget(d);
           lastDay = d;
           dirtyRef.current = false;
+          ringsStale = true;
           drawSelection();
           drawMini();
+        }
+        if (ringsDirtyRef.current) {
+          ringsDirtyRef.current = false;
+          ringsStale = true;
+          drawMini();
+        }
+        if (ringsStale) {
+          ringsStale = false;
+          drawRings();
         }
         const walk = walkSpeed(sp);
         const dt = Math.min(0.1, theApp.ticker.deltaMS / 1000);
@@ -1024,6 +1078,7 @@ export default function TownView({
       });
       host.dataset.townReady = '1';
       setReady(true);
+      readyRef.current?.();
     };
 
     start().catch((err: unknown) => {
@@ -1057,7 +1112,6 @@ export default function TownView({
   const zoomIn = useCallback(() => camera.current?.zoom(1.4), []);
   const zoomOut = useCallback(() => camera.current?.zoom(1 / 1.4), []);
   const fitAll = useCallback(() => camera.current?.fit(), []);
-  const openView = useCallback(() => camera.current?.open(), []);
 
   return (
     <div className="card town" data-testid="town">
@@ -1067,9 +1121,6 @@ export default function TownView({
         </button>
         <button type="button" onClick={zoomOut} disabled={!ready} aria-label="Zoom out">
           -
-        </button>
-        <button type="button" onClick={openView} disabled={!ready}>
-          Plaza view
         </button>
         <button type="button" onClick={fitAll} disabled={!ready}>
           Whole town
@@ -1106,7 +1157,7 @@ export default function TownView({
         <LensKey meta={lensMeta} data={activeLens} error={lensError} onRetry={onLensRetry} day={day} world={world} controlTitle={controlTitle} treatmentTitle={treatmentTitle} />
       ) : null}
       {rowsNote ? <p className="muted">{rowsNote}</p> : null}
-      <TownLegend controlTitle={controlTitle} treatmentTitle={treatmentTitle} />
+      <TownLegend controlTitle={controlTitle} treatmentTitle={treatmentTitle} ringed={rings !== null} />
       <p className="muted town-footnote" data-testid="town-footnote">
         Positions are a layout. The engine has no space, so where a figure stands only shows its state that day, and everything shown is simulated.
       </p>
@@ -1123,9 +1174,15 @@ function Roof({ left, right }: { left: 'control' | 'treatment'; right: 'control'
   );
 }
 
-export function TownLegend({ controlTitle, treatmentTitle }: { controlTitle: string; treatmentTitle: string }) {
+export function TownLegend({ controlTitle, treatmentTitle, ringed = false }: { controlTitle: string; treatmentTitle: string; ringed?: boolean }) {
   return (
     <div className="town-legend" aria-label="Town legend">
+      {ringed ? (
+        <span data-testid="ring-key">
+          <span className="diff-ring-key" aria-hidden="true" />
+          Ringed, in a different state today than in the world this one is compared with
+        </span>
+      ) : null}
       <span>
         <Roof left="control" right="control" />
         {controlTitle}

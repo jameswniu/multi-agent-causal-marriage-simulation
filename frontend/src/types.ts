@@ -208,6 +208,8 @@ export interface PairedOutcome {
   ci_low: number;
   ci_high: number;
   n_pairs: number;
+  /** Share of the pairs whose outcome differs between the two runs (newer summaries). */
+  share_changed?: number | null;
 }
 
 /** A governance run (placebo) carries the same outcome rows as the main run. */
@@ -222,6 +224,10 @@ export interface TwinsRun {
   paired: PairedOutcome[];
   outcomes?: Outcome[];
   note?: string;
+  /** As a run's summary links its twins: their directory, whether the arms' parameters match, and whether the runs' behaviour tables are byte-identical. */
+  path?: string;
+  identical_parameters?: boolean | null;
+  dynamics_hashes_equal?: boolean | null;
 }
 
 export interface Summary {

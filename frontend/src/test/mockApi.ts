@@ -38,7 +38,7 @@ export const getAte = async () => summary.outcomes;
 export const getCurves = async () => summary.curves;
 export const getDistributions = async () => summary.distributions;
 export const getPolicy = async () => policy as unknown as PolicySpec;
-export const listCouples = async (q: CouplesQuery = {}) => {
+export const listCouples = async (q: CouplesQuery = {}, _experiment?: string) => {
   let items = (couples as typeof couples).items;
   if (q.arm) items = items.filter((c) => c.arm === q.arm);
   if (q.state) items = items.filter((c) => c.final_state === q.state);
@@ -47,7 +47,7 @@ export const listCouples = async (q: CouplesQuery = {}) => {
   const limit = q.limit ?? 100;
   return { total: items.length, items: items.slice(offset, offset + limit) };
 };
-export const getCouple = async (id: number) => {
+export const getCouple = async (id: number, _experiment?: string) => {
   const d = details[String(id)];
   if (!d) throw new Error(`404 couple ${id} not found`);
   return d;
@@ -57,7 +57,30 @@ export const getAgent = async (id: number) => {
   if (!d) throw new Error(`404 agent ${id} not found`);
   return d;
 };
-export const getWorld = async () => world as unknown as WorldResponse;
+/** Day from which a fork the mock has run differs from its parent, and the couples (by index) that differ. */
+export const FORK_DIVERGES_FROM_DAY = 32;
+export const FORK_DIFFERING = [1, 2];
+/** The world a fork runs: its parent's fixture world, with two couples in a different state from FORK_DIVERGES_FROM_DAY on. */
+function forkedWorld(): WorldResponse {
+  const base = world as unknown as WorldResponse;
+  const states = base.states.map((row, d) => {
+    if (d < FORK_DIVERGES_FROM_DAY) return row;
+    const chars = row.split('');
+    for (const i of FORK_DIFFERING) chars[i] = chars[i] === 'C' ? 'M' : 'C';
+    return chars.join('');
+  });
+  return { ...base, states };
+}
+const forkWorlds = new Map<string, WorldResponse>();
+/** The fixture world, or for a fork the mock has run, that world with a few couples changed. */
+export const getWorld = async (experiment?: string) => {
+  const name = experiment ?? current;
+  if (name && forks[name]) {
+    if (!forkWorlds.has(name)) forkWorlds.set(name, forkedWorld());
+    return forkWorlds.get(name)!;
+  }
+  return world as unknown as WorldResponse;
+};
 export const getEventsForDay = async (day: number) => ({ day, items: byDay[String(day)] ?? [] });
 export const getTwinsWorld = async () => twinsWorld as unknown as TwinsWorldResponse;
 const baseExperiments = experiments as unknown as ExperimentsResponse;
@@ -70,6 +93,7 @@ export function resetMockState(): void {
   digestCalls.count = 0;
   current = null;
   forks = {};
+  forkWorlds.clear();
   jobs = {};
   health = { ok: true, experiments: [], public: false };
 }

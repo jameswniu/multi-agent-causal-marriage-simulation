@@ -7,7 +7,7 @@ import ForestPlot from '../components/ForestPlot';
 import { buildSegments } from '../components/StateGantt';
 import { changedOnDay, charStyle } from '../components/WorldGrid';
 import { probabilities } from '../components/UnderTheHood';
-import { buildRequest } from '../pages/NewExperiment';
+import { buildRequest } from '../shockForm';
 import { renderHook, waitFor } from '@testing-library/react';
 import { useAsync } from '../useAsync';
 import StateGantt from '../components/StateGantt';

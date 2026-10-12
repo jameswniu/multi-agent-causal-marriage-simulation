@@ -157,12 +157,24 @@ button {
   background: var(--surface-raised); color: var(--ink); cursor: pointer;
 }
 button:disabled { opacity: 0.5; cursor: default; }
-a.button-link {
+a.button-link, button.button-link {
   display: inline-block; font-size: 0.95rem; padding: 0.35rem 0.8rem; border: 1px solid var(--axis); border-radius: 6px;
   background: var(--surface-raised); color: var(--ink); text-decoration: none; font-weight: 600;
 }
-a.button-link:hover { border-color: var(--ink-2); }
+a.button-link:hover, button.button-link:hover:not(:disabled) { border-color: var(--ink-2); }
+button.button-link[aria-expanded="true"] { background: var(--ink); color: var(--page); }
 .world-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
+/* "Shock this world", opened in place above the town. */
+.shock-panel { border-left: 4px solid var(--accent); }
+.shock-panel-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+.shock-panel-head h2 { margin: 0; }
+/* A forked world next to the world it came from: the counter, the switch and the ring's key. */
+.compare { border-left: 4px solid #ff2bd6; }
+.compare-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.5rem 1rem; }
+.compare-head h3 { margin: 0; }
+.compare-count { font-size: 1.15rem; font-weight: 600; margin: 0.5rem 0 0.3rem; font-variant-numeric: tabular-nums; }
+.compare p.muted { margin: 0.3rem 0 0; }
+.diff-ring-key { display: inline-block; width: 14px; height: 14px; border: 3px solid #ff2bd6; border-radius: 4px; margin-right: 0.45rem; vertical-align: -2px; box-sizing: border-box; }
 .status { padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); margin: 1rem 0; }
 .status.error { border-left: 4px solid var(--critical); }
 .stale { opacity: 0.55; transition: opacity 0.2s; }
@@ -195,6 +207,8 @@ details.tableview summary { cursor: pointer; color: var(--ink-2); font-size: 0.9
 .segmented button[aria-pressed="true"] { background: var(--ink); color: var(--page); }
 .segmented button:disabled { opacity: 0.5; }
 .takeaway { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--control); border-radius: 8px; padding: 0.7rem 1rem; margin: 0.75rem 0; font-size: 1.1rem; }
+.takeaway p { margin: 0; }
+.takeaway .takeaway-detail { margin-top: 0.35rem; font-size: 1rem; color: var(--ink-2); }
 .framing { font-size: 1.05rem; margin: 0.25rem 0 0.75rem; }
 .tile-legend { display: flex; flex-wrap: wrap; gap: 0.9rem 1.2rem; font-size: 0.95rem; color: var(--ink-2); align-items: center; }
 .tile-legend .tile-swatch { display: inline-block; width: 16px; height: 16px; border-radius: 3px; vertical-align: -3px; margin-right: 0.4rem; position: relative; }
@@ -240,6 +254,7 @@ details.tableview summary { cursor: pointer; color: var(--ink-2); font-size: 0.9
 .town-label { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; gap: 0.1rem; padding: 0.2rem 0.5rem; border-radius: 6px; background: var(--surface); color: var(--ink); border: 1px solid var(--border); white-space: nowrap; }
 .town-label strong { font-size: 16px; line-height: 1.2; }
 .town-label span { font-size: 14px; line-height: 1.2; }
+.town-label strong, .town-label span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .town-label-end { text-align: right; align-items: flex-end; }
 .town-label-mid { text-align: center; align-items: center; }
 

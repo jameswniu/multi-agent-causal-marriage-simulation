@@ -48,13 +48,15 @@ export class ApiError extends Error {
 /** With VITE_USE_FIXTURES=1 the app serves the test fixtures instead of calling the API (npm run dev:fixtures). */
 const USE_FIXTURES = import.meta.env.VITE_USE_FIXTURES === '1';
 
-function withExperiment(path: string): string {
-  if (!currentExperiment) return path;
+/** Scope a request to `experiment` when given, else to the experiment in the URL. */
+function withExperiment(path: string, experiment?: string | null): string {
+  const name = experiment ?? currentExperiment;
+  if (!name) return path;
   const sep = path.includes('?') ? '&' : '?';
-  return `${path}${sep}experiment=${encodeURIComponent(currentExperiment)}`;
+  return `${path}${sep}experiment=${encodeURIComponent(name)}`;
 }
 
-async function fromFixtures<T>(path: string, init?: RequestInit): Promise<T> {
+async function fromFixtures<T>(path: string, init?: RequestInit, experiment?: string | null): Promise<T> {
   const m = await import('./test/mockApi');
   const url = new URL(path, 'http://fixtures');
   const q = url.searchParams;
@@ -75,30 +77,33 @@ async function fromFixtures<T>(path: string, init?: RequestInit): Promise<T> {
   if (p === '/curves') return m.getCurves() as Promise<T>;
   if (p === '/distributions') return m.getDistributions() as Promise<T>;
   if (p === '/policy') return m.getPolicy() as Promise<T>;
-  if (p === '/world') return m.getWorld() as Promise<T>;
+  if (p === '/world') return m.getWorld(experiment ?? undefined) as Promise<T>;
   if (p === '/digest') return m.getDayDigest() as Promise<T>;
   if (p === '/lenses') return m.listLenses() as Promise<T>;
   if (p === '/twins/world') return m.getTwinsWorld() as Promise<T>;
   if (p === '/events') return m.getEventsForDay(Number(q.get('day'))) as Promise<T>;
   if (p === '/couples') {
-    return m.listCouples({
-      arm: (q.get('arm') ?? '') as CouplesQuery['arm'],
-      state: (q.get('state') ?? '') as CouplesQuery['state'],
-      origin: (q.get('origin') ?? '') as CouplesQuery['origin'],
-      limit: Number(q.get('limit') ?? 100),
-      offset: Number(q.get('offset') ?? 0),
-    }) as Promise<T>;
+    return m.listCouples(
+      {
+        arm: (q.get('arm') ?? '') as CouplesQuery['arm'],
+        state: (q.get('state') ?? '') as CouplesQuery['state'],
+        origin: (q.get('origin') ?? '') as CouplesQuery['origin'],
+        limit: Number(q.get('limit') ?? 100),
+        offset: Number(q.get('offset') ?? 0),
+      },
+      experiment ?? undefined,
+    ) as Promise<T>;
   }
   const couple = p.match(/^\/couples\/(\d+)$/);
-  if (couple) return m.getCouple(Number(couple[1])) as Promise<T>;
+  if (couple) return m.getCouple(Number(couple[1]), experiment ?? undefined) as Promise<T>;
   const agent = p.match(/^\/agents\/(\d+)$/);
   if (agent) return m.getAgent(Number(agent[1])) as Promise<T>;
   throw new ApiError(404, path, `No fixture for ${path}`);
 }
 
-async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  if (USE_FIXTURES) return fromFixtures<T>(path, init);
-  const full = withExperiment(path);
+async function fetchJson<T>(path: string, init?: RequestInit, experiment?: string | null): Promise<T> {
+  if (USE_FIXTURES) return fromFixtures<T>(path, init, experiment);
+  const full = withExperiment(path, experiment);
   const headers: Record<string, string> = { Accept: 'application/json', ...((init?.headers as Record<string, string>) ?? {}) };
   if (init?.method === 'POST') {
     // Public mode's edge proxy checks this token before a POST reaches the app; locally there is none.
@@ -184,7 +189,8 @@ export function getPolicy(): Promise<PolicySpec> {
   return fetchJson<PolicySpec>('/policy');
 }
 
-export function listCouples(q: CouplesQuery = {}): Promise<CouplesResponse> {
+/** Couples of the experiment in the URL, or of `experiment` when given (the town of a world being compared). */
+export function listCouples(q: CouplesQuery = {}, experiment?: string | null): Promise<CouplesResponse> {
   const params = new URLSearchParams();
   if (q.arm) params.set('arm', q.arm);
   if (q.state) params.set('state', q.state);
@@ -192,19 +198,20 @@ export function listCouples(q: CouplesQuery = {}): Promise<CouplesResponse> {
   params.set('limit', String(q.limit ?? 100));
   params.set('offset', String(q.offset ?? 0));
   params.set('sort', q.sort ?? 'couple_id');
-  return fetchJson<CouplesResponse>(`/couples?${params.toString()}`);
+  return fetchJson<CouplesResponse>(`/couples?${params.toString()}`, undefined, experiment);
 }
 
-export function getCouple(id: number): Promise<CoupleDetailResponse> {
-  return fetchJson<CoupleDetailResponse>(`/couples/${id}`);
+export function getCouple(id: number, experiment?: string | null): Promise<CoupleDetailResponse> {
+  return fetchJson<CoupleDetailResponse>(`/couples/${id}`, undefined, experiment);
 }
 
 export function getAgent(id: number): Promise<AgentDetailResponse> {
   return fetchJson<AgentDetailResponse>(`/agents/${id}`);
 }
 
-export function getWorld(): Promise<WorldResponse> {
-  return fetchJson<WorldResponse>('/world');
+/** Every couple's state on every day, for the experiment in the URL or for `experiment` (the world a fork came from). */
+export function getWorld(experiment?: string | null): Promise<WorldResponse> {
+  return fetchJson<WorldResponse>('/world', undefined, experiment);
 }
 
 export function getTwinsWorld(): Promise<TwinsWorldResponse> {

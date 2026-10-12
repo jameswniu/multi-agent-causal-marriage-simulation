@@ -5,7 +5,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as mock from './mockApi';
 import App from '../App';
-import { buildRequest } from '../pages/NewExperiment';
+import { buildRequest } from '../shockForm';
 import { labelSlug, validateRun, type RunForm, type ShockForm } from '../validation';
 import { armLabels, effectWords, interventionOf, shockBrief, shockShort, shockWords, whatDiffers, toCatalog } from '../arms';
 import shocksCatalog from '../fixtures/shocksCatalog.json';

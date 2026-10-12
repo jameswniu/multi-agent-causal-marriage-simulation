@@ -1,23 +1,29 @@
 // World replay page. It plays a finished run day by day so a viewer can watch what the memory
 // setting does to 1,000 couples: a town where every couple is a house with its two agents (or the
 // tile grids, side by side, or each couple under both settings), playback controls, counters and
-// the day's events.
+// the day's events. "Shock this world" runs a shock on the same couples from here, and a forked
+// world rings every house whose couple differs from the world it came from.
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ExpLink, useExpNavigate } from '../nav';
+import { useLocation } from 'react-router-dom';
+import { ExpLink, useExpNavigate, type ReplayState } from '../nav';
 import { getCouple, getCurves, getDayDigest, getEventsForDay, getExperiment, getLens, getTwinsWorld, getWorld, listLenses } from '../api';
 import type { ArmCounts, CoupleDetailResponse, Curves, DayDigest, EventRow, ExperimentResponse, LensData, LensMeta, ShockSpec, TwinsWorldResponse, WorldResponse } from '../types';
 import { useAsync } from '../useAsync';
+import { useExperiment } from '../experiment';
 import { ErrorBox, Loading } from '../components/Status';
 import Banner from '../components/Banner';
 import WorldGrid, { charStyle } from '../components/WorldGrid';
 import TileLegend from '../components/TileLegend';
 import Scoreboard, { pct } from '../components/Scoreboard';
 import EventMarkers from '../components/EventMarkers';
-import { differenceClause, sharedClause, shockShort, useArmContext, whatDiffers, type ArmLabels, type Catalog, type Intervention } from '../arms';
+import { armLabelsFor, differenceClause, interventionOf, sharedClause, shockShort, useArmContext, whatDiffers, type ArmLabels, type Catalog, type Intervention } from '../arms';
 import { supportsWebGL } from '../town/webgl';
 import TimeStrip from '../components/TimeStrip';
 import Inspector from '../town/Inspector';
 import { countsForDay, dayLabel, densitySeries, kindWords, nextEventDay, shockBands } from '../town/timebar';
+import ShockInPlace from '../components/ShockInPlace';
+import { differCounter, differingOnDay, matchCouples } from '../worldDiff';
+import { chanceWords, noIntervention } from '../nullRun';
 
 const TownView = lazy(() => import('../town/TownView'));
 
@@ -26,6 +32,8 @@ type Mode = 'randomized' | 'twins';
 type View = 'town' | 'grid';
 
 const EVENT_CACHE_MAX = 400;
+/** Longest a replay requested by a finished run waits for the town and the compared world before it starts. */
+const REPLAY_WAIT_MS = 8000;
 /** A paused day's event list is fetched after this pause, so scrubbing asks once, not per day. */
 const EVENT_FETCH_DELAY_MS = 120;
 
@@ -207,6 +215,20 @@ async function loadLenses(): Promise<LensMeta[]> {
   }
 }
 
+/** World indices of each district: the two randomized arms and the couples formed by remarriage. */
+function armGroups(world: WorldResponse | null): { control: number[]; treatment: number[]; remarriage: number[] } {
+  const control: number[] = [];
+  const treatment: number[] = [];
+  const remarriage: number[] = [];
+  if (!world) return { control, treatment, remarriage };
+  world.couples.forEach((_, i) => {
+    if (world.origin[i] === 'remarriage') remarriage.push(i);
+    else if (world.arms[i] === 'treatment') treatment.push(i);
+    else control.push(i);
+  });
+  return { control, treatment, remarriage };
+}
+
 async function loadTwins(): Promise<TwinsWorldResponse> {
   try {
     return await getTwinsWorld();
@@ -217,6 +239,14 @@ async function loadTwins(): Promise<TwinsWorldResponse> {
 
 export default function World() {
   const navigate = useExpNavigate();
+  const expName = useExperiment().name;
+  const location = useLocation();
+  // A world that was just run opens here and replays from just before its first shock, at ten days a second.
+  const [pendingReplay, setPendingReplay] = useState<number | null>(() => {
+    const from = (location.state as Partial<ReplayState> | null)?.replayFrom;
+    return typeof from === 'number' && Number.isFinite(from) ? Math.max(0, Math.floor(from)) : null;
+  });
+  const [shockOpen, setShockOpen] = useState(false);
   const { data, error, loading } = useAsync(loadAll, []);
   const twins = useAsync(loadTwins, []);
   const arms = useArmContext();
@@ -224,13 +254,22 @@ export default function World() {
   const webgl = useMemo(() => supportsWebGL(), []);
   const [view, setView] = useState<View>(() => (webgl ? 'town' : 'grid'));
   const [townNote, setTownNote] = useState<string | null>(null);
-  const [day, setDay] = useState(0);
+  const [day, setDay] = useState(() => pendingReplay ?? 0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(10);
   const acc = useRef(0);
   const last = useRef(0);
   const world = data?.[0] ?? null;
   const curves = data?.[2] ?? null;
+  // A forked world is compared with the world it came from: the same couples on the same random draws.
+  const parentRecord = data?.[1]?.parent ?? null;
+  const parentName = parentRecord?.parent ?? null;
+  const parentWorld = useAsync(() => (parentName ? getWorld(parentName) : Promise.resolve(null)), [parentName]);
+  const [showParent, setShowParent] = useState(false);
+  const pw = parentName ? parentWorld.data : null;
+  const flipped = showParent && pw !== null;
+  // The world the town (or the grids) draws: this one, or the one it came from on the same day.
+  const shown = flipped ? pw : world;
   const twinsData = twins.data && twins.data.available ? twins.data : null;
   // The day's event list is fetched only while paused; playing shows the digest's counts.
   const ticker = useDayEvents(day, mode === 'randomized' && !!data && !playing);
@@ -270,14 +309,16 @@ export default function World() {
 
   // The couple panel: a click on a house opens it beside the town instead of leaving the page.
   const [inspectFor, setInspectFor] = useState<{ world: WorldResponse | null; id: number } | null>(null);
-  const inspect = inspectFor && inspectFor.world === world ? inspectFor.id : null;
+  const inspect = inspectFor && inspectFor.world === shown ? inspectFor.id : null;
+  // A house opened while the town shows the parent world opens that couple in the parent world.
+  const inspectExperiment = flipped ? parentName : null;
   const [coupleAttempt, setCoupleAttempt] = useState(0);
   const [coupleState, setCoupleState] = useState<{ id: number; attempt: number; detail: CoupleDetailResponse | null; error: string | null } | null>(null);
   const opener = useRef<HTMLElement | null>(null);
   useEffect(() => {
     if (inspect === null) return;
     let live = true;
-    getCouple(inspect).then(
+    getCouple(inspect, inspectExperiment).then(
       (d) => {
         if (live) setCoupleState({ id: inspect, attempt: coupleAttempt, detail: d, error: null });
       },
@@ -288,14 +329,14 @@ export default function World() {
     return () => {
       live = false;
     };
-  }, [inspect, coupleAttempt]);
+  }, [inspect, coupleAttempt, inspectExperiment]);
   const openInspector = useCallback(
     (id: number) => {
       const el = document.activeElement;
       opener.current = el instanceof HTMLElement ? el : null;
-      setInspectFor({ world, id });
+      setInspectFor({ world: shown, id });
     },
-    [world],
+    [shown],
   );
   const closeInspector = useCallback(() => {
     setInspectFor(null);
@@ -351,18 +392,18 @@ export default function World() {
     return () => window.removeEventListener('keydown', onKey);
   }, [maxDay]);
 
-  const groups = useMemo(() => {
-    if (!world) return { control: [], treatment: [], remarriage: [] };
-    const control: number[] = [];
-    const treatment: number[] = [];
-    const remarriage: number[] = [];
-    world.couples.forEach((_, i) => {
-      if (world.origin[i] === 'remarriage') remarriage.push(i);
-      else if (world.arms[i] === 'treatment') treatment.push(i);
-      else control.push(i);
-    });
-    return { control, treatment, remarriage };
-  }, [world]);
+  const groups = useMemo(() => armGroups(world), [world]);
+  const shownGroups = useMemo(() => (shown === world ? groups : armGroups(shown)), [shown, world, groups]);
+  // Couples matched by id between the world drawn and the other one, for the rings and the counter.
+  const otherWorld = flipped ? world : pw;
+  const match = useMemo(() => (shown && otherWorld ? matchCouples(shown, otherWorld) : null), [shown, otherWorld]);
+  // The parent's arm labels: this world's intervention without the shocks the fork appended.
+  const parentLabels = useMemo(() => {
+    const exp = data?.[1]?.summary?.experiment;
+    if (!parentRecord || !exp) return null;
+    const own = exp.shocks ?? [];
+    return armLabelsFor(interventionOf(exp.treatment, own.slice(0, Math.max(0, own.length - parentRecord.appended_shocks.length))), arms.catalog);
+  }, [data, parentRecord, arms.catalog]);
   const allTwins = useMemo(() => (twinsData ? twinsData.couples.map((_, i) => i) : []), [twinsData]);
 
   // Built once per run, not per day, so the strip under the scrubber keeps its drawn bars while the
@@ -374,6 +415,34 @@ export default function World() {
   );
   const bands = useMemo(() => shockBands(runShocks, arms.catalog, runDays, (s) => shockShort(s, arms.catalog)), [runShocks, arms.catalog, runDays]);
   const density = useMemo(() => densitySeries(digest.data ?? null, runDays), [digest.data, runDays]);
+
+  // A requested replay starts once the picture can show it: the town built (or the grids drawn) and the
+  // world it is compared with loaded, so the rings are there from its first day. It never waits more
+  // than a few seconds for either.
+  const [townReady, setTownReady] = useState(false);
+  const onTownReady = useCallback(() => setTownReady(true), []);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const replayDeadline = useRef<number | null>(null);
+  const parentLoading = parentName !== null && parentWorld.loading;
+  // Today's rings: the couples of the drawn world whose state differs from the other world's today.
+  const ringDay = Math.min(day, maxDay);
+  const rings = useMemo(() => (match && shown && otherWorld ? differingOnDay(shown, otherWorld, match, ringDay) : null), [match, shown, otherWorld, ringDay]);
+  useEffect(() => {
+    if (pendingReplay === null || !world) return;
+    const drawsTown = mode === 'randomized' && view === 'town';
+    const ready = !parentLoading && (!drawsTown || townReady);
+    if (replayDeadline.current === null) replayDeadline.current = Date.now() + REPLAY_WAIT_MS;
+    const start = () => {
+      setPendingReplay(null);
+      setDay(Math.min(pendingReplay, Math.max(0, world.days - 1)));
+      setSpeed(10);
+      setPlaying(true);
+      stageRef.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+    };
+    const timer = window.setTimeout(start, ready ? 0 : Math.max(0, replayDeadline.current - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [pendingReplay, world, mode, view, townReady, parentLoading]);
+
   if (error) return <ErrorBox message={error} />;
   if (!world) return <Loading what="the world" />;
 
@@ -381,22 +450,30 @@ export default function World() {
   const [controlTitle, treatmentTitle] = gridTitles(arms.labels);
   const [controlSub, treatmentSub] = gridSubtitles(arms.labels, mode);
   const d = Math.min(day, maxDay);
+  // What the town or the grids draw: this world, or the one it came from on the same day.
+  const drawn = shown ?? world;
+  const [drawnControl, drawnTreatment] = flipped && parentLabels ? gridTitles(parentLabels) : [controlTitle, treatmentTitle];
+  const exp = data?.[1]?.summary?.experiment;
+  // A run with no intervention leads with its twins (the same couples under both settings come out the
+  // same), then the gap between its two halves, which are different couples, for the whole replay.
+  const summary = data?.[1]?.summary;
+  const chance = mode === 'randomized' && exp && noIntervention(exp.treatment, exp.shocks) ? chanceWords(summary?.outcomes.find((o) => o.name === 'divorce_rate'), nInitial, summary?.governance?.twins) : null;
   const counts = world.counts[Math.min(d, world.counts.length - 1)];
   const lastCounts = world.counts[world.counts.length - 1];
   const trustC = curves?.trust.control_mean[Math.min(d, curves.trust.control_mean.length - 1)];
   const trustT = curves?.trust.treatment_mean[Math.min(d, curves.trust.treatment_mean.length - 1)];
   const pick = (id: number) => navigate(`/couples/${id}`);
-  const pickAgent = (id: number) => navigate(`/agents/${id}`);
+  const pickAgent = (id: number) => navigate(`/agents/${id}`, flipped ? parentName : undefined);
   const inspecting = mode === 'randomized' && inspect !== null;
   const coupleCurrent = coupleState && coupleState.id === inspect && coupleState.attempt === coupleAttempt ? coupleState : null;
   const coupleDetail = coupleCurrent ? coupleCurrent.detail : null;
   const nextDay = coupleDetail ? nextEventDay(coupleDetail.events, d) : null;
   const inspectArm = (() => {
     if (inspect === null) return null;
-    const i = world.couples.indexOf(inspect);
+    const i = drawn.couples.indexOf(inspect);
     if (i < 0) return null;
-    if (world.origin[i] === 'remarriage') return 'Remarried, formed after a divorce';
-    return world.arms[i] === 'treatment' ? treatmentTitle : controlTitle;
+    if (drawn.origin[i] === 'remarriage') return 'Remarried, formed after a divorce';
+    return drawn.arms[i] === 'treatment' ? drawnTreatment : drawnControl;
   })();
   const townFallback = (reason: string) => {
     setTownNote(`Showing the grid because ${reason}.`);
@@ -425,17 +502,19 @@ export default function World() {
       : lastCounts
         ? takeaway(maxDay, lastCounts.control, lastCounts.treatment, groups.control.length, groups.treatment.length, 'randomized', differenceClause(arms.intervention, arms.catalog), sharedClause(arms.intervention, arms.catalog))
         : '';
+  const worldName = expName ?? data?.[1]?.manifest.name ?? null;
 
   return (
     <div className={loading ? 'stale' : ''}>
       <Banner />
       <h1>World replay</h1>
       <p className="world-actions">
-        <ExpLink to="/new?describe=1" className="button-link" data-testid="shock-this-world">
+        <button type="button" className="button-link" onClick={() => setShockOpen((o) => !o)} aria-expanded={shockOpen} disabled={!worldName} data-testid="shock-this-world">
           Shock this world
-        </ExpLink>
-        <span className="muted">Describe what happens in your own words; the same couples run again with only that added.</span>
+        </button>
+        <span className="muted">Describe what happens in your own words. The same couples run again with only that added, and the town switches to the new world right here.</span>
       </p>
+      {shockOpen && worldName ? <ShockInPlace world={worldName} onClose={() => setShockOpen(false)} /> : null}
       <p className="framing" data-testid="framing">
         {framingSentence(nInitial, arms.intervention, arms.catalog, mode, showTown ? 'districts' : 'grids')}
       </p>
@@ -524,7 +603,13 @@ export default function World() {
       </div>
 
       {scoreboard}
-      {atEnd && takeawayText ? (
+      {chance ? (
+        <div className="takeaway" data-testid="null-run">
+          <p className="takeaway-lead">{chance.lead}</p>
+          {chance.detail ? <p className="takeaway-detail">{chance.detail}</p> : null}
+        </div>
+      ) : null}
+      {atEnd && takeawayText && !chance ? (
         <p className="takeaway" data-testid="takeaway">
           {takeawayText}
         </p>
@@ -562,40 +647,80 @@ export default function World() {
         </>
       ) : (
         <>
+        <div ref={stageRef} className="world-stage">
+          {parentName ? (
+            <section className="card compare" aria-label="Compared with the world it came from" data-testid="compare">
+              <div className="compare-head">
+                <h3>Compared with the world it came from</h3>
+                {pw ? (
+                  <div className="segmented" role="group" aria-label="The town shows">
+                    <button type="button" onClick={() => setShowParent(false)} aria-pressed={!flipped}>
+                      This world
+                    </button>
+                    <button type="button" onClick={() => setShowParent(true)} aria-pressed={flipped}>
+                      {parentName}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+              {parentWorld.error ? (
+                <div className="status error" role="alert">
+                  Could not load {parentName} to compare: {parentWorld.error}
+                </div>
+              ) : !pw || !match ? (
+                <p className="muted">Loading {parentName} to compare...</p>
+              ) : (
+                <>
+                  <p className="compare-count" data-testid="differ-count">
+                    <span className="diff-ring-key" aria-hidden="true" />
+                    {differCounter(rings?.length ?? 0, match.compared, parentName)}.
+                  </p>
+                  <p className="muted">
+                    {flipped ? `The town now shows ${parentName} on day ${d}. The scoreboard, the counts and the events on this page stay with this world. ` : ''}A ring marks each house whose couple is in a different state today than the same couple in{' '}
+                    {flipped ? 'this world' : parentName}. Both worlds run the same couples on the same random draws, so every ring is the added shock's doing. Each couple's whole year is compared on{' '}
+                    <ExpLink to="/overview">Overview, under Versus its parent</ExpLink>.
+                  </p>
+                </>
+              )}
+            </section>
+          ) : null}
           <div className={inspecting ? 'world-main with-panel' : 'world-main'}>
           <div className="world-view">
           {showTown ? (
             <Suspense fallback={<Loading what="the town" />}>
               <TownView
-                world={world}
+                world={drawn}
                 day={d}
                 speed={speed}
-                controlTitle={controlTitle}
-                treatmentTitle={treatmentTitle}
+                controlTitle={drawnControl}
+                treatmentTitle={drawnTreatment}
                 onPickCouple={openInspector}
                 onPickAgent={pickAgent}
                 onFallback={townFallback}
-                lenses={lensList.data ?? []}
-                lensName={lensName}
-                lens={lensFresh ? lensFresh.data : null}
-                lensError={lensFresh ? lensFresh.error : null}
+                lenses={flipped ? [] : (lensList.data ?? [])}
+                lensName={flipped ? null : lensName}
+                lens={!flipped && lensFresh ? lensFresh.data : null}
+                lensError={!flipped && lensFresh ? lensFresh.error : null}
                 onLensChange={setLensName}
                 onLensRetry={retryLens}
                 selectedCouple={inspect}
+                rings={rings}
+                experiment={flipped ? parentName : null}
+                onReady={onTownReady}
               />
             </Suspense>
           ) : (
             <>
               <div className="grid-2">
-                <WorldGrid title={controlTitle} subtitle={controlSub} couples={world.couples} states={world.states} indices={groups.control} day={d} onPick={openInspector} testId="grid-control" />
-                <WorldGrid title={treatmentTitle} subtitle={treatmentSub} couples={world.couples} states={world.states} indices={groups.treatment} day={d} onPick={openInspector} testId="grid-treatment" />
+                <WorldGrid title={drawnControl} subtitle={controlSub} couples={drawn.couples} states={drawn.states} indices={shownGroups.control} day={d} onPick={openInspector} testId="grid-control" />
+                <WorldGrid title={drawnTreatment} subtitle={treatmentSub} couples={drawn.couples} states={drawn.states} indices={shownGroups.treatment} day={d} onPick={openInspector} testId="grid-treatment" />
               </div>
               <WorldGrid
-                title={`After divorce, dating and remarriage${counts ? `: ${counts.remarriage.dating} dating, ${counts.remarriage.married} married today` : ''}`}
+                title={`After divorce, dating and remarriage${counts && !flipped ? `: ${counts.remarriage.dating} dating, ${counts.remarriage.married} married today` : ''}`}
                 subtitle="Dating only appears here. Every initial couple starts married, so these are divorced agents who met someone new."
-                couples={world.couples}
-                states={world.states}
-                indices={groups.remarriage}
+                couples={drawn.couples}
+                states={drawn.states}
+                indices={shownGroups.remarriage}
                 day={d}
                 tile={10}
                 onPick={openInspector}
@@ -616,13 +741,14 @@ export default function World() {
             />
           ) : null}
           </div>
+        </div>
           <div className="grid-2">
             <div className="card">
-              <h3>Counts on day {d}</h3>
+              <h3>Counts on day {d}{flipped ? ' in this world' : ''}</h3>
               <Counters world={world} day={d} />
             </div>
             <div className="card">
-              <h3>Events on day {d}</h3>
+              <h3>Events on day {d}{flipped ? ' in this world' : ''}</h3>
               {playing ? (
                 <DayCounts digest={digest.data ?? null} day={d} controlTitle={controlTitle} treatmentTitle={treatmentTitle} />
               ) : ticker.error ? (

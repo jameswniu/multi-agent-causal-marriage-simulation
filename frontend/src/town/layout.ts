@@ -365,6 +365,11 @@ export function dotTint(posture: Posture, arm: Arm | null, origin: Origin | null
   }
 }
 
+/** World width of a ring around a house, so it reads about `px` screen pixels wide when zoomed out and never thinner than `px` world units when zoomed in. */
+export function ringWidth(scale: number, px = 3): number {
+  return Math.max(px, px / Math.max(scale, 1e-6));
+}
+
 /** World size of a dot so it reads about `px` screen pixels across at `scale`. */
 export function dotWorldSize(scale: number, px = 6): number {
   return px / Math.max(scale, 1e-6);

@@ -205,9 +205,10 @@ describe('pages', () => {
     expect(body.world?.shocks[0].kind).toBe('financial_crisis');
     expect('trait' in body.world!.shocks[0]).toBe(false);
     expect(body.treatment.shocks).toBeUndefined();
-    // The list is refetched before the new experiment is selected, and the URL carries it.
+    // The list is refetched before the new experiment is selected, and the World page opens it.
     await waitFor(() => expect(mock.listCalls.count).toBeGreaterThanOrEqual(2));
-    await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/overview?experiment=crisis-test'));
+    await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/world?experiment=crisis-test'));
+    expect(await screen.findByRole('heading', { name: 'World replay' })).toBeInTheDocument();
     await waitFor(() => expect((screen.getByTestId('experiment-select') as HTMLSelectElement).value).toBe('crisis-test'));
     spy.mockRestore();
   });
@@ -558,24 +559,31 @@ describe('plain-words shocks', () => {
     spy.mockRestore();
   });
 
-  it('Shock this world opens the box on a fork of the world being watched, with the cursor in it', async () => {
+  it('Shock this world opens the box right on the World page, on the world being watched, with the cursor in it', async () => {
     at('/?experiment=job-loss-everyone');
-    const link = await screen.findByTestId('shock-this-world');
-    expect(link).toHaveTextContent('Shock this world');
-    expect(link.getAttribute('href')).toContain('/new?describe=1');
-    expect(link.getAttribute('href')).toContain('experiment=job-loss-everyone');
-    fireEvent.click(link);
-    const box = await screen.findByLabelText('Describe what happens');
+    const button = await screen.findByTestId('shock-this-world');
+    expect(button).toHaveTextContent('Shock this world');
+    expect(button.tagName).toBe('BUTTON');
+    expect(screen.queryByTestId('shock-panel')).not.toBeInTheDocument();
+    fireEvent.click(button);
+    const panel = await screen.findByTestId('shock-panel');
+    const box = await within(panel).findByLabelText('Describe what happens');
     await waitFor(() => expect(document.activeElement).toBe(box));
-    expect((screen.getByTestId('start-from') as HTMLSelectElement).value).toBe('job-loss-everyone');
-    expect(screen.getByTestId('fork-note')).toHaveTextContent('Forking job-loss-everyone');
+    // Still the World page of the same world: nothing navigated.
+    expect(screen.getByTestId('loc')).toHaveTextContent('/world?experiment=job-loss-everyone');
+    expect(screen.getByRole('heading', { name: 'World replay' })).toBeInTheDocument();
+    expect(within(panel).getByTestId('fork-note')).toHaveTextContent('The same 1,000 couples of job-loss-everyone run again');
+    // The New experiment page stays one link away for a fresh population.
+    expect(within(panel).getByRole('link', { name: 'New experiment' }).getAttribute('href')).toContain('/new?describe=1');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByTestId('shock-panel')).not.toBeInTheDocument();
   });
 });
 
 describe('forked worlds and the run queue', () => {
   const TEXT = 'He loses his job in month three for four months';
 
-  it('forks the world in the URL by default, sends only shocks, and opens the comparison with its parent', async () => {
+  it('forks the world in the URL by default, sends only shocks, and opens the new world compared with its parent', async () => {
     const spy = vi.spyOn(mock, 'forkExperiment');
     const fresh = vi.spyOn(mock, 'runExperiment');
     at('/new?experiment=retention-90d');
@@ -600,6 +608,11 @@ describe('forked worlds and the run queue', () => {
     expect(body.shocks[0]).toMatchObject({ kind: 'job_loss', target: 'treatment', start_day: 60, end_day: 180 });
     expect(body.translations).toEqual([{ translation_id: 'tr-job', shock_index: 0 }]);
     expect(Object.keys(body).sort()).toEqual(['name', 'parent', 'shocks', 'translations']);
+    // Run lands on the new world's World page, which compares it with its parent and links the table on Overview.
+    await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/world?experiment=retention-90d-fork'));
+    const compare = await screen.findByTestId('compare');
+    expect(compare).toHaveTextContent('Compared with the world it came from');
+    fireEvent.click(within(compare).getByRole('link', { name: 'Overview, under Versus its parent' }));
     await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/overview?experiment=retention-90d-fork'));
     const versus = await screen.findByTestId('versus-parent');
     expect(versus).toHaveTextContent('Forked from retention-90d');
@@ -672,7 +685,7 @@ describe('forked worlds and the run queue', () => {
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'queued-one' } });
     fireEvent.click(screen.getByTestId('run'));
     expect(await screen.findByTestId('progress')).toHaveTextContent('Waiting its turn, number 2 in line');
-    await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/overview?experiment=queued-one'), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/world?experiment=queued-one'), { timeout: 3000 });
     expect(job).toHaveBeenCalledWith('job-q');
     run.mockRestore();
     job.mockRestore();
@@ -710,7 +723,7 @@ describe('forked worlds and the run queue', () => {
     expect(await screen.findByTestId('run-lost', {}, { timeout: 3000 })).toHaveTextContent('it may still finish');
     expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
-    await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/overview?experiment=patient'), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/world?experiment=patient'), { timeout: 3000 });
     expect(run).toHaveBeenCalledTimes(1);
     expect(job).toHaveBeenCalledTimes(3);
     Object.assign(jobPolling, saved);
