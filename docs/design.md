@@ -135,9 +135,9 @@ away from the other's), a trait shift (any of the nine traits moves by a chosen 
 one partner becoming more neurotic), daily texts (one partner sends affection every day, which the
 other stores as a small positive memory), an anniversary (a strong shared positive memory once a
 year) and date nights (a weekly one). Every application is logged as an intervention row and an
-event, the member it lands on is drawn once per couple from the couple's own stream, and a shock
-aimed at the treatment arm is an intervention while a shock aimed at everyone is a world event under
-which the memory treatment is tested. Two dynamics terms came with the mismatch shock and apply to
+event, the member it lands on is drawn once per couple from its own keyed stream (so a shock that
+does nothing moves no other draw), and a shock aimed at the treatment arm is an intervention while a
+shock aimed at everyone is a world event under which the memory treatment is tested. Two dynamics terms came with the mismatch shock and apply to
 every couple: affect falls with the gap between the partners' closeness preferences, and once a week
 the partner who wants more closeness may store a disappointment, with probability proportional to
 the gap.
@@ -145,6 +145,16 @@ the gap.
 These are stylised. A job loss is a number of stress, not a bank balance; temptation is a
 probability, not a person. The point is that each one is explicit, logged and switchable, so the
 question "what does X do to this world" has one honest answer.
+
+Any other event runs as a custom shock: a named list of up to eight effects, each moving one quantity
+the engine already models (stress, mood, trust, a stored memory, the chance of meeting someone, how
+often fights start, the odds of making up, or a trait) by a bounded amount, once, daily, weekly or
+yearly, on one partner or both. "His mother moves in for two months" becomes daily stress on both
+partners and fights starting more often for those sixty days. The eight named kinds are themselves
+such lists, and the engine runs every shock through the same effect code. That is how a model can
+add a new kind of event from plain words without touching the agents' rules. The model only writes
+the list, the engine checks it against fixed bounds, and the run is as deterministic and replayable
+as any other. Contract section 9 has the channels, bounds and logging.
 
 ### The decision policy
 

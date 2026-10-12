@@ -23,7 +23,7 @@
     },
     "shocks": [],
     "determinism_hash": "674eee5aea999b52518f779b648866d0d408086357eda2d9c5d20550bdb5a8dc",
-    "engine_version": "0.2.1"
+    "engine_version": "0.3.0"
   },
   "analysis": {
     "n_boot": 2000,

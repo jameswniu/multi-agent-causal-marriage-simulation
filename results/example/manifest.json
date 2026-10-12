@@ -225,7 +225,7 @@
   "days": 365,
   "determinism_hash": "674eee5aea999b52518f779b648866d0d408086357eda2d9c5d20550bdb5a8dc",
   "engine": "loveworld-engine",
-  "engine_version": "0.2.1",
+  "engine_version": "0.3.0",
   "evidence_class": "simulation",
   "files": {
     "agents.parquet": {
@@ -265,7 +265,7 @@
       "sha256": "6a299b4cb490dbbbc9dd24115ec19385febffcab62a973f0a113fbac499459e2"
     }
   },
-  "generated_at_unix": 1791771956,
+  "generated_at_unix": 1791777778,
   "n_couples": 1000,
   "name": "retention-90d",
   "policy_spec": {
@@ -278,13 +278,13 @@
         "escalate": "esc_base + esc_neuro*neuroticism + esc_engage*conflict_engagement + esc_negmem*neg_load + esc_stress*stress - esc_trust*trust + esc_partner_escalated*[partner escalated] - esc_affect*affect",
         "hold": "hold_base + hold_avoidant*(1-conflict_engagement) + hold_consc*conscientiousness",
         "leave (when on the menu)": "leave_base - leave_commit*commitment - leave_trust*trust + leave_negmem*neg_load - leave_posmem*pos_load + leave_intensity*intensity + leave_days*min(days,30) - leave_satisfaction*satisfaction + leave_network*divorced_friend_share + leave_outside_option*outside_option + leave_dating_bonus*[dating] + legacy_shift",
-        "repair": "rep_base + rep_agree*agreeableness + rep_forgive*forgiveness + rep_trust*trust + rep_posmem*pos_load - rep_negmem*neg_load + rep_partner_repaired*[partner repaired] - rep_intensity*intensity + rep_days*min(days,30)",
+        "repair": "rep_base + rep_agree*agreeableness + rep_forgive*forgiveness + rep_trust*trust + rep_posmem*pos_load - rep_negmem*neg_load + rep_partner_repaired*[partner repaired] - rep_intensity*intensity + rep_days*min(days,30) + temperature*repair_bias",
         "withdraw": "wd_base + wd_avoidant*(1-conflict_engagement) + wd_neuro*neuroticism + wd_intensity*intensity + wd_partner_escalated*[partner escalated]"
       },
       "separated": {
         "hold": "sep_hold_base + hold_avoidant*(1-conflict_engagement)",
         "leave (finalise, when on the menu)": "sep_leave_base + (conflict leave formula with min(days,60) and without leave_base)",
-        "repair (reunite)": "sep_reunite_base + rep_agree*agreeableness + rep_forgive*forgiveness + rep_trust*trust + rep_posmem*pos_load - rep_negmem*neg_load + rep_partner_repaired*[partner repaired]"
+        "repair (reunite)": "sep_reunite_base + rep_agree*agreeableness + rep_forgive*forgiveness + rep_trust*trust + rep_posmem*pos_load - rep_negmem*neg_load + rep_partner_repaired*[partner repaired] + temperature*repair_bias"
       }
     },
     "kind": "rule_based_softmax",
@@ -325,7 +325,8 @@
         "share of divorced network neighbours",
         "today's outside option surplus",
         "whether leaving is on the menu today",
-        "own sealed divorce, if any"
+        "own sealed divorce, if any",
+        "active shock effects on own repair propensity (repair_bias, the log of their combined multiplier)"
       ]
     },
     "weights": {

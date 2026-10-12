@@ -16,6 +16,8 @@ loveworld-engine replay --manifest <dir>/manifest.json [--out <dir>]      # exit
 loveworld-engine policy-spec [--config <json>]                              # weights + formulas, JSON
 loveworld-engine assign --config <json>                                     # ["control","treatment",...] by couple id
 loveworld-engine default-config                                             # every parameter with defaults
+loveworld-engine shock-catalog                                              # named shock kinds with magnitude bounds
+loveworld-engine effect-catalog                                             # channels a custom shock may use, with bounds
 ```
 
 `run` prints the manifest summary as one JSON line on stdout and timing on stderr.
@@ -353,6 +355,10 @@ stress. Remarriage couples have no arm and only receive `all` shocks.
 Experiment YAML gains `treatment.shocks` (a list, target forced to treatment) and `world.shocks`
 (a list, target forced to all). The engine config's own `shocks` key is not allowed under `engine:`.
 
+Engine 0.3.0 runs every kind through one effect path and adds `kind: "custom"`, a shock written as
+its own list of effects. Section 9 has its shape, the bounds, and the fixed list each named kind
+stands for.
+
 ### Serving many experiments
 
 `loveworld serve <dir>` accepts either one results dir (with summary.json) or a results root; every
@@ -367,7 +373,10 @@ GET  /api/experiments      -> {"default": name, "items": [{"name", "dir", "n_cou
                                "intervention": {"memory": {parameter: [control, treatment]} | null, "shocks": [...]},
                                "divorce_control", "divorce_treatment", "generated_at_unix"}]}
 GET  /api/shocks/catalog   -> {"kinds": [{"kind", "label", "blurb", "member_applies", "magnitude": {"min","max","default","unit"},
-                               "default_start_day", "default_length_days", "default_end_day"}]}
+                               "default_start_day", "default_length_days", "default_end_day"}],
+                               "effects": {"channels": [{"channel", "op", "identity", "cadences": {cadence: {"min","max","sustained"}},
+                               "who", "classes", "traits", "description"}], "max_effects", "label_max_chars",
+                               "description_max_chars", "builtin_at_default_magnitude"}}   (effects: section 9)
 POST /api/experiments/run  -> body {"name"?, "n_couples"? (<= 2000), "days"? (<= 730), "seeds"?,
                                "treatment": {"conflict_half_life_days"?, ..., "shocks"?: [...]},
                                "control"?, "world"?: {"shocks": [...]}, "engine"?, "analysis"?: {"n_boot" (<= 500), "n_perm" (<= 500)},
@@ -548,3 +557,113 @@ fields the model got wrong fall back to the kind's defaults, and the run stays b
 visitor changes a field or presses "These fields are right", so a wrong answer never runs unseen. An
 unsupported description shows its message and adds no row. The World page header links here with `?describe=1`,
 which puts the cursor in the box.
+
+## 9. Custom shocks built from effects (added 2026-10-11, engine 0.3.0)
+
+A shock of `kind: "custom"` carries its own list of effects instead of a named kind, so an event
+that none of the eight kinds covers can still run. The translator writes one when the words fit no
+named kind, and anyone can write or edit one by hand. Every effect acts on a quantity the engine
+already models, inside fixed bounds, and the engine runs it as deterministically as any other shock.
+
+```
+{"kind": "custom", "target": "treatment" | "control" | "all", "member": "a" | "b" | "random",
+ "start_day": 30, "end_day": 90,                       (end_day null means to the end of the run)
+ "label": "mother moves in",                            (1 to 40 letters, digits, spaces, hyphens, underscores, apostrophes)
+ "description": "His mother moves in for two months.",  (optional, at most 240 characters, and it runs nothing)
+ "effects": [                                           (1 to 8)
+   {"channel": "stress", "op": "add", "amount": 0.4, "cadence": "daily", "who": "both"},
+   {"channel": "onset_hazard", "op": "multiply", "amount": 1.3, "cadence": "daily", "who": "both"},
+   {"channel": "episode", "op": "add", "amount": 0.3, "cadence": "weekly", "who": "member",
+    "class": "conflict", "start_day": 40, "end_day": 80}]}
+```
+
+A custom shock takes no `magnitude` or `trait`, since amounts and traits live on its effects. Each
+effect's `op` must be its channel's own operation, and `who` defaults to `member`. `who` is relative
+to the shock's member: `member` is the partner the event happens to, `partner` is their spouse, and
+`both` is both. An effect's own `start_day` and `end_day` are optional and must lie inside the
+shock's window. Unknown keys are rejected here as everywhere else in the config, and a run takes at
+most 64 shocks. The logs name a custom shock by its label slug, the label in lowercase with each run
+of other characters turned into one underscore, so two custom shocks in one run may not share a slug
+("in-law move" and "in_law_move" both give `in_law_move`). The engine, the Python layer and the form
+all refuse such a pair.
+
+| Channel | Op | Cadences and amount bounds | Who | What it does |
+|---|---|---|---|---|
+| Stress (`stress`) | Add | Once, weekly or yearly -3 to 5, daily -1.5 to 1.5 | Any | Once, weekly or yearly, the amount is added to stress (0 to 3) on each day it acts. Daily, it is a standing daily stress input for the window, so stress settles higher instead of climbing |
+| Affect (`affect`) | Add | Once or yearly -1 to 1, weekly -0.5 to 0.5, daily -0.1 to 0.1 | Any | Added to mood toward the partner (-1 to 1) on each day it acts |
+| Trust (`trust`) | Add | Once or yearly -0.5 to 0.5, weekly -0.1 to 0.1, daily -0.02 to 0.02 | Any | Added to trust (0 to 1) on each day it acts |
+| Memory (`episode`) | Add | Once or yearly 0 to 2, weekly 0 to 1, daily 0 to 0.25 | Any | Stores a memory about the partner of the effect's `class` (positive, conflict, repair or disappointment), with the amount as its intensity, on each day it acts |
+| Outside chance (`outside`) | Add | Daily 0 to 1 | Any | Sets the daily chance of meeting an attractive alternative for the window, in place of `dynamics.outside_encounter_prob` (0.02 by default), with candidates 0.1 more compatible. The strongest active value wins |
+| Fight onset (`onset_hazard`) | Multiply | Daily 0 to 5 | Both only | Multiplies the couple's daily chance that a fight starts, capped at 1 |
+| Repair odds (`repair_propensity`) | Multiply | Daily 0.1 to 10 | Any | Multiplies the odds of choosing repair, or reunite when separated |
+| Trait (`trait`) | Add | Once -1 to 1, yearly -0.25 to 0.25 | Any | Moves the trait named in `trait` (0 to 1), one of the nine the effect catalog lists |
+
+Shocks act only on days a couple is dating or married. An effect acts on the days its cadence picks
+inside its window, counted from the window's first day: every day, every seventh day, or every
+365th. A once effect acts on the first day of its window the couple qualifies. The daily stress,
+outside, onset and repair effects are standing modifiers, installed on that same first day and
+expiring after the window's last day. An effect whose amount is its channel's identity (0 to add,
+1 to multiply) does nothing at all, so a shock of zeros leaves every behavioural table exactly as it
+was, and a test runs one effect of every channel at its identity to hold that.
+
+The eight named kinds are fixed effect lists (`config::builtin_effects` in the engine,
+`schema.builtin_effects` in Python), and the engine runs every shock through the same effect code.
+A parity test runs each kind at its default, maximum and minimum magnitude both as itself and as a
+custom shock carrying its list, and requires the daily, decision, conflict, legacy and episode rows
+to be identical apart from the episode source name. At magnitude m the lists are these.
+
+| Kind | Effects |
+|---|---|
+| Job loss | Stress once +m and stress daily +0.1m, on the member |
+| Financial crisis | Stress daily +0.3m, on both |
+| Temptation | Outside chance daily m, on the member |
+| Intimacy mismatch | Trait closeness_pref once +m, on the member |
+| Trait shift | The named trait once +m, on the member |
+| Daily texts | A positive memory of 0.05m and mood +0.02m every day, on the partner |
+| Anniversary | A positive memory of 0.5m and trust +0.02m every year, on both |
+| Date nights | A positive memory of 0.15m every week, on both |
+
+Intimacy mismatch only moves the trait. The lower mood from a closeness gap and the weekly
+disappointment memories described in section 6 are dynamics every couple has, shocked or not, so
+they follow from the wider gap, and the parity test covers them.
+
+The policy sees the repair odds through `repair_bias`, the sum of the natural logs of the agent's
+active multipliers (0 without one). The repair and reunite utilities add `temperature*repair_bias`,
+so a combined multiplier m multiplies the odds of choosing repair by exactly m at any temperature,
+and `policy-spec` prints the term in both formulas. The fight onset multiplier applies after
+`conflict_onset_prob` and before the draw, so the number of draws never changes. No channel reaches
+memory half-lives, the memory rules, the leave gate, policy weights, the temperature, assignment,
+seeds or the arm, and a test holds the channel set and the effect code to that.
+
+Every custom shock is logged. On the first day an effect acts on a couple, each partner it hits
+gets an `interventions.parquet` row for it, with parameter `custom:<label slug>:<channel>` (plus
+`:<class>` or `:<trait>`), control_value the channel's identity and applied_value the amount, so an
+effect whose own window starts later logs its start on that later day. Each partner with an effect
+starting that day also gets one event `shock_custom:<label slug>` whose value is the number of their
+effects that started. Each later weekly or yearly firing logs a couple-level event of the same name
+with the amount as its value. A once, daily or standing effect logs only its start, and every memory
+an effect stores is an `episodes.parquet` row with source `shock:custom:<label slug>`. Named kinds
+log exactly as before.
+
+`loveworld-engine effect-catalog` prints every channel with its op, identity, bounds per cadence,
+allowed `who`, classes, traits and description, plus each named kind's list at its default
+magnitude. Python holds the same catalog in `schema.EFFECT_CHANNELS` and `schema.effect_catalog()`,
+and a test requires the two to be equal. `GET /api/shocks/catalog` returns it as `effects`, next to
+`kinds`.
+
+The translator's one forced tool, `submit_shock`, also takes `kind: "custom"` with a label, a
+description and up to 8 effects, and its prompt lists every channel with its bounds. A description
+that fits no named kind becomes a custom shock. Only text that is not about a couple's life at all
+is unsupported. A custom answer goes through the same parser and bounds, an amount out of range
+comes back as a visible error and is never clamped, and `edited` in `translation.json` compares the
+label and every effect but not the description. The New experiment card lists each effect in plain
+words ("both partners: stress up 0.4 every day, days 30 to 90"), and the amount, how often and whom
+it hits stay editable before Run.
+
+Runs written by engine 0.2.1 replay identically on 0.3.0, since `replay` reruns the recorded config
+and compares table hashes. That was checked table by table for all eight kinds at their default
+magnitude and at one extreme, each with a random and a fixed member, for a run mixing five kinds
+across both arms, and for the job-loss, daily-texts, neuroticism-shift and crisis-under-retention
+experiments and the example. The one exception is a magnitude-0 daily_texts, anniversary,
+date_nights or temptation shock. In 0.2.1 those stored zero-intensity memories or held the outside
+chance at 0, and in 0.3.0 they do nothing. Runs with custom shocks need 0.3.0.
