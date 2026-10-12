@@ -506,8 +506,9 @@ fn close_conflict(
     Some(duration)
 }
 
-/// Make both members single after a divorce or breakup, with MADAM anchoring of the
-/// threshold to the relationship that just ended.
+/// Make both members single after a divorce or breakup. Each member's matching threshold is
+/// anchored to the compatibility of the relationship that just ended, minus a discount (the
+/// relaxing-expectations marriage market of Hills and Todd's MADAM model).
 fn release_members(world: &mut World, cfg: &SimConfig, couple: &Couple, day: i32, divorced: bool) {
     for e in [couple.a, couple.b] {
         if let Some(mut b) = world.get_mut::<Bond>(e) {

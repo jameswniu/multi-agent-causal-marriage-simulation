@@ -1,3 +1,7 @@
+"""Tests for the LoveWorld results API, which serves a simulated marriage experiment to the dashboard:
+experiment listing, couple and agent detail, world replay, twins, the run endpoint and path safety.
+"""
+
 from __future__ import annotations
 
 import json

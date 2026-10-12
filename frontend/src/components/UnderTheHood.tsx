@@ -1,3 +1,9 @@
+/**
+ * Collapsible developer log for a couple or an agent. Per day and per member it shows the memory
+ * episodes stored, the retained negative and positive load, trust, affect, stress, the decision with
+ * its probabilities and any shock, plus sealed marriages and the days a couple went without a warm
+ * memory. Everything comes from the engine's logged tables for the run, served by the API.
+ */
 import { useMemo, useState } from 'react';
 import type { DecisionRow, EpisodeRow, EventRow, LegacyRow } from '../types';
 import { getPolicy } from '../api';

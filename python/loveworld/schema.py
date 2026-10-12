@@ -121,7 +121,8 @@ SHOCK_TARGETS = ("treatment", "control", "all")
 # Results directory names: letters, digits, dash and underscore only.
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
-# On-demand run bounds (section 6 of the contract).
+# On-demand run bounds, as set out in section 6 of docs/contracts.md (the interface contract between
+# the engine, this package and the dashboard).
 MAX_COUPLES = 2000
 MAX_DAYS = 730
 MAX_RESAMPLES = 500
@@ -166,7 +167,8 @@ def _kind(
     }
 
 
-# Bounds, defaults and default lengths mirror `loveworld-engine shock-catalog`; a test pins them.
+# Bounds, defaults and default lengths match the shock catalog that the simulation engine prints
+# (the Rust binary, `loveworld-engine shock-catalog`), and a test pins them.
 SHOCK_CATALOG: tuple[dict[str, Any], ...] = (
     _kind(
         "job_loss",

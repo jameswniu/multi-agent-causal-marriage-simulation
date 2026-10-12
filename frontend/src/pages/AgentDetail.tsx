@@ -1,3 +1,6 @@
+// Detail page for one simulated agent in a LoveWorld run (agents are married partners whose memory
+// of conflicts is the variable under test): traits, relationships, daily trust and affect, events,
+// and the developer log.
 import { useParams } from 'react-router-dom';
 import { ExpLink } from '../nav';
 import { CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from 'recharts';

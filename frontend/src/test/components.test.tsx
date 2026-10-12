@@ -1,3 +1,5 @@
+// Tests for the LoveWorld dashboard components, the pages that show a simulated marriage experiment:
+// labels and plain-words copy, charts, the developer log, validation and run requests.
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import AteTable from '../components/AteTable';

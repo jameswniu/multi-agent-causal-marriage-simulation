@@ -1,3 +1,6 @@
+// Detail page for one simulated couple in a LoveWorld run. A couple's arm is the memory setting it
+// was randomised to (control forgets a fight faster than treatment). The page shows its members,
+// state timeline, trust and affect, conflicts, events, decisions and the developer log.
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { ExpLink } from '../nav';

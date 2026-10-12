@@ -1,3 +1,6 @@
+// World replay page. It plays a finished run day by day so a viewer can watch what the memory
+// setting does to 1,000 couples, with playback controls, side-by-side control and treatment grids
+// (or each couple under both settings), counters and the day's events.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useExpNavigate } from '../nav';
 import { getCurves, getEventsForDay, getExperiment, getTwinsWorld, getWorld } from '../api';
