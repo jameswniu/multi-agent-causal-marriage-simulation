@@ -633,6 +633,44 @@ def test_results_published_over_while_being_read_are_read_once_more(
     assert store.get("alpha") is item, "and it is kept under the stamp of what is on disk"
 
 
+def test_a_publication_in_progress_serves_the_copy_in_memory_or_asks_to_try_again(
+    results_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Between the two renames of a run published over an experiment, its results are missing for a moment."""
+    from fastapi import HTTPException
+
+    from loveworld import api
+
+    shutil.copytree(results_root / "smoke", tmp_path / "alpha")
+    store = api.ExperimentStore(tmp_path, max_loaded=2)
+    item = store.get("alpha")
+    cold = api.ExperimentStore(tmp_path, max_loaded=2)
+
+    def answer(s: Any) -> int:
+        with pytest.raises(HTTPException) as e:
+            s.get("alpha")
+        return int(e.value.status_code)
+
+    # A run holds the lock to publish over alpha and has moved the old results aside.
+    (tmp_path / ".alpha.lock").write_text("4242")
+    (tmp_path / "alpha").rename(tmp_path / ".alpha.old-4242")
+    assert store.get("alpha") is item, "the copy in memory stands until the new run is there"
+    assert answer(cold) == 404, "with no copy in memory and no directory there is nothing to serve"
+    # Results there whose manifest is missing for the moment are being replaced too.
+    (tmp_path / ".alpha.old-4242").rename(tmp_path / "alpha")
+    monkeypatch.setattr(api, "_disk_stamp", lambda _path: None)
+    assert store.get("alpha") is item
+    assert answer(cold) == 503
+    # With no run publishing, results without a manifest are broken, and the copy in memory goes with them.
+    (tmp_path / ".alpha.lock").unlink()
+    assert answer(cold) == 404
+    assert answer(store) == 404 and "alpha" not in store.loaded
+    monkeypatch.undo()
+    assert store.get("alpha") is not item, "results that come back are read again"
+    shutil.rmtree(tmp_path / "alpha")
+    assert answer(store) == 404 and "alpha" not in store.loaded
+
+
 def _translating_client(tmp_path: Path, answers: dict[str, dict[str, Any]]) -> tuple[TestClient, Any]:
     from loveworld import translate
 

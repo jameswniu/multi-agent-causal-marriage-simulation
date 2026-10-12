@@ -539,29 +539,43 @@ class ExperimentStore:
 
         A cached copy is served only while the results on disk are still the run it was read from, so a
         run published over it by another process is read again rather than hidden behind the old copy.
+        While a run holds the lock to publish over it, its results are missing for a moment between the two
+        renames: the copy in memory is served then, and with no copy the answer is a 503 to try again, or a
+        404 while not even the directory is there.
         """
         resolved = name or self.default()
-        if resolved is None or resolved not in self.names():
+        if resolved is None:
             raise HTTPException(status_code=404, detail=f"unknown experiment {name!r}")
-        path = self.dir_for(resolved)
+        path = self.dir_for(resolved) if resolved in self.names() else None
         if path is None:
+            with self._lock:
+                item = self.loaded.get(resolved)
+                # Between the two renames of a run published over it, the experiment is not on disk at all.
+                if item is not None and runner.publishing(self.results_root / resolved):
+                    self.loaded.move_to_end(resolved)
+                    return item
+                self._drop(resolved)
             raise HTTPException(status_code=404, detail=f"unknown experiment {name!r}")
-        # Taken before any table is read, so results that change during the read are read again next time.
-        stamp = _disk_stamp(path)
         with self._lock:
             item = self.loaded.get(resolved)
-            if item is not None and self._stamps.get(resolved) == stamp:
+            if item is not None and self._current(resolved, _disk_stamp(path), path):
                 self.loaded.move_to_end(resolved)
                 return item
         with self._load_lock:
             with self._lock:
+                # Stamped only now, after any wait for another load, and before any table is read, so results
+                # that change during the read are read again on the next request.
+                stamp = _disk_stamp(path)
                 item = self.loaded.get(resolved)
-                if item is not None and self._stamps.get(resolved) == stamp:
+                if item is not None and self._current(resolved, stamp, path):
                     self.loaded.move_to_end(resolved)
                     return item
                 # A copy of results that have changed on disk since it was read is dropped, never served.
-                self.loaded.pop(resolved, None)
-                self._stamps.pop(resolved, None)
+                self._drop(resolved)
+                if stamp is None and runner.publishing(path):
+                    raise HTTPException(status_code=503, detail=f"{resolved} is being published; try again in a moment")
+                if stamp is None:
+                    raise HTTPException(status_code=404, detail=f"unknown experiment {name!r}")
                 generation = self._generation.get(resolved, 0)
                 # Make room first, so the new copy and the cache together stay within the limit.
                 while len(self.loaded) >= self.max_loaded:
@@ -571,15 +585,32 @@ class ExperimentStore:
             # Tables are read one file after another, so results published over them meanwhile may mix two
             # runs: read them once more, under the stamp of what is there now.
             fresh = _disk_stamp(path)
-            if fresh != stamp:
+            if fresh is not None and fresh != stamp:
                 stamp, item = fresh, Loaded(path)
             with self._lock:
-                # A re-run that invalidated this name while it loaded wins: serve, do not cache.
-                if self._generation.get(resolved, 0) == generation:
+                # A re-run that invalidated this name while it loaded wins, and so do results that were gone
+                # by the end of the read: serve what was read, do not cache it.
+                if fresh is not None and self._generation.get(resolved, 0) == generation:
                     self.loaded[resolved] = item
                     self._stamps[resolved] = stamp
                     self.loaded.move_to_end(resolved)
         return item
+
+    def _current(self, name: str, stamp: tuple[int, int, int] | None, path: Path) -> bool:
+        """Tell whether the cached copy of `name` still stands, given the stamp of its results on disk now.
+
+        No manifest at the moment while a run holds the lock to publish there means the results are being
+        replaced, between the two renames, so the copy stands until there is a run to read. No manifest and
+        no such run means the results are gone or broken, and the copy does not stand. Called with `_lock`.
+        """
+        if stamp is None:
+            return runner.publishing(path)
+        return self._stamps.get(name) == stamp
+
+    def _drop(self, name: str) -> None:
+        """Forget the cached copy of `name`, if any. Called with `_lock` held."""
+        self.loaded.pop(name, None)
+        self._stamps.pop(name, None)
 
     def invalidate(self, name: str) -> None:
         """Forget a cached experiment (after a re-run) and list it (after a new run)."""

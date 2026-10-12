@@ -136,6 +136,11 @@ def _lock_path(target: Path) -> Path:
     return target.parent / f".{target.name}.lock"
 
 
+def publishing(target: Path) -> bool:
+    """Tell whether a run holds the lock to publish into `target` right now (this runner's or the engine's)."""
+    return _lock_path(target).exists()
+
+
 def recover_swaps(root: Path, name: str | None = None) -> list[Path]:
     """Repair interrupted swaps under `root`; return the targets restored or cleaned.
 

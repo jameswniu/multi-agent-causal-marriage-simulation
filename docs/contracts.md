@@ -374,6 +374,10 @@ about half a gigabyte; the least recently used is dropped and read again from di
 A loaded experiment whose results on disk were replaced since it was read (a run published over it by this
 server, the command line or any other process, told by its `manifest.json`) is read again on its next
 request rather than served from memory, and results replaced while they were being read are read once more.
+While a run holds the lock to publish over a loaded experiment, the copy in memory is served in the moment
+between the two renames when the results are missing; with no copy in memory that moment answers 503, to
+be tried again, or 404 when not even the directory is there. Results missing with no run publishing are
+gone: the copy in memory is dropped and the request is a 404.
 
 ```
 GET  /api/experiments      -> {"default": name, "items": [{"name", "dir", "n_couples", "days", "seeds",
