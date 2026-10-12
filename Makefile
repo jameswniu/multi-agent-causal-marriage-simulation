@@ -62,8 +62,9 @@ twins: engine ## Twin runs: every couple under both arms on the same random stre
 replay: engine ## Re-run the example and verify every table hash
 	$(PY) loveworld replay "$(abspath $(RESULTS))"
 
-serve: ## Serve the API and built dashboard for every experiment under results/
-	$(PY) loveworld serve "$(abspath results)" --port $(PORT)
+serve: ## Serve the API and built dashboard for every experiment under results/ (reads an optional .env)
+	@# Only this recipe reads the untracked .env, so its settings never reach builds or installs.
+	set -e; set -a; if [ -f .env ]; then . ./.env; fi; set +a; $(PY) loveworld serve "$(abspath results)" --port $(PORT)
 
 dashboard: frontend-build serve ## Build the dashboard, then serve it
 

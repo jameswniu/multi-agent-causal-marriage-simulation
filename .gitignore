@@ -19,3 +19,5 @@ python/dist/
 /results/example/daily.parquet
 /results/example/decisions.parquet
 /results/example/episodes.parquet
+# Local settings, never committed
+.env

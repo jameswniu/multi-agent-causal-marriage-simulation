@@ -32,9 +32,9 @@ from loveworld.schema import MAX_DAYS, SHIFTABLE_TRAITS, SHOCK_CATALOG, SHOCK_KI
 DEFAULT_MODEL = "claude-haiku-5-5"
 DEFAULT_TIMEOUT_S = 20.0
 MAX_TEXT_CHARS = 400
-# Keychain services searched, in order, when ANTHROPIC_API_KEY is not set. The second is the
-# personal key James already keeps for his claims search repository.
-DEFAULT_KEYCHAIN_SERVICES = "loveworld-anthropic,claims-qa-anthropic"
+# Keychain services searched, in order, when ANTHROPIC_API_KEY is not set. A machine that keeps its
+# key under another name lists it in LOVEWORLD_KEYCHAIN_SERVICES, for example from a local .env file.
+DEFAULT_KEYCHAIN_SERVICES = "loveworld-anthropic"
 API_URL = "https://api.anthropic.com/v1/messages"
 API_VERSION = "2023-06-01"
 TOOL_NAME = "submit_shock"
@@ -400,7 +400,9 @@ class Translator:
         if client is None:
             raise TranslatorUnavailable(
                 "Translating descriptions needs an Anthropic API key on the server. Set ANTHROPIC_API_KEY "
-                "or store one in the macOS Keychain, then try again; shocks can still be added by hand."
+                "or store one in the macOS Keychain under loveworld-anthropic, or name the Keychain service that "
+                "holds it in LOVEWORLD_KEYCHAIN_SERVICES (a local .env file works), then try again; shocks can "
+                "still be added by hand."
             )
         return client
 

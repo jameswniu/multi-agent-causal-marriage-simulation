@@ -508,7 +508,9 @@ POST /api/shocks/translate -> body {"text" (1 to 400 characters), "days"? (1 to 
   one-sentence rationale or `supported: false`. There is no temperature: current Claude models reject the
   parameter, and the recorded spec, not the model, is what a replay uses.
 - The key is read on the server only: `ANTHROPIC_API_KEY`, else the first macOS Keychain service in
-  `LOVEWORLD_KEYCHAIN_SERVICES` (default `loveworld-anthropic,claims-qa-anthropic`) that holds one. It is
+  `LOVEWORLD_KEYCHAIN_SERVICES` (default `loveworld-anthropic`) that holds one. To name another service, put
+  `LOVEWORLD_KEYCHAIN_SERVICES=...` in an untracked `.env` file at the repository root, which only `make serve`
+  reads; the port is a make variable (`make serve PORT=...`), not a `.env` setting. It is
   looked up again on the next request when missing, so adding a key needs no restart.
 - The guard is validation, not the prompt. Every answer goes through `parse_shock`, the same parser an
   experiment file uses. `ok` returns the validated spec with a finite kind's end day resolved from its
