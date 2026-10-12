@@ -88,7 +88,7 @@ export default function NewExperiment() {
     <div>
       <h1>New experiment</h1>
       <p className="muted">
-        Start from the world you were watching to see what a shock does to the very same couples, or from a fresh population that is randomized into two arms. Add shocks that hit only the treatment arm or everyone, and run. The engine, the twins run and the analysis take about ten seconds at 1,000 couples for a year, runs take turns on the server, and the new world opens on the World page.
+        Start from the world you were watching to see what a shock does to the very same couples, or from a fresh population that is randomized into two arms. Add shocks that hit only the treatment arm or everyone, and run. The engine and the analysis take about ten seconds at 1,000 couples for a year, counting a second pass that runs every couple under both settings. Runs take turns on the server, and the new world opens on the World page.
       </p>
       <form
         className="card"

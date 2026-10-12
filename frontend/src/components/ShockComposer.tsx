@@ -383,7 +383,7 @@ export function RunProgress({ job }: { job: RunJob }) {
     <span role="status" data-testid="progress">
       {status.job?.state === 'queued'
         ? `Waiting its turn, number ${status.job.position ?? 1} in line, ${elapsed}s so far.`
-        : `Running the engine, its twins and the analysis, ${elapsed}s so far. About ten seconds at 1,000 couples for a year.`}
+        : `Running the engine and the analysis, plus every couple once more under both settings, ${elapsed}s so far. About ten seconds at 1,000 couples for a year.`}
     </span>
   );
 }
