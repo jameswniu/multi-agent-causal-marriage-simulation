@@ -1,3 +1,8 @@
+"""Tests for experiment files in `loveworld`, this repo's Python package for the couples simulation.
+
+They cover parsing, the checks on every key, shocks and custom effects, and the engine config built from them.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -8,6 +13,7 @@ from loveworld.experiment import (
     AnalysisSettings,
     ExperimentError,
     build_engine_config,
+    label_slug,
     load_experiment,
     parse_experiment,
 )
@@ -204,3 +210,113 @@ def test_trait_shift_requires_a_known_trait() -> None:
     with pytest.raises(ExperimentError):
         parse_shock({"kind": "job_loss", "trait": "neuroticism", "start_day": 0}, "treatment", 100, "t")
     assert "job_loss" not in ok.to_engine()["kind"]
+
+
+def _custom(**over: object) -> dict:
+    shock: dict = {
+        "kind": "custom",
+        "label": "mother moves in",
+        "description": "His mother moves in for two months.",
+        "start_day": 20,
+        "end_day": 80,
+        "effects": [
+            {"channel": "stress", "op": "add", "amount": 0.4, "cadence": "daily", "who": "both"},
+            {"channel": "onset_hazard", "op": "multiply", "amount": 1.3, "cadence": "daily", "who": "both"},
+            {"channel": "episode", "op": "add", "amount": 0.2, "cadence": "weekly", "class": "conflict"},
+        ],
+    }
+    shock.update(over)
+    return shock
+
+
+def test_python_effect_catalog_matches_the_engine(engine_ready: None) -> None:
+    from loveworld import engine as eng
+    from loveworld.schema import effect_catalog
+
+    assert eng.effect_catalog() == effect_catalog()
+
+
+def test_custom_shocks_parse_into_engine_config(defaults: dict) -> None:
+    exp = parse_experiment(_raw(world={"shocks": [_custom()]}), defaults)
+    sh = build_engine_config(exp, defaults)["shocks"][0]
+    assert sh["kind"] == "custom" and sh["label"] == "mother moves in" and len(sh["effects"]) == 3
+    assert "magnitude" not in sh and "trait" not in sh
+    assert sh["effects"][2]["class"] == "conflict" and sh["effects"][0]["who"] == "both"
+
+
+@pytest.mark.parametrize(
+    ("over", "needle"),
+    [
+        ({"effects": []}, "1 to 8 effects"),
+        ({"label": "<script>"}, "label"),
+        ({"label": "mother moves in\n"}, "label"),
+        ({"magnitude": 1.0}, "goes on the effects"),
+        ({"effects": [{"channel": "stress", "amount": 2.0, "cadence": "daily"}]}, "amount must lie in [-1.5, 1.5]"),
+        ({"effects": [{"channel": "outside", "amount": 0.2, "cadence": "weekly"}]}, "cadence must be one of"),
+        ({"effects": [{"channel": "onset_hazard", "amount": 2.0, "cadence": "daily", "who": "member"}]}, "who"),
+        ({"effects": [{"channel": "episode", "amount": 0.2, "cadence": "once"}]}, "class must be one of"),
+        ({"effects": [{"channel": "trait", "amount": 0.2, "cadence": "once", "trait": "charm"}]}, "trait must be"),
+        ({"effects": [{"channel": "stress", "amount": 0.2, "cadence": "once", "start_day": 5}]}, "window"),
+        ({"effects": [{"channel": "stress", "amount": 0.2, "cadence": "once", "op": "multiply"}]}, "op must be"),
+        ({"effects": [{"channel": "policy_weight", "amount": 1.0, "cadence": "once"}]}, "channel must be one of"),
+        ({"effects": [{"channel": "stress", "amount": 0.1, "cadence": "once", "magnitud": 3}]}, "magnitud"),
+    ],
+)
+def test_bad_custom_shocks_raise(defaults: dict, over: dict, needle: str) -> None:
+    with pytest.raises(ExperimentError) as err:
+        parse_experiment(_raw(world={"shocks": [_custom(**over)]}), defaults)
+    assert needle in str(err.value)
+
+
+@pytest.mark.parametrize(
+    ("label", "slug"),
+    [
+        ("mother moves in", "mother_moves_in"),
+        ("in-law move", "in_law_move"),
+        ("in_law_move", "in_law_move"),
+        ("Mother's  move-in", "mother_s_move_in"),
+        ("-- weekly therapy --", "weekly_therapy"),
+        ("'", "custom"),
+    ],
+)
+def test_label_slug_follows_the_engine_rule(label: str, slug: str) -> None:
+    assert label_slug(label) == slug
+
+
+def test_custom_shocks_whose_names_share_a_log_name_are_rejected(defaults: dict) -> None:
+    raw = _raw(
+        treatment={"conflict_half_life_days": 90, "shocks": [_custom(label="in-law move")]},
+        world={"shocks": [_custom(label="in_law_move")]},
+    )
+    with pytest.raises(ExperimentError, match=r"world\.shocks\[0\].*the same as treatment\.shocks\[0\]"):
+        parse_experiment(raw, defaults)
+    ok = _raw(
+        treatment={"conflict_half_life_days": 90, "shocks": [_custom(label="mother moves in")]},
+        world={"shocks": [_custom(label="father moves in")]},
+    )
+    assert len(parse_experiment(ok, defaults).shocks) == 2
+
+
+def test_named_kinds_reject_custom_fields(defaults: dict) -> None:
+    with pytest.raises(ExperimentError) as err:
+        parse_experiment(_raw(world={"shocks": [{"kind": "job_loss", "label": "x"}]}), defaults)
+    assert "only valid for a custom shock" in str(err.value)
+
+
+def test_every_python_accepted_custom_shock_is_accepted_by_the_engine(defaults: dict, tmp_path: Path) -> None:
+    """Python's validation and the engine's agree on a shock that uses every channel."""
+    from loveworld import engine as eng
+
+    effects = [
+        {"channel": "stress", "amount": 1.0, "cadence": "once", "who": "member"},
+        {"channel": "affect", "amount": -0.05, "cadence": "daily", "who": "partner"},
+        {"channel": "trust", "amount": -0.1, "cadence": "weekly", "who": "both"},
+        {"channel": "episode", "amount": 0.3, "cadence": "yearly", "class": "disappointment"},
+        {"channel": "outside", "amount": 0.3, "cadence": "daily"},
+        {"channel": "onset_hazard", "amount": 1.5, "cadence": "daily", "who": "both"},
+        {"channel": "repair_propensity", "amount": 0.7, "cadence": "daily", "start_day": 30, "end_day": 60},
+        {"channel": "trait", "amount": 0.2, "cadence": "once", "trait": "neuroticism"},
+    ]
+    exp = parse_experiment(_raw(n_couples=30, days=90, world={"shocks": [_custom(effects=effects)]}), defaults)
+    manifest = eng.run_engine(build_engine_config(exp, defaults), tmp_path / "run")
+    assert manifest["config"]["shocks"][0]["effects"][6]["start_day"] == 30

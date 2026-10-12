@@ -33,6 +33,7 @@ from loveworld.schema import (
     MEMORY_PARAMS,
     SAFE_NAME,
     SHOCK_CATALOG,
+    effect_catalog,
 )
 
 FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
@@ -599,15 +600,7 @@ def parse_translations(raw: Any) -> list[tuple[str, int]]:
 
 def shock_record(shock: Shock) -> dict[str, Any]:
     """Return a parsed shock as plain fields, the shape a translation's spec has."""
-    return {
-        "kind": shock.kind,
-        "target": shock.target,
-        "member": shock.member,
-        "start_day": shock.start_day,
-        "end_day": shock.end_day,
-        "magnitude": shock.magnitude,
-        "trait": shock.trait,
-    }
+    return translate.spec_of(shock)
 
 
 def _default_run_name() -> str:
@@ -646,7 +639,7 @@ def create_app(
 
     @app.get("/api/shocks/catalog")
     def shocks_catalog() -> dict[str, Any]:
-        return {"kinds": [dict(k) for k in SHOCK_CATALOG]}
+        return {"kinds": [dict(k) for k in SHOCK_CATALOG], "effects": effect_catalog()}
 
     @app.post("/api/shocks/translate")
     def translate_shock(body: dict[str, Any]) -> dict[str, Any]:

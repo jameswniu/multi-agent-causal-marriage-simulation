@@ -135,6 +135,11 @@ def shock_catalog() -> list[dict[str, Any]]:
     return list(json.loads(_run(["shock-catalog"]).stdout))
 
 
+def effect_catalog() -> dict[str, Any]:
+    """Return the engine's effect channels for custom shocks, with their bounds per cadence."""
+    return dict(json.loads(_run(["effect-catalog"]).stdout))
+
+
 def assign(config: dict[str, Any]) -> list[str]:
     """Arm per couple id for a config, straight from the engine."""
     return list(json.loads(_run(["assign", "--config", "-"], stdin=json.dumps(config)).stdout))

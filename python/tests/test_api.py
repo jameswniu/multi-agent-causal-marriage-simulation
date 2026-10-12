@@ -79,6 +79,12 @@ def test_experiment_and_summary_endpoints(client: TestClient) -> None:
     assert "weights" in policy and "contexts" in policy
 
 
+def test_shock_catalog_carries_the_effect_channels(client: TestClient) -> None:
+    effects = client.get("/api/shocks/catalog").json()["effects"]
+    assert [c["channel"] for c in effects["channels"]][:3] == ["stress", "affect", "trust"]
+    assert effects["max_effects"] == 8
+
+
 def test_shock_catalog(client: TestClient) -> None:
     kinds = client.get("/api/shocks/catalog").json()["kinds"]
     names = [k["kind"] for k in kinds]
@@ -643,3 +649,28 @@ def test_a_run_records_where_its_translated_shock_came_from(tmp_path: Path) -> N
     m_tr = json.loads((tmp_path / "as-translated" / "manifest.json").read_text())
     assert m_plain["determinism_hash"] == m_tr["determinism_hash"]
     assert "translation" not in (tmp_path / "as-translated" / "config.json").read_text()
+
+
+def test_a_translated_custom_shock_runs_and_records_its_translation(tmp_path: Path) -> None:
+    from .test_translate import MOTHER_ANSWER, MOTHER_TEXT
+
+    answer = dict(MOTHER_ANSWER, start_day=5, end_day=25)
+    client, _ = _translating_client(tmp_path, {"mother moves in": answer})
+    t = client.post("/api/shocks/translate", json={"text": MOTHER_TEXT, "days": 40}).json()
+    assert t["status"] == "ok" and t["spec"]["kind"] == "custom", t
+    shock = {k: v for k, v in t["spec"].items() if k != "target"}
+    body = {
+        "name": "mother",
+        "n_couples": 20,
+        "days": 40,
+        "treatment": {"shocks": [shock]},
+        "analysis": {"n_boot": 20, "n_perm": 20},
+        "translations": [{"translation_id": t["translation_id"], "shock_index": 0}],
+    }
+    r = client.post("/api/experiments/run", json=body)
+    assert r.status_code == 200, r.text
+    record = json.loads((tmp_path / "mother" / "translation.json").read_text())["translations"][0]
+    assert record["verified"] is True and record["edited"] is False
+    assert record["spec_as_run"]["effects"][1]["channel"] == "onset_hazard"
+    manifest = json.loads((tmp_path / "mother" / "manifest.json").read_text())
+    assert manifest["config"]["shocks"][0]["label"] == "mother moves in"

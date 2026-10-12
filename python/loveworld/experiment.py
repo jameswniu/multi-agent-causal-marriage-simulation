@@ -11,6 +11,7 @@ against the engine's own default config so a misspelt key cannot be silently ign
 from __future__ import annotations
 
 import copy
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -20,7 +21,13 @@ import yaml
 from loveworld import engine as eng
 from loveworld.schema import (
     ANALYSIS_KEYS,
+    CUSTOM_SHOCK_KEYS,
+    DESCRIPTION_MAX_CHARS,
+    EFFECT_CHANNELS,
+    EFFECT_KEYS,
     EXPERIMENT_KEYS,
+    LABEL_MAX_CHARS,
+    MAX_EFFECTS,
     MEMORY_PARAMS,
     SAFE_NAME,
     SEED_KEYS,
@@ -64,6 +71,9 @@ class Shock:
     end_day: int | None
     magnitude: float
     trait: str | None = None
+    label: str | None = None
+    description: str | None = None
+    effects: list[dict[str, Any]] | None = None
 
     def to_engine(self) -> dict[str, Any]:
         """Engine config entry."""
@@ -73,8 +83,14 @@ class Shock:
             "member": self.member,
             "start_day": self.start_day,
             "end_day": self.end_day,
-            "magnitude": self.magnitude,
         }
+        if self.kind == "custom":
+            out["label"] = self.label
+            if self.description is not None:
+                out["description"] = self.description
+            out["effects"] = [dict(e) for e in self.effects or []]
+            return out
+        out["magnitude"] = self.magnitude
         if self.trait is not None:
             out["trait"] = self.trait
         return out
@@ -173,8 +189,13 @@ def parse_shock(raw: Any, target: str, days: int, path: str) -> Shock:
         raise ExperimentError(f"{path}.target is set by the section it sits in; remove it")
     _check_keys(entry, SHOCK_KEYS, path)
     kind = entry.get("kind")
+    if kind == "custom":
+        return _parse_custom(entry, target, days, path)
     if kind not in SHOCK_KINDS:
-        raise ExperimentError(f"{path}.kind must be one of {sorted(SHOCK_KINDS)}, got {kind!r}")
+        raise ExperimentError(f"{path}.kind must be one of {sorted(SHOCK_KINDS) + ['custom']}, got {kind!r}")
+    for key in CUSTOM_SHOCK_KEYS:
+        if key in entry:
+            raise ExperimentError(f"{path}.{key} is only valid for a custom shock")
     spec = SHOCK_KINDS[str(kind)]
     member = str(entry.get("member", "random"))
     if member not in SHOCK_MEMBERS:
@@ -212,6 +233,128 @@ def parse_shock(raw: Any, target: str, days: int, path: str) -> Shock:
     )
 
 
+_LABEL_CHARS = re.compile(r"^[A-Za-z0-9 _'-]+$")
+
+
+def label_slug(label: str) -> str:
+    """Return the name a custom shock carries in the logs, exactly as the engine derives it.
+
+    Lowercase letters and digits are kept, every run of other characters becomes one underscore, and
+    leading or trailing underscores are dropped ("Mother's move-in" becomes "mother_s_move_in").
+    """
+    out = ""
+    for ch in label.lower():
+        if ch.isascii() and ch.isalnum():
+            out += ch
+        elif out and not out.endswith("_"):
+            out += "_"
+    return out.rstrip("_") or "custom"
+
+
+def _parse_custom(entry: dict[str, Any], target: str, days: int, path: str) -> Shock:
+    """Validate a custom shock: a label, an optional description and 1 to MAX_EFFECTS effects."""
+    for key in ("magnitude", "trait"):
+        if key in entry:
+            raise ExperimentError(f"{path}.{key} goes on the effects of a custom shock, not the shock")
+    member = str(entry.get("member", "random"))
+    if member not in SHOCK_MEMBERS:
+        raise ExperimentError(f"{path}.member must be one of {list(SHOCK_MEMBERS)}, got {member!r}")
+    start = _int(entry.get("start_day", 0), f"{path}.start_day", lo=0)
+    if start >= days:
+        raise ExperimentError(f"{path}.start_day must be below days ({days}), got {start}")
+    end: int | None = None
+    if entry.get("end_day") is not None:
+        end = _int(entry["end_day"], f"{path}.end_day", lo=0)
+        if end < start or end >= days:
+            raise ExperimentError(f"{path}.end_day must lie in [{start}, {days - 1}], got {end}")
+    last = end if end is not None else days - 1
+    label = entry.get("label")
+    if (
+        not isinstance(label, str)
+        or not label.strip()
+        or len(label) > LABEL_MAX_CHARS
+        or not _LABEL_CHARS.fullmatch(label)
+    ):
+        raise ExperimentError(
+            f"{path}.label must be 1 to {LABEL_MAX_CHARS} letters, digits, spaces, hyphens, underscores or apostrophes"
+        )
+    description = entry.get("description")
+    if description is not None:
+        if (
+            not isinstance(description, str)
+            or len(description) > DESCRIPTION_MAX_CHARS
+            or any(ord(ch) < 32 or ord(ch) == 127 for ch in description)
+        ):
+            raise ExperimentError(f"{path}.description must be text of at most {DESCRIPTION_MAX_CHARS} characters")
+    raw_effects = entry.get("effects")
+    if not isinstance(raw_effects, list) or not 1 <= len(raw_effects) <= MAX_EFFECTS:
+        raise ExperimentError(f"{path}.effects must be a list of 1 to {MAX_EFFECTS} effects")
+    effects = [_parse_effect(e, start, last, f"{path}.effects[{j}]") for j, e in enumerate(raw_effects)]
+    return Shock(
+        kind="custom",
+        target=target,
+        member=member,
+        start_day=start,
+        end_day=end,
+        magnitude=0.0,
+        label=label,
+        description=description,
+        effects=effects,
+    )
+
+
+def _parse_effect(raw: Any, shock_start: int, shock_last: int, path: str) -> dict[str, Any]:
+    """Validate one effect against the channel catalog and the shock's window."""
+    e = _mapping(raw, path)
+    _check_keys(e, EFFECT_KEYS, path)
+    channel = e.get("channel")
+    if channel not in EFFECT_CHANNELS:
+        raise ExperimentError(f"{path}.channel must be one of {list(EFFECT_CHANNELS)}, got {channel!r}")
+    spec = EFFECT_CHANNELS[str(channel)]
+    op = e.get("op", spec["op"])
+    if op != spec["op"]:
+        raise ExperimentError(f"{path}.op must be {spec['op']!r} for the {channel} channel, got {op!r}")
+    cadence = e.get("cadence")
+    if cadence not in spec["cadences"]:
+        raise ExperimentError(f"{path}.cadence must be one of {list(spec['cadences'])} for {channel}, got {cadence!r}")
+    lo, hi, _ = spec["cadences"][str(cadence)]
+    amount = _float(e.get("amount"), f"{path}.amount")
+    if not lo <= amount <= hi:
+        raise ExperimentError(f"{path}.amount must lie in [{lo}, {hi}] for {channel} {cadence}, got {amount}")
+    who = str(e.get("who", "member"))
+    if who not in spec["who"]:
+        raise ExperimentError(f"{path}.who must be one of {list(spec['who'])} for {channel}, got {who!r}")
+    out: dict[str, Any] = {"channel": channel, "op": op, "amount": amount, "cadence": cadence, "who": who}
+    cls = e.get("class")
+    if spec["classes"]:
+        if cls not in spec["classes"]:
+            raise ExperimentError(f"{path}.class must be one of {list(spec['classes'])}, got {cls!r}")
+        out["class"] = cls
+    elif cls is not None:
+        raise ExperimentError(f"{path}.class is only valid for the episode channel")
+    trait = e.get("trait")
+    if spec["traits"]:
+        if trait not in spec["traits"]:
+            raise ExperimentError(f"{path}.trait must be one of {list(spec['traits'])}, got {trait!r}")
+        out["trait"] = trait
+    elif trait is not None:
+        raise ExperimentError(f"{path}.trait is only valid for the trait channel")
+    es = shock_start
+    if e.get("start_day") is not None:
+        es = _int(e["start_day"], f"{path}.start_day", lo=0)
+        if not shock_start <= es <= shock_last:
+            raise ExperimentError(
+                f"{path}.start_day must lie in the shock's window [{shock_start}, {shock_last}], got {es}"
+            )
+        out["start_day"] = es
+    if e.get("end_day") is not None:
+        el = _int(e["end_day"], f"{path}.end_day", lo=0)
+        if not es <= el <= shock_last:
+            raise ExperimentError(f"{path}.end_day must lie in [{es}, {shock_last}], got {el}")
+        out["end_day"] = el
+    return out
+
+
 def parse_experiment(raw: Any, defaults: dict[str, Any] | None = None, source: Path | None = None) -> Experiment:
     """Build an Experiment from a YAML mapping or a request body, validating every key."""
     top = _mapping(raw, "experiment")
@@ -242,6 +385,7 @@ def parse_experiment(raw: Any, defaults: dict[str, Any] | None = None, source: P
     treatment = _memory_section({k: v for k, v in treatment_raw.items() if k != "shocks"}, "treatment")
 
     shocks: list[Shock] = []
+    custom_names: dict[str, str] = {}
     for section, target in (("treatment", "treatment"), ("world", "all")):
         block = _mapping(top.get(section), section)
         if section == "world":
@@ -251,6 +395,14 @@ def parse_experiment(raw: Any, defaults: dict[str, Any] | None = None, source: P
             raise ExperimentError(f"{section}.shocks must be a list")
         for i, entry in enumerate(entries):
             shocks.append(parse_shock(entry, target, days, f"{section}.shocks[{i}]"))
+            if shocks[-1].kind == "custom":
+                slug = label_slug(shocks[-1].label or "")
+                if slug in custom_names:
+                    raise ExperimentError(
+                        f"{section}.shocks[{i}]: the custom shock name {shocks[-1].label!r} is logged as {slug!r}, "
+                        f"the same as {custom_names[slug]}; give each custom shock its own name"
+                    )
+                custom_names[slug] = f"{section}.shocks[{i}]"
 
     engine_raw = _mapping(top.get("engine"), "engine")
     if "shocks" in engine_raw:
@@ -259,7 +411,10 @@ def parse_experiment(raw: Any, defaults: dict[str, Any] | None = None, source: P
         raise ExperimentError("engine.memory is not allowed; arm memory values come only from control: and treatment:")
     _check_engine_overrides(engine_raw, defaults, "engine")
     if "arm_override" in engine_raw:
-        raise ExperimentError("engine.arm_override is not allowed; twins runs set it")
+        raise ExperimentError(
+            "engine.arm_override is not allowed; only twins runs (every couple run under each arm "
+            "on the same random streams) set it"
+        )
 
     return Experiment(
         name=name,
