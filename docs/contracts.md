@@ -1,8 +1,10 @@
 # LoveWorld contracts
 
-Three layers, one direction of dependency: the Rust engine writes Parquet, the Python package
-reads Parquet and writes `summary.json`, the FastAPI layer serves both to the React dashboard.
-This file is the contract between them. Change it before changing a consumer.
+LoveWorld simulates 1,000 married agent couples for a year to test whether changing how long agents
+remember a fight changes divorce, trust and repair. This file is the contract between its three
+layers, which depend in one direction. The Rust engine writes Parquet, the Python package reads
+Parquet and writes `summary.json`, and the FastAPI layer serves both to the React dashboard.
+Change this file before changing a consumer.
 
 ## 1. Engine CLI (Rust, done)
 
