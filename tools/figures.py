@@ -7,7 +7,12 @@ overflow its box fails generation with the string named, and nothing in the pane
 hand. Each figure's alt text is generated from the same numbers, and the README's copy of it is
 kept in step, so a new run cannot leave a stale number in the page's text either.
 
-    python3 tools/figures.py --write    # regenerate the SVGs and the README alt text in place
+The README's badge row is written here too, between its two badge markers. The result badges read
+the example run's summary and manifest, and the stack badges read the files that pin each version
+(engine/Cargo.toml, python/pyproject.toml, frontend/package.json, the translator's default model
+and LICENSE), so a new run or a version bump that is not redrawn fails the check.
+
+    python3 tools/figures.py --write    # regenerate the SVGs, the README alt text and the badges in place
     python3 tools/figures.py --check    # regenerate in memory and fail on any difference
 """
 
@@ -20,11 +25,14 @@ import os
 import re
 import sys
 import tempfile
+import tomllib
 from pathlib import Path
+from urllib.parse import quote
 from xml.sax.saxutils import escape
 
 ROOT = Path(__file__).resolve().parent.parent
 SUMMARY = ROOT / "results" / "example" / "summary.json"
+MANIFEST = ROOT / "results" / "example" / "manifest.json"
 OUT = ROOT / "docs" / "figures"
 README = ROOT / "README.md"
 
@@ -110,6 +118,23 @@ def open_svg(h: int, label: str, rule: bool = False) -> str:
 def load_summary() -> dict:
     with SUMMARY.open() as fh:
         return json.load(fh)
+
+
+def table_count() -> int:
+    """How many tables the example run wrote, each with its own hash in the manifest."""
+    with MANIFEST.open() as fh:
+        files = json.load(fh).get("files") or {}
+    tables = [name for name, f in files.items() if name.endswith(".parquet") and isinstance(f, dict) and f.get("sha256")]
+    if not tables or len(tables) != len(files):
+        raise SystemExit(f"{MANIFEST} must list every table with a sha256, found {sorted(files)}")
+    return len(tables)
+
+
+NUMBER_WORDS = ("Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve")
+
+
+def count_words(n: int) -> str:
+    return NUMBER_WORDS[n] if 0 <= n < len(NUMBER_WORDS) else f"{n:,}"
 
 
 def outcome(summary: dict, name: str) -> dict:
@@ -282,7 +307,9 @@ def hero(summary: dict) -> tuple[str, str]:
     else:
         arms = f"Blue is the arm that {c_words.lower()}, orange the arm that {t_words.lower()}."
     parts = [f"{title} LoveWorld runs {exp['n_couples']:,} agent couples for {span}, with one memory setting changed between the arms.", arms]
-    for label, (c, t), head, ci in tiles:
+    for k, (label, (c, t), head, ci) in enumerate(tiles):
+        if k == 0:
+            ci = ci.replace("95% CI", "95% confidence interval (CI)", 1)
         parts.append(f"{label}, {c} against {t}, {head.lower()}, {ci}.")
     parts.append(f"{lead} {cmd}.")
     return "\n".join(p), " ".join(parts)
@@ -291,7 +318,7 @@ def hero(summary: dict) -> tuple[str, str]:
 # ---------------------------------------------------------------- how a run flows
 
 
-def map_sections() -> list[dict]:
+def map_sections(n_tables: int) -> list[dict]:
     return [
         {
             "code": "01",
@@ -317,7 +344,7 @@ def map_sections() -> list[dict]:
                 },
                 {
                     "title": "What it writes",
-                    "lines": ["Eight Parquet tables, one manifest", "with a SHA-256 per table.", "Replay fails on any mismatch."],
+                    "lines": [f"{count_words(n_tables)} Parquet tables, one manifest", "with a SHA-256 per table.", "Replay fails on any mismatch."],
                     "foot": "loveworld-engine replay --manifest",
                 },
             ],
@@ -359,10 +386,10 @@ MAP_SUB = "Experiment file to dashboard, every step logged"
 MAP_CLOSING = "The policy never reads the arm. A test greps four modules for the word."
 
 
-def how_it_works(summary: dict) -> tuple[str, str]:
+def how_it_works(summary: dict, n_tables: int) -> tuple[str, str]:
     exp = summary["experiment"]
     stat = (f"{exp['n_couples']:,} couples, {exp['days']} days", "one second in the engine")
-    sections = map_sections()
+    sections = map_sections(n_tables)
 
     y = 136
     section_tops: list[tuple[dict, int, int]] = []
@@ -543,18 +570,148 @@ def results(summary: dict) -> tuple[str, str]:
     return "\n".join(p), alt
 
 
+# ---------------------------------------------------------------- badges
+
+REPO = "jameswniu/multi-agent-causal-marriage-simulation"
+WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+BADGES_START = "<!-- badges:start, python3 tools/figures.py --write fills this block and --check fails when it drifts -->"
+BADGES_END = "<!-- badges:end -->"
+# Every badge sits on the ground colour, and every value on the grey the license badge always had.
+BADGE_VALUE = "#4a5263"
+
+
+def shield_part(s: str) -> str:
+    """One label or message in a static shields.io path: dashes and underscores doubled, spaces as underscores."""
+    return quote(s.replace("-", "--").replace("_", "__").replace(" ", "_"), safe="")
+
+
+def shield(label: str, message: str, alt: str, href: str = "", logo: str = "") -> str:
+    """A flat dark badge, linked to the file that holds its fact when href is given."""
+    query = f"style=flat-square&labelColor={GROUND[1:]}"
+    if logo:
+        query += f"&logo={logo}&logoColor={INK[1:]}"
+    img = f'<img alt="{attr(alt)}" src="https://img.shields.io/badge/{shield_part(label)}-{shield_part(message)}-{BADGE_VALUE[1:]}?{query}">'
+    return f'<a href="{attr(href)}">{img}</a>' if href else img
+
+
+def major(version: str, where: str) -> str:
+    m = re.match(r"[\^~=v]*(\d+)\.", version.strip())
+    if not m:
+        raise SystemExit(f"cannot read a major version from {version!r} in {where}")
+    return m.group(1)
+
+
+def stack_facts() -> dict[str, str]:
+    """The stack as the repository pins it, read from the file that owns each fact."""
+    cargo = tomllib.loads((ROOT / "engine" / "Cargo.toml").read_text())
+    dep = cargo.get("dependencies", {}).get("bevy_ecs")
+    bevy = dep.get("version") if isinstance(dep, dict) else dep
+    if not isinstance(bevy, str):
+        raise SystemExit("engine/Cargo.toml has no bevy_ecs version")
+    requires = tomllib.loads((ROOT / "python" / "pyproject.toml").read_text()).get("project", {}).get("requires-python", "")
+    m = re.fullmatch(r">=\s*(\d+\.\d+)", requires.strip())
+    if not m:
+        raise SystemExit(f"python/pyproject.toml requires-python {requires!r} is not a plain lower bound")
+    pkg = json.loads((ROOT / "frontend" / "package.json").read_text())
+    deps = {**pkg.get("devDependencies", {}), **pkg.get("dependencies", {})}
+    if "react" not in deps or "pixi.js" not in deps:
+        raise SystemExit("frontend/package.json must list react and pixi.js")
+    model = re.search(r'^DEFAULT_MODEL\s*=\s*"claude-([a-z]+)-(\d+)-(\d+)"', (ROOT / "python" / "loveworld" / "translate.py").read_text(), re.M)
+    if not model:
+        raise SystemExit("python/loveworld/translate.py has no DEFAULT_MODEL shaped like claude-haiku-5-5")
+    lines = [ln.strip() for ln in (ROOT / "LICENSE").read_text().splitlines() if ln.strip()]
+    if lines[:1] != ["Apache License"] or len(lines) < 2 or not lines[1].startswith("Version 2.0"):
+        raise SystemExit("LICENSE does not open with Apache License, Version 2.0")
+    return {
+        "bevy": bevy,
+        "python": m.group(1),
+        "react": major(deps["react"], "frontend/package.json react"),
+        "pixi": major(deps["pixi.js"], "frontend/package.json pixi.js"),
+        "claude": f"{model.group(1).title()} {model.group(2)}.{model.group(3)}",
+        "license": "Apache 2.0",
+    }
+
+
+def badges(summary: dict, n_tables: int) -> str:
+    """The README badge block: what the example run found and the stack it runs on."""
+    if not WORKFLOW.exists():
+        raise SystemExit(f"{WORKFLOW.relative_to(ROOT)} is missing, so the test badge would point at nothing")
+    exp = summary["experiment"]
+    effect = outcome(summary, "divorce_rate")
+    placebo = next((o for o in ((summary.get("governance") or {}).get("placebo") or {}).get("outcomes", []) if o["name"] == "divorce_rate"), None)
+    if placebo is None:
+        raise SystemExit(f"{SUMMARY} has no placebo divorce outcome, so run the placebo before the example")
+    c_words, t_words = arm_words(summary)
+    lo, hi = effect["ci_low"] * 100, effect["ci_high"] * 100
+    plo, phi = placebo["ci_low"] * 100, placebo["ci_high"] * 100
+    null = placebo["ci_low"] <= 0 <= placebo["ci_high"]
+    facts = stack_facts()
+    summary_href = "results/example/summary.json"
+    tests = (
+        f'<a href="https://github.com/{REPO}/actions/workflows/{WORKFLOW.name}"><img alt="Test status on main" '
+        f'src="https://img.shields.io/github/actions/workflow/status/{REPO}/{WORKFLOW.name}?branch=main&style=flat-square&labelColor={GROUND[1:]}&label=tests"></a>'
+    )
+    results_row = [
+        tests,
+        shield(
+            "divorce effect",
+            f"{effect['ate'] * 100:+.1f} points ({lo:.1f} to {hi:.1f})",
+            f"Divorce effect in the example run, {t_words.lower()} against {c_words.lower()}, "
+            f"{effect['ate'] * 100:+.1f} points with a 95% confidence interval of {lo:.1f} to {hi:.1f}",
+            summary_href,
+        ),
+        shield(
+            "placebo",
+            f"{'null' if null else 'not null'} ({plo:+.1f} to {phi:+.1f})",
+            f"Placebo run with identical arms, divorce difference {placebo['ate'] * 100:+.1f} points, "
+            f"95% confidence interval {plo:+.1f} to {phi:+.1f}, which {'covers' if null else 'misses'} zero",
+            summary_href,
+        ),
+        shield(
+            "replay",
+            f"bit-exact, {n_tables} tables",
+            f"Replay reruns the example and checks all {n_tables} output tables against their SHA-256 fingerprints",
+            "results/example/manifest.json",
+        ),
+        shield(
+            "simulation",
+            f"{exp['n_couples']:,} couples, {exp['days']} days",
+            f"The example run simulates {exp['n_couples']:,} agent couples for {exp['days']} days",
+            "experiments/example.yaml",
+        ),
+        shield("license", facts["license"], "Apache 2.0 license", "LICENSE"),
+    ]
+    stack_row = [
+        shield("Rust", f"bevy_ecs {facts['bevy']}", f"Rust engine on bevy_ecs {facts['bevy']}", "engine/Cargo.toml", "rust"),
+        shield("Python", f"{facts['python']}+", f"Python {facts['python']} or newer for experiments and statistics", "python/pyproject.toml", "python"),
+        shield("React", f"{facts['react']}, PixiJS {facts['pixi']}", f"React {facts['react']} dashboard with a PixiJS {facts['pixi']} town", "frontend/package.json", "react"),
+        shield("Claude", facts["claude"], f"Claude {facts['claude']} turns a plain-words shock into settings", "python/loveworld/translate.py", "claude"),
+    ]
+    return "\n".join(results_row) + "\n<br/>\n" + "\n".join(stack_row)
+
+
+def readme_with_badges(readme: str, block: str) -> str:
+    """The README with the text between its badge markers replaced by the generated block."""
+    if readme.count(BADGES_START) != 1 or readme.count(BADGES_END) != 1 or readme.index(BADGES_START) > readme.index(BADGES_END):
+        raise SystemExit(f"README.md must hold one {BADGES_START} line followed by one {BADGES_END} line")
+    head, rest = readme.split(BADGES_START, 1)
+    _, tail = rest.split(BADGES_END, 1)
+    return f"{head}{BADGES_START}\n{block}\n{BADGES_END}{tail}"
+
+
 # ---------------------------------------------------------------- main
 
 
-def render() -> tuple[dict[str, str], dict[str, str]]:
-    """The SVG bodies by file name, and the alt text by the same names."""
+def render() -> tuple[dict[str, str], dict[str, str], str]:
+    """The SVG bodies by file name, the alt text by the same names, and the README badge block."""
     summary = load_summary()
+    n_tables = table_count()
     hero_svg, hero_alt = hero(summary)
-    map_svg, map_alt = how_it_works(summary)
+    map_svg, map_alt = how_it_works(summary, n_tables)
     results_svg, results_alt = results(summary)
     svgs = {"hero.svg": hero_svg, "how-it-works.svg": map_svg, "results.svg": results_svg}
     alts = {"hero.svg": hero_alt, "how-it-works.svg": map_alt, "results.svg": results_alt}
-    return svgs, alts
+    return svgs, alts, badges(summary, n_tables)
 
 
 def img_pattern(name: str) -> re.Pattern[str]:
@@ -600,12 +757,13 @@ def write_all(files: dict[Path, str]) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     mode = ap.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--write", action="store_true", help="write docs/figures/*.svg and the README alt text")
-    mode.add_argument("--check", action="store_true", help="fail if a committed figure or its README alt text differs from a fresh render")
+    mode.add_argument("--write", action="store_true", help="write docs/figures/*.svg, the README alt text and the README badges")
+    mode.add_argument("--check", action="store_true", help="fail if a committed figure, its README alt text or a README badge differs from a fresh render")
     args = ap.parse_args()
-    svgs, alts = render()
+    svgs, alts, badge_block = render()
     readme = README.read_text()
-    fresh_readme = readme_with_alts(readme, alts)
+    with_alts = readme_with_alts(readme, alts)
+    fresh_readme = readme_with_badges(with_alts, badge_block)
     if args.write:
         OUT.mkdir(parents=True, exist_ok=True)
         files = {OUT / name: body for name, body in svgs.items()}
@@ -616,8 +774,10 @@ def main() -> int:
             print(f"wrote {path.relative_to(ROOT)}")
         return 0
     stale = [name for name, body in svgs.items() if not (OUT / name).exists() or (OUT / name).read_text() != body]
-    if fresh_readme != readme:
+    if with_alts != readme:
         stale.append("README.md alt text")
+    if fresh_readme != with_alts:
+        stale.append("README.md badges")
     if stale:
         print("figures are stale, run python3 tools/figures.py --write: " + ", ".join(stale), file=sys.stderr)
         return 1

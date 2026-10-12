@@ -200,8 +200,9 @@ runs with both network weights at zero.
 
 ### What the engine writes
 
-Seven tables and a manifest: agents, couples, events, daily, decisions, interventions, conflicts
-and episodes (one row per memory stored or amplified, including the history seeded before day 0).
+Nine tables and a manifest: agents, couples, events, daily, decisions, interventions, conflicts,
+episodes (one row per memory stored or amplified, including the history seeded before day 0) and
+legacies (one row per member of a marriage that ended in divorce).
 The episodes table is what the dashboard's "Under the hood" panel reads to show, day by day, what
 each partner remembered and how their trust and affect moved.
 
@@ -212,6 +213,49 @@ table is sorted before writing. The manifest records a SHA-256 per table and a d
 over them. `loveworld-engine replay` re-runs the manifest's config and checks every hash. Replay is
 bit-exact on the same platform and toolchain; floating-point library differences across platforms
 could change low bits, which the hash would catch rather than hide.
+
+## Governance
+
+| Rule | How it is enforced |
+|---|---|
+| No hardcoded treatment effects | The arm only sets memory half-lives; the placebo run with equal parameters is byte-identical across arm labels (Rust and Python tests) |
+| Interventions separate from decisions | The policy's input type has no arm field; a test greps policy, dynamics, market and memory sources for the token `Arm` |
+| Every intervention and transition logged | `interventions.parquet` has one row per agent and parameter with control and applied values; `events.parquet` carries every state change with from and to states; illegal transitions fail a test |
+| Reproducible | Keyed random streams, sorted outputs, SHA-256 per table, `replay` fails on any mismatch; a tampering test proves it |
+| Assignment is random and independent | Exact half split, driven only by the assignment seed; changing the population seed leaves the arm vector unchanged; balance table in every summary |
+| Simulated findings stay simulated | `evidence_class: simulation` in every manifest and summary, the disclaimer on every table, and no claim in this repository about human couples |
+| No LLM agents before the baseline passes | The baseline policy is rule based; LLM and learned policies are a later phase under the same harness |
+
+In the example run the placebo's divorce effect is -1.2 points with a 95% confidence interval of
+-3.0 to +0.4, and the twin run's paired divorce effect is +14.4 points (12.0 to 16.7 by bootstrap
+over couples), with 16.0% of couples ending the year differently because of the intervention. The
+sensitivity to the half-life is one file away: `experiments/retention-45d.yaml` halves the treatment
+memory to 45 days and cuts the divorce effect from 12.8 to 5.2 points. The README's badges and
+figures are redrawn from the example run by `tools/figures.py`, and CI reruns the placebo, the
+twins, the example and its replay before checking that every badge and figure still matches.
+
+Outcomes that are only defined after treatment has acted (per conflict, or among the divorced) are
+marked conditional. Their permutation p-values test the sharp null of no effect on anything, which
+is why a conditional outcome can show a wide interval and a small p-value at the same time. With
+ten outcomes, chance alone gives a placebo run a nominally significant difference somewhere up to
+about two times in five, and the example placebo shows one (the reconciliation share), so read the
+placebo as a whole, not outcome by outcome.
+
+## The dashboard
+
+The World page replays the year as a town drawn with PixiJS inside the React app.
+
+- Every couple is a house with its two people in front, control on the left under blue roofs and treatment on the right under orange ones.
+- A couple in a conflict stands outside and apart under a yellow sign, a separated partner waits at the edge of the plaza, and a divorce dims the house and sends both people to the plaza, where some date and remarry into new homes.
+- A time bar plays, pauses and scrubs the year at 1, 10 or 50 days a second, and colour lenses repaint every house by trust, stress, grudge, warmth, satisfaction or days without warmth.
+- Clicking a house opens the couple panel with both partners' trust and mood over the year, their memory that day and the latest events, and the full couple and agent pages show every decision with the utilities behind it.
+- Shock this world opens the plain-words shock box on a fork of the world being watched, and the fork's overview compares every couple with itself in the parent world.
+
+Where a person stands is a layout of their state that day, since the engine has no space. The town
+art is Kenney's public-domain Tiny Town and Tiny Dungeon tiles, credited in
+`frontend/public/assets/kenney/CREDITS.md`. The other pages hold the causal readout: the effect
+table and forest plot, survival and trust curves by arm, the agent explorer, the policy inspector,
+and the governance page with the placebo and twin results and the covariate balance table.
 
 ## Calibration
 
@@ -269,6 +313,21 @@ run from the same population but with fresh random numbers and noted that contro
 variation would sharpen the result. Two caveats bound the claim: those tools are standard
 simulation methodology outside this domain, and the earlier models are fitted to real data where
 this one is set by hand.
+
+## Repository layout
+
+```
+engine/        Rust crate: config, population, memory, policy, dynamics, systems, market, shocks, output, CLI
+python/        uv package `loveworld`: experiments, analysis, forks, run queue, translator, API, CLI, tests
+frontend/      Vite + React + TypeScript dashboard, with the PixiJS town
+experiments/   example.yaml, retention-45d.yaml, contagion-block.yaml, job-loss.yaml, daily-texts.yaml,
+               neuroticism-shift.yaml, crisis-under-retention.yaml, smoke.yaml
+results/       run outputs; results/example keeps the small tables and summary of the example run
+docs/          design.md, contracts.md (schemas, CLI, API), prior-art.md, deploy.md, figures/
+tools/         figures.py, which draws the README figures and badges from the example run
+assets/        README recordings and screenshots of the dashboard
+deploy/        the container entrypoint and the edge worker for a public deployment
+```
 
 ## Roadmap
 

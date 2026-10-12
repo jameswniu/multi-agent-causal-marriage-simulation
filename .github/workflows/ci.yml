@@ -48,3 +48,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: python3 tools/figures.py --check
+  claims:
+    # The README's badges and figures quote the example run. Rerun it from scratch on this runner,
+    # with its placebo and twins first so its summary links them, replay it, and fail if any badge
+    # or figure no longer matches what the fresh run says.
+    needs: engine
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: engine
+          path: target/release
+      - run: chmod +x target/release/loveworld-engine
+      - uses: astral-sh/setup-uv@v5
+      - run: cd python && uv sync
+      - name: Rerun the placebo, the twins, the example and its replay
+        run: |
+          cd python
+          uv run loveworld placebo "$GITHUB_WORKSPACE/experiments/example.yaml" --overwrite
+          uv run loveworld twins "$GITHUB_WORKSPACE/experiments/example.yaml" --overwrite
+          uv run loveworld run "$GITHUB_WORKSPACE/experiments/example.yaml" --out "$GITHUB_WORKSPACE/results/example" --overwrite
+          uv run loveworld replay "$GITHUB_WORKSPACE/results/example"
+      - name: Check every badge and figure against the fresh run
+        run: python3 tools/figures.py --check
