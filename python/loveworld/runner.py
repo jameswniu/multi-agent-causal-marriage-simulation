@@ -12,12 +12,13 @@ import json
 import os
 import shutil
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from loveworld import analysis
 from loveworld import engine as eng
-from loveworld.experiment import Experiment, build_engine_config
+from loveworld.experiment import AnalysisSettings, Experiment, build_engine_config
 
 
 class TargetError(ValueError):
@@ -186,8 +187,28 @@ def run_experiment(
     `extra_files` maps a file name to a JSON value written beside summary.json before publication,
     so a record such as translation.json appears with the run or not at all.
     """
-    eng.require_engine()
     cfg = build_engine_config(exp, placebo=placebo)
+    return run_config(cfg, target, exp.analysis, overwrite=overwrite, extra_files=extra_files)
+
+
+ExtraFromRun = Callable[[Path], dict[str, Any]]
+
+
+def run_config(
+    cfg: dict[str, Any],
+    target: Path,
+    settings: AnalysisSettings,
+    overwrite: bool = False,
+    extra_files: dict[str, Any] | None = None,
+    extra_from_run: ExtraFromRun | None = None,
+) -> dict[str, Any]:
+    """Run a complete engine config and its analysis into `target`, published only on success.
+
+    `extra_from_run` is called with the finished but unpublished run directory and returns more
+    files to write beside summary.json, for records computed from the run itself (a forked world's
+    comparison with its parent). Every extra file lands with the run or not at all.
+    """
+    eng.require_engine()
     recover_swaps(target.parent)
     with _TargetLock(target):
         recover_swaps(target.parent, target.name)
@@ -196,8 +217,11 @@ def run_experiment(
         try:
             run_dir = staging / "run"
             eng.run_engine(cfg, run_dir, overwrite=True)
-            summary = analysis.write_summary(run_dir, exp.analysis, link_from=target)
-            for file_name, value in (extra_files or {}).items():
+            summary = analysis.write_summary(run_dir, settings, link_from=target)
+            files = dict(extra_files or {})
+            if extra_from_run is not None:
+                files.update(extra_from_run(run_dir))
+            for file_name, value in files.items():
                 reserved = ("manifest.json", "config.json", "summary.json")
                 if "/" in file_name or file_name.startswith(".") or file_name in reserved:
                     raise ValueError(f"extra file name {file_name!r} is not allowed")

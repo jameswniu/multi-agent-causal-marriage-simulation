@@ -1,0 +1,8 @@
+# The LoveWorld edge worker (docs/deploy.md). ORIGIN is the Fly app's address; the two secrets are set
+# with `wrangler secret put TURNSTILE_SECRET` and `wrangler secret put EDGE_SECRET`, never written here.
+name = "multi-agent-causal-marriage-simulation-edge"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+
+[vars]
+ORIGIN = "https://multi-agent-causal-marriage-simulation.fly.dev"

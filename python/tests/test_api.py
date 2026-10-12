@@ -306,27 +306,37 @@ def test_twins_absent_in_single_mode(lonely_results: Path) -> None:
 
 
 def test_run_endpoint_validation_conflict_and_success(client: TestClient, results_root: Path) -> None:
-    bad = client.post("/api/experiments/run", json={"name": "x", "n_couples": 10, "days": 10, "bogus": 1})
+    bad = client.post("/api/experiments/run?wait=true", json={"name": "x", "n_couples": 10, "days": 10, "bogus": 1})
     assert bad.status_code == 400 and "bogus" in bad.json()["detail"]
-    bad = client.post("/api/experiments/run", json={"name": "x", "n_couples": 10, "days": 10, "analysis": {"seed": -1}})
+    bad = client.post(
+        "/api/experiments/run?wait=true", json={"name": "x", "n_couples": 10, "days": 10, "analysis": {"seed": -1}}
+    )
     assert bad.status_code == 400 and "analysis.seed" in bad.json()["detail"]
-    bad = client.post("/api/experiments/run", json={"name": "x", "n_couples": 10, "days": 10, "overwrite": "yes"})
+    bad = client.post(
+        "/api/experiments/run?wait=true", json={"name": "x", "n_couples": 10, "days": 10, "overwrite": "yes"}
+    )
     assert bad.status_code == 400
-    bad = client.post("/api/experiments/run", json={"name": "x", "n_couples": 10, "days": 10, "engine": {"shocks": []}})
+    bad = client.post(
+        "/api/experiments/run?wait=true", json={"name": "x", "n_couples": 10, "days": 10, "engine": {"shocks": []}}
+    )
     assert bad.status_code == 400 and "engine.shocks" in bad.json()["detail"]
-    bad = client.post("/api/experiments/run", json={"name": "bad name", "n_couples": 10, "days": 10})
+    bad = client.post("/api/experiments/run?wait=true", json={"name": "bad name", "n_couples": 10, "days": 10})
     assert bad.status_code == 400
-    bad = client.post("/api/experiments/run", json={"name": "x", "n_couples": 5000, "days": 10})
+    bad = client.post("/api/experiments/run?wait=true", json={"name": "x", "n_couples": 5000, "days": 10})
     assert bad.status_code == 400 and "n_couples" in bad.json()["detail"]
     bad = client.post(
-        "/api/experiments/run", json={"name": "x", "n_couples": 10, "days": 10, "engine": {"memory": {"capacity": 5}}}
+        "/api/experiments/run?wait=true",
+        json={"name": "x", "n_couples": 10, "days": 10, "engine": {"memory": {"capacity": 5}}},
     )
     assert bad.status_code == 400 and "engine.memory" in bad.json()["detail"]
     bad = client.post(
-        "/api/experiments/run", json={"name": "x", "n_couples": 10, "days": 10, "analysis": {"n_boot": 900}}
+        "/api/experiments/run?wait=true", json={"name": "x", "n_couples": 10, "days": 10, "analysis": {"n_boot": 900}}
     )
     assert bad.status_code == 400
-    assert client.post("/api/experiments/run", json={"name": "smoke", "n_couples": 10, "days": 10}).status_code == 409
+    assert (
+        client.post("/api/experiments/run?wait=true", json={"name": "smoke", "n_couples": 10, "days": 10}).status_code
+        == 409
+    )
     body = {
         "name": "api-run",
         "n_couples": 20,
@@ -339,7 +349,7 @@ def test_run_endpoint_validation_conflict_and_success(client: TestClient, result
         "world": {"shocks": [{"kind": "date_nights", "start_day": 1}]},
         "analysis": {"n_boot": 50, "n_perm": 50},
     }
-    ok = client.post("/api/experiments/run", json=body)
+    ok = client.post("/api/experiments/run?wait=true", json=body)
     assert ok.status_code == 200, ok.text
     out = ok.json()
     assert out["name"] == "api-run" and Path(out["dir"]) == results_root / "api-run"
@@ -352,7 +362,7 @@ def test_run_endpoint_validation_conflict_and_success(client: TestClient, result
     names = [i["name"] for i in client.get("/api/experiments").json()["items"]]
     assert names == ["api-run", "smoke", "zeta"]
     assert client.get("/api/experiment", params={"experiment": "api-run"}).json()["manifest"]["days"] == 20
-    assert client.post("/api/experiments/run", json={**body, "overwrite": True}).status_code == 200
+    assert client.post("/api/experiments/run?wait=true", json={**body, "overwrite": True}).status_code == 200
 
 
 def test_dashboard_fallback_reads_index_per_request(lonely_results: Path, tmp_path: Path) -> None:
@@ -614,19 +624,21 @@ def test_a_run_records_where_its_translated_shock_came_from(tmp_path: Path) -> N
         return out
 
     pointer = [{"translation_id": t["translation_id"], "shock_index": 0}]
-    r = client.post("/api/experiments/run", json=body("as-translated", 1.5, pointer))
+    r = client.post("/api/experiments/run?wait=true", json=body("as-translated", 1.5, pointer))
     assert r.status_code == 200, r.text
     record = json.loads((tmp_path / "as-translated" / "translation.json").read_text())["translations"][0]
     assert record["verified"] is True and record["edited"] is False and record["shock_index"] == 0
     assert record["text_sha256"] == translate.text_sha256(text) and record["model"] == "fake-model"
     assert record["spec_as_run"]["magnitude"] == 1.5 and record["spec_as_translated"] == t["spec"]
 
-    r = client.post("/api/experiments/run", json=body("edited", 2.0, pointer))
+    r = client.post("/api/experiments/run?wait=true", json=body("edited", 2.0, pointer))
     assert r.status_code == 200, r.text
     edited = json.loads((tmp_path / "edited" / "translation.json").read_text())["translations"][0]
     assert edited["edited"] is True and edited["spec_as_run"]["magnitude"] == 2.0
 
-    r = client.post("/api/experiments/run", json=body("unknown-id", 1.5, [{"translation_id": "abc", "shock_index": 0}]))
+    r = client.post(
+        "/api/experiments/run?wait=true", json=body("unknown-id", 1.5, [{"translation_id": "abc", "shock_index": 0}])
+    )
     assert r.status_code == 200, r.text
     unknown = json.loads((tmp_path / "unknown-id" / "translation.json").read_text())["translations"][0]
     assert unknown["verified"] is False and "edited" not in unknown
@@ -638,12 +650,12 @@ def test_a_run_records_where_its_translated_shock_came_from(tmp_path: Path) -> N
         "not-a-list",
         [{"translation_id": t["translation_id"], "shock_index": -1}],
     ):
-        r = client.post("/api/experiments/run", json=body("bad", 1.5, bad))
+        r = client.post("/api/experiments/run?wait=true", json=body("bad", 1.5, bad))
         assert r.status_code == 400, (bad, r.text)
     assert not (tmp_path / "bad").exists()
 
     # Provenance stays beside the run: the engine config and the table hashes match a run without it.
-    plain = client.post("/api/experiments/run", json=body("plain", 1.5))
+    plain = client.post("/api/experiments/run?wait=true", json=body("plain", 1.5))
     assert plain.status_code == 200 and not (tmp_path / "plain" / "translation.json").exists()
     m_plain = json.loads((tmp_path / "plain" / "manifest.json").read_text())
     m_tr = json.loads((tmp_path / "as-translated" / "manifest.json").read_text())

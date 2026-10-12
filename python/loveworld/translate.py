@@ -607,8 +607,12 @@ class Translator:
         tmp.write_text(json.dumps(asdict(t), sort_keys=True))
         os.replace(tmp, self._records / f"{t.translation_id}.json")
 
-    def translate(self, text: Any, days: Any = 365) -> Translation:
-        """Translate one description for a run of `days` days."""
+    def translate(self, text: Any, days: Any = 365, before_model_call: Callable[[], None] | None = None) -> Translation:
+        """Translate one description for a run of `days` days.
+
+        `before_model_call` runs just before a real model call, never for a cached answer, so a
+        caller can count calls against a quota and refuse one by raising.
+        """
         clean, n_days = check_request(text, days)
         client = self._get_client()
         key = (normalise(clean), n_days, client.model)
@@ -617,6 +621,8 @@ class Translator:
             if hit is not None:
                 self._cache.move_to_end(key)
                 return hit
+        if before_model_call is not None:
+            before_model_call()
         answer = _tool_input(client.create(build_payload(clean, n_days, client.model)))
         status, spec, errors = _validate(answer, n_days)
         rationale = str(answer.get("rationale") or "").strip()

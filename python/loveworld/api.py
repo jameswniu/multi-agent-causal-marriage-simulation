@@ -7,6 +7,7 @@ slice instead of scanning.
 
 from __future__ import annotations
 
+import hmac
 import json
 import os
 import threading
@@ -17,11 +18,13 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from loveworld import runner, translate
+from loveworld import forking, runner, translate
+from loveworld import jobs as jobq
+from loveworld import public as pubmod
 from loveworld.analysis import Tables, load_tables, sanitize, sibling_dir
 from loveworld.engine import REPO_ROOT, EngineError
 from loveworld.experiment import ExperimentError, Shock, parse_experiment
@@ -423,6 +426,10 @@ class ExperimentStore:
         self._lock = threading.Lock()
         self._load_lock = threading.Lock()
         self._generation: dict[str, int] = {}
+        # Public mode points the default at a curated experiment, never at a visitor's run, and with
+        # `public_default_only` there is no default at all when no curated experiment exists.
+        self.preferred_default: str | None = None
+        self.public_default_only = False
         if not self.single and not self.root.is_dir():
             raise FileNotFoundError(f"{root} is neither a results directory nor a directory of them")
 
@@ -456,8 +463,12 @@ class ExperimentStore:
         return out
 
     def default(self) -> str | None:
-        """Return the single experiment, or the first by name."""
+        """Return the preferred experiment when it exists, else the single one, else the first by name."""
         names = self.names()
+        if self.preferred_default in names:
+            return self.preferred_default
+        if self.public_default_only:
+            return None
         return names[0] if names else None
 
     def get(self, name: str | None) -> Loaded:
@@ -532,12 +543,67 @@ class ExperimentStore:
                     "generated_at_unix": manifest.get("generated_at_unix"),
                     "has_placebo": find_sibling(d, "placebo") is not None,
                     "has_twins": find_sibling(d, "twins") is not None,
+                    "parent": (read_parent(d) or {}).get("parent"),
                 }
             )
         return {"default": self.default(), "items": items}
 
 
+def read_parent(results_dir: Path) -> dict[str, Any] | None:
+    """Read a forked world's parent.json (its parent, the parent's hash and the comparison), or None."""
+    try:
+        data = json.loads((results_dir / "parent.json").read_text())
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
 RUN_BODY_KEYS = (*EXPERIMENT_KEYS, "overwrite")
+PUBLIC_TREATMENT_KEYS = ("conflict_half_life_days", "shocks")
+# Public runs are analysed the same way every time; a visitor cannot thin the resamples or move the seed.
+PUBLIC_ANALYSIS = {"n_boot": 500, "n_perm": 500, "seed": 7, "ci_level": 0.95}
+MAX_PUBLIC_SHOCKS = 16
+MAX_PUBLIC_BODY_BYTES = 64 * 1024
+FORK_BODY_KEYS = ("parent", "name", "shocks", "translations")
+WAIT_TIMEOUT_S = 900.0
+
+
+def job_error(e: BaseException) -> tuple[int, str]:
+    """Return the HTTP status and message a failed run reports."""
+    if isinstance(e, runner.TargetError):
+        return 409, str(e)
+    if isinstance(e, ExperimentError | EngineError | ValueError):
+        return 400, str(e)
+    return 500, f"the run failed: {type(e).__name__}: {e}"
+
+
+def check_public_run(raw: Any, config: pubmod.PublicConfig) -> None:
+    """Refuse every part of a run body public mode does not allow (ExperimentError names it)."""
+    if not isinstance(raw, dict):
+        return
+    for key in ("engine", "control", "seeds"):
+        if key in raw:
+            raise ExperimentError(
+                f"{key} cannot be set here: a public run may change only its shocks and the treatment memory half-life"
+            )
+    if raw.get("overwrite"):
+        raise ExperimentError("overwrite is not available here: every run gets a new name")
+    treatment = raw.get("treatment")
+    if isinstance(treatment, dict):
+        extra = sorted(set(treatment) - set(PUBLIC_TREATMENT_KEYS))
+        if extra:
+            raise ExperimentError(f"treatment.{extra[0]} cannot be set here: only conflict_half_life_days and shocks")
+    count = 0
+    for section in ("treatment", "world"):
+        block = raw.get(section)
+        if isinstance(block, dict) and isinstance(block.get("shocks"), list):
+            count += len(block["shocks"])
+    if count > MAX_PUBLIC_SHOCKS:
+        raise ExperimentError(f"a public run takes at most {MAX_PUBLIC_SHOCKS} shocks, got {count}")
+    for key, cap in (("n_couples", config.max_couples), ("days", config.max_days)):
+        v = raw.get(key)
+        if isinstance(v, int) and not isinstance(v, bool) and v > cap:
+            raise ExperimentError(f"{key} is at most {cap} here, got {v}")
 
 
 def parse_run_body(raw: Any) -> tuple[dict[str, Any], bool]:
@@ -611,9 +677,17 @@ def _default_run_name() -> str:
 
 
 def create_app(
-    results_dir: str | Path, frontend_dist: Path | None = None, translator: translate.Translator | None = None
+    results_dir: str | Path,
+    frontend_dist: Path | None = None,
+    translator: translate.Translator | None = None,
+    public: pubmod.PublicConfig | None = None,
+    queue: jobq.JobQueue | None = None,
 ) -> FastAPI:
-    """Build the API for a results directory or a results root."""
+    """Build the API for a results directory or a results root.
+
+    `public` defaults to the environment (LOVEWORLD_PUBLIC and its caps); public mode needs a
+    results root, since visitors' runs live beside the curated experiments.
+    """
     store = ExperimentStore(Path(results_dir))
     # Translation records live beside the experiments, in a hidden directory the store never lists.
     shock_translator = (
@@ -623,44 +697,169 @@ def create_app(
         # A run interrupted between its two publication renames leaves its results hidden
         # next to the root; put them back before anything is listed.
         runner.recover_swaps(store.results_root)
-    app = FastAPI(title="LoveWorld results", version="0.2.0")
+    public_config = public if public is not None else pubmod.PublicConfig.from_env()
+    pub: pubmod.Public | None = None
+    if public_config.enabled:
+        if store.single:
+            raise ValueError("public mode serves a results root, not a single results directory")
+        curated = set(store.names())
+        pub = pubmod.Public(public_config, store.results_root, curated)
+        store.preferred_default = "example" if "example" in curated else (min(curated) if curated else None)
+        store.public_default_only = True
+        pub.start_sweeper(on_removed=store.invalidate)
+    runs = queue if queue is not None else jobq.JobQueue(error_mapper=job_error)
+    app = FastAPI(title="LoveWorld results", version="0.3.0")
     app.state.store = store
+    app.state.jobs = runs
+    app.state.public = pub
+
+    def session_of(request: Request) -> str | None:
+        return getattr(request.state, "sid", None)
+
+    def client_ip(request: Request) -> str:
+        """Return the client's address, the edge proxy's report when the request carries its secret."""
+        if pub is not None and pub.config.edge_secret:
+            given = request.headers.get(pubmod.EDGE_HEADER, "")
+            reported = request.headers.get(pubmod.CLIENT_IP_HEADER, "")
+            if reported and hmac.compare_digest(given, pub.config.edge_secret):
+                return reported
+        return request.client.host if request.client else "unknown"
+
+    if pub is not None:
+        public_state = pub
+
+        @app.middleware("http")
+        async def public_guard(request: Request, call_next: Any) -> Response:
+            sid = public_state.sessions.verify(request.cookies.get(pubmod.SESSION_COOKIE))
+            cookie = None
+            if sid is None:
+                sid, cookie = public_state.sessions.new()
+            request.state.sid = sid
+            path = request.url.path
+            response: Response
+            edge = public_state.config.edge_secret
+            name = request.query_params.get("experiment")
+            length = request.headers.get("content-length", "")
+            if (
+                request.method == "POST"
+                and path.startswith("/api/")
+                and edge
+                and not hmac.compare_digest(request.headers.get(pubmod.EDGE_HEADER, ""), edge)
+            ):
+                response = JSONResponse({"detail": "requests must come through the site"}, status_code=403)
+            elif request.method == "POST" and path.startswith("/api/") and not length.isdigit():
+                response = JSONResponse({"detail": "a request body needs its length"}, status_code=411)
+            elif request.method == "POST" and path.startswith("/api/") and int(length) > MAX_PUBLIC_BODY_BYTES:
+                response = JSONResponse({"detail": "that request is too large"}, status_code=413)
+            elif path.startswith("/api/") and name and not public_state.visible(name, sid):
+                response = JSONResponse({"detail": f"unknown experiment {name!r}"}, status_code=404)
+            else:
+                response = await call_next(request)
+            if cookie is not None:
+                secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+                response.set_cookie(
+                    pubmod.SESSION_COOKIE, cookie, httponly=True, samesite="lax", secure=secure, max_age=7 * 86400
+                )
+            return response
+
+    def visible_names(request: Request) -> list[str]:
+        names = store.names()
+        if pub is None:
+            return names
+        sid = session_of(request)
+        return [n for n in names if pub.visible(n, sid)]
 
     def exp_param(experiment: str | None = Query(None, description="Experiment name (default: the first)")) -> Loaded:
         return store.get(experiment)
 
     @app.get("/api/health")
-    def health() -> dict[str, Any]:
-        return {"ok": True, "experiments": store.names()}
+    def health(request: Request) -> dict[str, Any]:
+        out: dict[str, Any] = {"ok": True, "experiments": visible_names(request), "public": pub is not None}
+        if pub is not None:
+            out["limits"] = {"max_couples": pub.config.max_couples, "max_days": pub.config.max_days}
+            out["turnstile_site_key"] = pub.config.turnstile_site_key
+        return out
 
     @app.get("/api/experiments")
-    def experiments() -> dict[str, Any]:
-        return store.listing()
+    def experiments(request: Request) -> dict[str, Any]:
+        listing = store.listing()
+        if pub is not None:
+            sid = session_of(request)
+            listing["items"] = [i for i in listing["items"] if pub.visible(i["name"], sid)]
+            if listing.get("default") is not None and not pub.visible(listing["default"], sid):
+                listing["default"] = store.preferred_default
+        return listing
 
     @app.get("/api/shocks/catalog")
     def shocks_catalog() -> dict[str, Any]:
         return {"kinds": [dict(k) for k in SHOCK_CATALOG], "effects": effect_catalog()}
 
     @app.post("/api/shocks/translate")
-    def translate_shock(body: dict[str, Any]) -> dict[str, Any]:
+    def translate_shock(body: dict[str, Any], request: Request) -> dict[str, Any]:
         unknown = sorted(set(body) - {"text", "days"}) if isinstance(body, dict) else []
         if unknown:
             raise HTTPException(status_code=400, detail=f"unknown key {unknown[0]} (known: text, days)")
+        quota = None
+        if pub is not None:
+            ip_key = pub.sessions.hash_ip(client_ip(request))
+            counters = pub.counters
+
+            def quota() -> None:
+                counters.take(ip_key)
+
         try:
-            result = shock_translator.translate(body.get("text"), body.get("days", 365))
+            result = shock_translator.translate(body.get("text"), body.get("days", 365), before_model_call=quota)
         except translate.TranslationRequestError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
         except translate.TranslatorUnavailable as e:
             raise HTTPException(status_code=503, detail=str(e)) from e
+        except pubmod.QuotaExceeded as e:
+            raise HTTPException(status_code=429, detail=str(e)) from e
         return result.public()
 
+    def taken_names() -> set[str]:
+        return set(store.names())
+
+    def submit(kind: str, name: str, work: Any, request: Request, wait: bool) -> Any:
+        """Queue a run and answer at once (202 and the job), or wait for it and answer like a finished run."""
+        sid = session_of(request)
+        if pub is not None and sid is not None and runs.active_for(sid) >= 1:
+            raise HTTPException(status_code=429, detail="You already have a run in progress. Wait for it to finish.")
+        try:
+            job = runs.submit(kind, name, work, owner=sid)
+        except jobq.QueueFull as e:
+            raise HTTPException(status_code=429, detail=str(e)) from e
+        except jobq.NameBusy as e:
+            raise HTTPException(status_code=409, detail=str(e)) from e
+        if not wait:
+            return JSONResponse(runs.describe(job), status_code=202)
+        try:
+            result = runs.wait(job, WAIT_TIMEOUT_S)
+        except jobq.JobFailed as e:
+            raise HTTPException(status_code=e.status_code, detail=str(e)) from e
+        target = Path(result["dir"])
+        return {"job_id": job.id, "name": name, "dir": str(target), "summary": sanitize(_summary(target) or {})}
+
     @app.post("/api/experiments/run")
-    def run_experiment(body: dict[str, Any]) -> dict[str, Any]:
+    def run_experiment(body: dict[str, Any], request: Request, wait: bool = Query(False)) -> Any:
         try:
             body = dict(body) if isinstance(body, dict) else body
             pointers = parse_translations(body.pop("translations", None) if isinstance(body, dict) else None)
+            if pub is not None:
+                check_public_run(body, pub.config)
+                sid = session_of(request) or "000000000000"
+                body["name"] = pubmod.visitor_name(sid, taken_names())
+                body["analysis"] = dict(PUBLIC_ANALYSIS)
             raw, overwrite = parse_run_body(body)
             exp = parse_experiment(raw)
+            if pub is not None:
+                # Checked on the parsed experiment, so a field left out cannot slip past through its default.
+                for key, value, cap in (
+                    ("n_couples", exp.n_couples, pub.config.max_couples),
+                    ("days", exp.days, pub.config.max_days),
+                ):
+                    if value > cap:
+                        raise ExperimentError(f"{key} is at most {cap} here, got {value}")
             for _, idx in pointers:
                 if idx >= len(exp.shocks):
                     raise ExperimentError(f"shock_index {idx} is past the experiment's {len(exp.shocks)} shocks")
@@ -677,19 +876,86 @@ def create_app(
         target = store.results_root / name
         if target.exists() and any(target.iterdir()) and not overwrite:
             raise HTTPException(status_code=409, detail=f"experiment {name!r} exists; set overwrite to replace it")
+
+        def work() -> dict[str, Any]:
+            runner.run_experiment(exp, target, overwrite=overwrite, extra_files=extra or None)
+            store.invalidate(name)
+            return {"name": name, "dir": str(target)}
+
+        return submit("run", name, work, request, wait)
+
+    @app.post("/api/experiments/fork")
+    def fork_experiment(body: dict[str, Any], request: Request, wait: bool = Query(False)) -> Any:
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="body must be a JSON object")
+        unknown = sorted(set(body) - set(FORK_BODY_KEYS))
+        if unknown:
+            known = ", ".join(FORK_BODY_KEYS)
+            raise HTTPException(status_code=400, detail=f"unknown key {unknown[0]} (known: {known})")
+        parent = body.get("parent")
+        sid = session_of(request)
+        if not isinstance(parent, str) or parent not in store.names() or store.dir_for(parent) is None:
+            raise HTTPException(status_code=404, detail=f"unknown parent experiment {parent!r}")
+        if pub is not None and not pub.visible(parent, sid):
+            raise HTTPException(status_code=404, detail=f"unknown parent experiment {parent!r}")
+        parent_dir = store.dir_for(parent)
+        assert parent_dir is not None
         try:
-            summary = runner.run_experiment(exp, target, overwrite=overwrite, extra_files=extra or None)
-        except runner.TargetError as e:
-            raise HTTPException(status_code=409, detail=str(e)) from e
-        except (ExperimentError, EngineError, ValueError) as e:
+            pointers = parse_translations(body.get("translations"))
+            if pub is not None:
+                name = pubmod.visitor_name(sid or "000000000000", taken_names())
+            else:
+                name = body.get("name") or f"{parent[:40]}-fork-{time.strftime('%Y%m%d-%H%M%S')}"
+            if not isinstance(name, str) or not SAFE_NAME.match(name) or name.endswith(GOVERNANCE_SUFFIXES):
+                raise ExperimentError(f"name must match {SAFE_NAME.pattern} and not end in -placebo or -twins")
+            if name == parent:
+                raise ExperimentError("a fork needs a name of its own")
+            plan = forking.plan_fork(parent, parent_dir, body.get("shocks"), name)
+            if pub is not None and (plan.n_couples > pub.config.max_couples or plan.days > pub.config.max_days):
+                cap = f"{pub.config.max_couples} couples, {pub.config.max_days} days"
+                raise ExperimentError(f"this world is larger than a public run may be ({cap})")
+            for _, idx in pointers:
+                if idx >= len(plan.shocks):
+                    raise ExperimentError(f"shock_index {idx} is past the fork's {len(plan.shocks)} shocks")
+        except ExperimentError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
-        store.invalidate(name)
-        return {"name": name, "dir": str(target), "summary": sanitize(summary)}
+        target = store.results_root / plan.name
+        if target.exists() and any(target.iterdir()):
+            raise HTTPException(status_code=409, detail=f"experiment {plan.name!r} exists; pick another name")
+        extra: dict[str, Any] = {}
+        if pointers:
+            records = [
+                {"shock_index": idx, **translate.provenance(shock_translator, tid, shock_record(plan.shocks[idx]))}
+                for tid, idx in pointers
+            ]
+            extra["translation.json"] = {"translations": records}
+
+        def compare(run_dir: Path) -> dict[str, Any]:
+            return {"parent.json": forking.parent_record(plan, forking.compare_with_parent(run_dir, plan))}
+
+        def work() -> dict[str, Any]:
+            runner.run_config(plan.config, target, plan.settings, extra_files=extra or None, extra_from_run=compare)
+            store.invalidate(plan.name)
+            return {"name": plan.name, "dir": str(target)}
+
+        return submit("fork", plan.name, work, request, wait)
+
+    @app.get("/api/jobs/{job_id}")
+    def job_status(job_id: str, request: Request) -> dict[str, Any]:
+        job = runs.get(job_id)
+        if job is None or (pub is not None and job.owner != session_of(request)):
+            raise HTTPException(status_code=404, detail="unknown job")
+        return runs.describe(job)
 
     @app.get("/api/experiment")
     def experiment(experiment: str | None = Query(None)) -> dict[str, Any]:
         loaded = store.get(experiment)
-        return {"manifest": loaded.tables.manifest, "summary": loaded.summary}
+        parent = read_parent(loaded.dir)
+        return {
+            "manifest": loaded.tables.manifest,
+            "summary": loaded.summary,
+            "parent": sanitize(parent) if parent is not None else None,
+        }
 
     @app.get("/api/ate")
     def ate(experiment: str | None = Query(None)) -> list[dict[str, Any]]:

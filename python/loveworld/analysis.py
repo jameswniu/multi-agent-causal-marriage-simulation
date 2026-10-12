@@ -596,19 +596,19 @@ def table_hashes(manifest: dict[str, Any]) -> dict[str, str]:
     return {name: str(info.get("sha256")) for name, info in manifest.get("files", {}).items()}
 
 
-def twins_summary(twins_dir: str | Path, settings: AnalysisSettings | None = None) -> dict[str, Any]:
-    """Paired per-couple effects from a control run and a treatment run on identical seeds."""
-    settings = settings or AnalysisSettings()
-    d = Path(twins_dir)
-    tc = load_tables(d / "control")
-    tt = load_tables(d / "treatment")
-    fc = couple_frame(tc)
-    ft = couple_frame(tt)
-    ids = fc.index.intersection(ft.index)
+def paired_effects(
+    fc: pd.DataFrame, ft: pd.DataFrame, ids: pd.Index, settings: AnalysisSettings, outcomes: tuple[str, ...] = ()
+) -> list[dict[str, Any]]:
+    """Per-outcome mean of (ft - fc) over the couples `ids`, with a cluster bootstrap interval.
+
+    `fc` and `ft` are couple frames of two runs of the same couples on the same seeds (twins, or a
+    world and its fork). Resamples whole clusters (blocks, or single couples), and draws from one
+    generator seeded by the analysis seed in outcome order, so the same inputs give the same output.
+    """
     rng = np.random.default_rng(settings.seed)
     cluster = fc.loc[ids, "cluster"].to_numpy()
-    paired = []
-    for name in PAIRED_OUTCOMES:
+    out = []
+    for name in outcomes or PAIRED_OUTCOMES:
         diff = ft.loc[ids, name].to_numpy(dtype=float) - fc.loc[ids, name].to_numpy(dtype=float)
         ok = ~np.isnan(diff)
         diff, cl = diff[ok], cluster[ok]
@@ -622,7 +622,7 @@ def twins_summary(twins_dir: str | Path, settings: AnalysisSettings | None = Non
             boots = s[idx].sum(axis=1) / k[idx].sum(axis=1)
             alpha = 1.0 - settings.ci_level
             lo, hi = (float(x) for x in np.percentile(boots, [100 * alpha / 2, 100 * (1 - alpha / 2)]))
-        paired.append(
+        out.append(
             {
                 "name": name,
                 "mean_diff": _clean(mean),
@@ -632,6 +632,19 @@ def twins_summary(twins_dir: str | Path, settings: AnalysisSettings | None = Non
                 "share_changed": _clean(float(np.mean(diff != 0))) if n else None,
             }
         )
+    return out
+
+
+def twins_summary(twins_dir: str | Path, settings: AnalysisSettings | None = None) -> dict[str, Any]:
+    """Paired per-couple effects from a control run and a treatment run on identical seeds."""
+    settings = settings or AnalysisSettings()
+    d = Path(twins_dir)
+    tc = load_tables(d / "control")
+    tt = load_tables(d / "treatment")
+    fc = couple_frame(tc)
+    ft = couple_frame(tt)
+    ids = fc.index.intersection(ft.index)
+    paired = paired_effects(fc, ft, ids, settings)
     identical = tc.config["memory"]["treatment"] == tc.config["memory"]["control"] and not any(
         s.get("target") == "treatment" for s in shocks_summary(tt.config)
     )

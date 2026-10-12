@@ -1,0 +1,20 @@
+# Build outputs, local state and machine settings never enter the image; the image builds its own.
+# The .env files hold one machine's settings and secrets, and the repository is public.
+.env
+.env.*
+**/.env
+**/.env.*
+target/
+frontend/node_modules/
+frontend/dist/
+python/.venv/
+**/__pycache__/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+results/
+assets/
+docs/
+tools/
+.git/
+.github/

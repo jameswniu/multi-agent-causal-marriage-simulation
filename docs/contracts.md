@@ -371,7 +371,7 @@ about half a gigabyte; the least recently used is dropped and read again from di
 ```
 GET  /api/experiments      -> {"default": name, "items": [{"name", "dir", "n_couples", "days", "seeds",
                                "intervention": {"memory": {parameter: [control, treatment]} | null, "shocks": [...]},
-                               "divorce_control", "divorce_treatment", "generated_at_unix"}]}
+                               "divorce_control", "divorce_treatment", "generated_at_unix", "parent": name | null}]}
 GET  /api/shocks/catalog   -> {"kinds": [{"kind", "label", "blurb", "member_applies", "magnitude": {"min","max","default","unit"},
                                "default_start_day", "default_length_days", "default_end_day"}],
                                "effects": {"channels": [{"channel", "op", "identity", "cadences": {cadence: {"min","max","sustained"}},
@@ -381,8 +381,9 @@ POST /api/experiments/run  -> body {"name"?, "n_couples"? (<= 2000), "days"? (<=
                                "treatment": {"conflict_half_life_days"?, ..., "shocks"?: [...]},
                                "control"?, "world"?: {"shocks": [...]}, "engine"?, "analysis"?: {"n_boot" (<= 500), "n_perm" (<= 500)},
                                "overwrite"?: false}
-                              runs the engine and the analysis synchronously (about ten seconds at 1,000 x 365)
-                              -> {"name", "dir", "summary"}; 409 if the name exists and overwrite is false; 400 on validation errors
+                              validates, then queues the run (section 10) -> 202 {"job_id", "state", ...};
+                              with ?wait=true it answers when the run is done -> {"job_id", "name", "dir", "summary"};
+                              409 if the name exists and overwrite is false; 400 on validation errors; 429 when the queue is full
 ```
 
 ### Frontend
@@ -392,7 +393,8 @@ A top-bar experiment select (persisted in the URL as `?experiment=`) feeds every
 treatment arm (default equal to control, so a shock-only experiment is possible), a shock picker
 built from `/api/shocks/catalog` (kind, which partner, start and end day, magnitude slider, and
 whether it hits the treatment arm only or everyone), and a Run button that posts to
-`/api/experiments/run`, shows progress, and selects the new experiment on success.
+`/api/experiments/run`, shows progress, and selects the new experiment on success. Since section 10 a
+"Start from" picker comes first: it defaults to the world in the URL, which forks that world instead.
 
 Positive kinds, same shape, same logging:
 
@@ -667,3 +669,106 @@ across both arms, and for the job-loss, daily-texts, neuroticism-shift and crisi
 experiments and the example. The one exception is a magnitude-0 daily_texts, anniversary,
 date_nights or temptation shock. In 0.2.1 those stored zero-intensity memories or held the outside
 chance at 0, and in 0.3.0 they do nothing. Runs with custom shocks need 0.3.0.
+
+## 10. Forked worlds, the run queue and public mode (added 2026-10-11)
+
+### Forking a world
+
+A fork re-runs a finished world with shocks added and nothing else changed. The server reads the
+parent's own `config.json` (its seeds, assignment, memory for both arms, policy and every engine
+setting), appends the new shocks to its shock list, and runs that config under a new name with the
+parent's analysis settings (resamples capped at 500). Because shock partners come from their own keyed
+stream, a fork with zero-magnitude shocks has behavioural tables identical to its parent's, so a
+difference between a fork and its parent is what the added shocks did to the very same couples.
+
+```
+POST /api/experiments/fork -> body {"parent": name, "name"?, "shocks": [{"kind", "target": "treatment" | "all",
+                               "member"?, "start_day"?, "end_day"?, "magnitude"?, "trait"?}] (1 to 16),
+                               "translations"?: [{"translation_id", "shock_index"}]}
+                             -> 202 {"job_id", ...}, or with ?wait=true {"job_id", "name", "dir", "summary"}
+                             404 unknown parent; 400 on any other key, an empty or invalid shock list, a name equal to
+                             the parent's or ending in -placebo or -twins; 409 when the name exists (forks never overwrite)
+```
+
+`shock_index` counts the fork's `shocks` in the order sent. The default name is
+`<parent>-fork-<UTC timestamp>`. The child's results directory gains `parent.json`, written in the
+same publication as the run:
+
+```
+{"parent", "parent_determinism_hash", "parent_engine_version", "appended_shocks": [...],
+ "comparison": {"comparable": true, "n_couples", "arms": {"all" | "control" | "treatment": [
+                 {"name", "mean_diff", "ci_low", "ci_high", "n_pairs", "share_changed"}]}}
+              | {"comparable": false, "reason"}}
+```
+
+The comparison is child minus parent for each couple, averaged over the couples of each arm (and over
+all of them), with a percentile bootstrap that resamples couples, or blocks under block assignment, for
+the same six outcomes the twins summary pairs. It is refused, with the reason, when the parent was run
+again while the fork waited (its determinism hash moved) or when the two runs came from different
+engine versions. `GET /api/experiment` returns the record as `"parent"` (null for a world that is not
+a fork), and the experiment list carries the parent's name.
+
+### The run queue
+
+Engine runs execute one at a time, in arrival order, on a worker thread inside the API. POST run and
+POST fork validate the request first (all the 400 and 409 answers above happen before anything is
+queued), then queue the run and answer 202 at once.
+
+```
+GET /api/jobs/{job_id} -> {"job_id", "kind": "run" | "fork", "name", "state": "queued" | "running" | "done" | "failed",
+                           "position" (1 is next, null unless queued), "error", "created", "started", "finished"}
+                          404 for an unknown job (or, in public mode, another visitor's)
+```
+
+At most `LOVEWORLD_QUEUE_MAX` runs (default 3) may wait besides the running one; one more is answered
+429 with a plain busy message. A name already queued or running is a 409. A failed run reports the
+same message and status the synchronous endpoint used to answer with (409 for a results directory that
+is not ours, 400 for an engine or configuration error), and `?wait=true` turns them back into the
+HTTP answer. The engine timeout and the per-target lock still apply. Jobs live in memory, so a restart
+forgets them; finished experiments stay on disk. The queue belongs to one server process, so the API runs
+as a single process (`loveworld serve` and the Docker image both do); the translation counters lock their
+file and stay correct even if several processes share a results root.
+
+### Public mode
+
+`LOVEWORLD_PUBLIC=1` (off by default) makes the dashboard safe to serve to strangers. It needs a
+results root, not a single results directory.
+
+- Experiments present at startup are curated and read-only. Overwrite is refused, and the default
+  experiment is `example` when it exists, else the first curated one; with no curated experiment there
+  is no default, so a request that names none is a 404 rather than someone else's run.
+- Every visitor gets a signed session cookie, `lw_session` (an id and an HMAC of it, HttpOnly,
+  SameSite=Lax, secure behind HTTPS). Their runs and forks get server-assigned names,
+  `v-<session id>-<UTC date>-<time>`, any client-sent name is ignored, and those runs are visible only
+  to that visitor: every `/api` request naming another visitor's run is a 404, and the list and health
+  endpoints show the curated worlds plus the visitor's own. A visitor may have one run queued or
+  running at a time (429 otherwise).
+- Visitor runs are deleted after `LOVEWORLD_VISITOR_TTL_HOURS` (default 24) by a sweeper that runs at
+  startup and every ten minutes; curated names are never swept.
+- A public run may set only `treatment.conflict_half_life_days`, `treatment.shocks`, `world.shocks`,
+  `n_couples` and `days`. `engine`, `control`, `seeds`, `overwrite` and any other treatment key are a
+  400, the analysis is fixed by the server (500 bootstrap and 500 permutation resamples, seed 7, 95%
+  intervals, whatever the client sends), and runs (or forks of a world) are capped at
+  `LOVEWORLD_PUBLIC_MAX_COUPLES` (1,000) couples and `LOVEWORLD_PUBLIC_MAX_DAYS` (365) days, checked
+  after defaults apply, and at 16 shocks. Every POST to `/api` needs a `Content-Length` (411 without)
+  of at most 64 KB (413 above).
+- Translations keep the 400-character input cap and add a daily cap per client address
+  (`LOVEWORLD_TRANSLATE_PER_IP_DAY`, default 20) and overall (`LOVEWORLD_TRANSLATE_GLOBAL_DAY`, default
+  3,000), counted only for real model calls (a cached answer is free) in
+  `<results root>/.public/counters.json`, keyed by an HMAC of the address and reset at UTC midnight, so
+  a restart keeps the counts. Either cap answers 429.
+- With `LOVEWORLD_EDGE_SECRET` set, every POST to `/api` must carry `x-loveworld-edge` equal to it
+  (403 otherwise), and the client address for the caps is `x-loveworld-client-ip`, trusted only on a
+  request that carries the secret. The edge proxy (`deploy/cloudflare-worker/worker.js`) checks a
+  Cloudflare Turnstile token before adding both headers.
+- Signing uses `LOVEWORLD_SESSION_SECRET`, or a secret created once in `<results root>/.public/secret`
+  with owner-only permissions.
+
+```
+GET /api/health -> {"ok", "experiments": [...], "public": bool,
+                    "limits"?: {"max_couples", "max_days"}, "turnstile_site_key"?: string | null}
+```
+
+The dashboard reads `public` to hide the name and overwrite fields and apply the caps, and, when a
+`turnstile_site_key` is set, renders the check and sends its token as `cf-turnstile-response` on the
+next POST. Deployment is in `docs/deploy.md`.
