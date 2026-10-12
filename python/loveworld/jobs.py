@@ -20,6 +20,9 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+# LoveWorld simulates married agent couples, and one engine run plays a whole population for up to two
+# years. LOVEWORLD_QUEUE_MAX is the environment variable that sets how many runs may wait in line behind
+# the one running; without it, three may wait.
 DEFAULT_MAX_QUEUED = 3
 RETAIN_FINISHED = 200
 
