@@ -335,7 +335,7 @@ def map_sections(n_tables: int) -> list[dict]:
         {
             "code": "02",
             "head": "THE ENGINE",
-            "note": "Rust on Bevy ECS, headless, deterministic",
+            "note": "Rust on Bevy, no graphics, same seed same result",
             "cards": [
                 {
                     "title": "One schedule, every day",
@@ -682,7 +682,14 @@ def badges(summary: dict, n_tables: int) -> str:
         shield("license", facts["license"], "Apache 2.0 license", "LICENSE"),
     ]
     stack_row = [
-        shield("Rust", f"bevy_ecs {facts['bevy']}", f"Rust engine on bevy_ecs {facts['bevy']}", "engine/Cargo.toml", "rust"),
+        shield(
+            "Rust",
+            f"bevy_ecs {facts['bevy']}",
+            f"Rust engine on bevy_ecs {facts['bevy']}, the entity component system (ECS) from the Bevy game engine, "
+            "which keeps each agent as plain data that the daily systems update",
+            "engine/Cargo.toml",
+            "rust",
+        ),
         shield("Python", f"{facts['python']}+", f"Python {facts['python']} or newer for experiments and statistics", "python/pyproject.toml", "python"),
         shield("React", f"{facts['react']}, PixiJS {facts['pixi']}", f"React {facts['react']} dashboard with a PixiJS {facts['pixi']} town", "frontend/package.json", "react"),
         shield("Claude", facts["claude"], f"Claude {facts['claude']} turns a plain-words shock into settings", "python/loveworld/translate.py", "claude"),
