@@ -9,7 +9,7 @@
 <br/>
 
 <a href="https://github.com/jameswniu/loveworld/actions/workflows/ci.yml"><img alt="ci" src="https://github.com/jameswniu/loveworld/actions/workflows/ci.yml/badge.svg?branch=main"></a>
-<img alt="MIT license" src="https://img.shields.io/badge/license-MIT-4a5263?style=flat-square&labelColor=0e1119">
+<img alt="Apache 2.0 license" src="https://img.shields.io/badge/license-Apache_2.0-4a5263?style=flat-square&labelColor=0e1119">
 
 <br/><br/>
 
@@ -212,4 +212,4 @@ assets/        dashboard screenshots and the demo recording
 
 ## License
 
-MIT.
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
