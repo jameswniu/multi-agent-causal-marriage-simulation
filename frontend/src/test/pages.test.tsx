@@ -1,3 +1,5 @@
+// Page-level tests for the LoveWorld dashboard. Each page renders against fixture data through a
+// mocked API, and these check what it shows, how it navigates and how its forms behave.
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
