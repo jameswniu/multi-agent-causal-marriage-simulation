@@ -8,7 +8,11 @@ export const TILE = 16;
 /** One couple's lot: a 2 by 2 tile house with a yard in front for the figures. */
 export const LOT_W = 48;
 export const LOT_H = 56;
+/** Default columns per district; the town view picks its own from the canvas shape (chooseDistrictCols). */
 export const DISTRICT_COLS = 20;
+/** Bounds for the column count chosen from the canvas shape. */
+export const MIN_DISTRICT_COLS = 8;
+export const MAX_DISTRICT_COLS = 80;
 export const PLAZA_COLS = 6;
 export const GUTTER = 32;
 export const MARGIN = 48;
@@ -43,6 +47,8 @@ export interface Lot {
 export interface TownLayout {
   width: number;
   height: number;
+  /** Lots per row in each district. */
+  districtCols: number;
   control: Rect;
   treatment: Rect;
   plaza: Rect;
@@ -75,10 +81,57 @@ function byCoupleId(world: WorldShape, idx: number[]): number[] {
   return [...idx].sort((p, q) => world.couples[p] - world.couples[q]);
 }
 
+/** World size of a town whose largest district holds `nDistrict` couples in rows of `cols`, with
+ * `nHomes` new homes in the plaza; the same arithmetic buildLayout uses. */
+export function townSize(nDistrict: number, nHomes: number, cols: number): { width: number; height: number } {
+  const districtRows = Math.max(1, Math.ceil(nDistrict / cols));
+  const homeRows = Math.ceil(nHomes / PLAZA_COLS);
+  const plazaH = Math.max(districtRows * LOT_H, (homeRows + MIN_OPEN_ROWS) * LOT_H);
+  return {
+    width: 2 * MARGIN + 2 * cols * LOT_W + PLAZA_COLS * LOT_W + 2 * GUTTER,
+    height: MARGIN + TITLE_BAND + plazaH + MARGIN,
+  };
+}
+
+/** The scale at which a town of this size fits a view of `viewW` by `viewH` screen pixels. */
+export function fitScale(size: { width: number; height: number }, viewW: number, viewH: number): number {
+  return Math.min(viewW / size.width, viewH / size.height);
+}
+
+/** Columns per district that make the whole town as large as possible in the view, so a wide
+ * canvas gets a wide town instead of a tall one with empty margins. */
+export function chooseDistrictCols(nDistrict: number, nHomes: number, viewW: number, viewH: number): number {
+  if (!(viewW > 0) || !(viewH > 0) || nDistrict <= 0) return DISTRICT_COLS;
+  let best = DISTRICT_COLS;
+  let bestScale = -1;
+  for (let c = MIN_DISTRICT_COLS; c <= MAX_DISTRICT_COLS; c++) {
+    const s = fitScale(townSize(nDistrict, nHomes, c), viewW, viewH);
+    if (s > bestScale + 1e-9) {
+      bestScale = s;
+      best = c;
+    }
+  }
+  return best;
+}
+
+/** Couples in the larger district and remarried couples given a home, as chooseDistrictCols needs them. */
+export function townCounts(world: WorldShape, homes?: Set<number>): { nDistrict: number; nHomes: number } {
+  let control = 0;
+  let treatment = 0;
+  let nHomes = 0;
+  world.couples.forEach((_, i) => {
+    if (world.origin[i] === 'remarriage') {
+      if (!homes || homes.has(i)) nHomes += 1;
+    } else if (world.arms[i] === 'treatment') treatment += 1;
+    else control += 1;
+  });
+  return { nDistrict: Math.max(control, treatment), nHomes };
+}
+
 /** Lots for every couple: control on the left, treatment on the right, and new homes at the foot
  * of the plaza between them for the remarried couples in `homes` (all of them when omitted), each
- * zone in couple id order. */
-export function buildLayout(world: WorldShape, homes?: Set<number>): TownLayout {
+ * zone in couple id order, with `cols` lots per district row. */
+export function buildLayout(world: WorldShape, homes?: Set<number>, cols: number = DISTRICT_COLS): TownLayout {
   const control: number[] = [];
   const treatment: number[] = [];
   const newhomes: number[] = [];
@@ -94,8 +147,8 @@ export function buildLayout(world: WorldShape, homes?: Set<number>): TownLayout 
     treatment: byCoupleId(world, treatment),
     newhomes: byCoupleId(world, newhomes),
   };
-  const districtRows = Math.max(1, Math.ceil(Math.max(order.control.length, order.treatment.length) / DISTRICT_COLS));
-  const districtW = DISTRICT_COLS * LOT_W;
+  const districtRows = Math.max(1, Math.ceil(Math.max(order.control.length, order.treatment.length) / cols));
+  const districtW = cols * LOT_W;
   const districtH = districtRows * LOT_H;
   const plazaW = PLAZA_COLS * LOT_W;
   const homeRows = Math.ceil(order.newhomes.length / PLAZA_COLS);
@@ -116,12 +169,13 @@ export function buildLayout(world: WorldShape, homes?: Set<number>): TownLayout 
       lots[idx] = { idx, zone, k, col, row, x: rect.x + col * LOT_W, y: rect.y + row * LOT_H };
     });
   };
-  place('control', controlRect, DISTRICT_COLS);
-  place('treatment', treatmentRect, DISTRICT_COLS);
+  place('control', controlRect, cols);
+  place('treatment', treatmentRect, cols);
   place('newhomes', newHomes, PLAZA_COLS);
   return {
     width: treatmentRect.x + districtW + MARGIN,
     height: top + plazaH + MARGIN,
+    districtCols: cols,
     control: controlRect,
     treatment: treatmentRect,
     plaza,
@@ -291,16 +345,36 @@ export function stepToward(x: number, y: number, tx: number, ty: number, maxStep
   return [x + (dx / dist) * maxStep, y + (dy / dist) * maxStep, true];
 }
 
-/** True when figures and markers are too small to read at this zoom. */
+/** True when the figure sprites are too small to read at this zoom; people are then drawn as dots. */
 export function roofsOnly(scale: number): boolean {
   return LOT_W * scale < ROOFS_ONLY_BELOW;
+}
+
+/** Colour of a person drawn as a dot: the couple's arm colour at home, yellow in a conflict, a warm
+ * red when one partner has walked out, and a plaza neutral for singles and dating pairs. */
+export function dotTint(posture: Posture, arm: Arm | null, origin: Origin | null): number {
+  switch (posture) {
+    case 'home':
+      return origin === 'remarriage' ? 0x8e6bd6 : arm === 'treatment' ? 0xeb6834 : 0x2a78d6;
+    case 'conflict':
+      return 0xf6c945;
+    case 'away':
+      return 0xd35400;
+    default:
+      return 0x3b3b3b;
+  }
+}
+
+/** World size of a dot so it reads about `px` screen pixels across at `scale`. */
+export function dotWorldSize(scale: number, px = 6): number {
+  return px / Math.max(scale, 1e-6);
 }
 
 /** The couple whose lot contains a world point, or null. */
 export function lotAt(layout: TownLayout, wx: number, wy: number): number | null {
   const zones: [Zone, Rect, number][] = [
-    ['control', layout.control, DISTRICT_COLS],
-    ['treatment', layout.treatment, DISTRICT_COLS],
+    ['control', layout.control, layout.districtCols],
+    ['treatment', layout.treatment, layout.districtCols],
     ['newhomes', layout.newHomes, PLAZA_COLS],
   ];
   for (const [zone, r, cols] of zones) {
@@ -343,7 +417,7 @@ export function focusOrder(layout: TownLayout): number[] {
 export function moveFocus(layout: TownLayout, order: number[], cur: number, key: string): number | 'open' | null {
   if (order.length === 0) return null;
   const here = layout.lots[order[cur]];
-  const cols = here?.zone === 'newhomes' ? PLAZA_COLS : DISTRICT_COLS;
+  const cols = here?.zone === 'newhomes' ? PLAZA_COLS : layout.districtCols;
   const sameZone = (k: number) => k >= 0 && k < order.length && layout.lots[order[k]]?.zone === here?.zone;
   switch (key) {
     case 'ArrowRight':

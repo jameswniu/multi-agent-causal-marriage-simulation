@@ -9,8 +9,12 @@ import {
   PLAZA_COLS,
   buildAgents,
   buildLayout,
+  chooseDistrictCols,
   datingSpot,
+  dotTint,
+  dotWorldSize,
   everMarried,
+  fitScale,
   focusOrder,
   hash01,
   houseState,
@@ -22,6 +26,8 @@ import {
   shouldSnap,
   singleSpot,
   stepToward,
+  townCounts,
+  townSize,
   walkSpeed,
 } from '../town/layout';
 
@@ -333,3 +339,60 @@ describe('town keyboard', () => {
   });
 });
 
+
+describe('town shape follows the canvas', () => {
+  function bigWorld(): Shape {
+    const n = 1000;
+    return {
+      couples: Array.from({ length: n + 12 }, (_, i) => i),
+      arms: Array.from({ length: n + 12 }, (_, i) => (i >= n ? null : i % 2 === 0 ? 'control' : 'treatment')) as WorldResponse['arms'],
+      origin: Array.from({ length: n + 12 }, (_, i) => (i >= n ? 'remarriage' : 'initial')) as WorldResponse['origin'],
+    };
+  }
+
+  it('gives a wide canvas a wide town, choosing the column count that makes the town largest', () => {
+    const { nDistrict, nHomes } = townCounts(bigWorld());
+    expect([nDistrict, nHomes]).toEqual([500, 12]);
+    const wide = chooseDistrictCols(nDistrict, nHomes, 1540, 700);
+    const tall = chooseDistrictCols(nDistrict, nHomes, 700, 1540);
+    expect(wide).toBeGreaterThan(tall);
+    const best = fitScale(townSize(nDistrict, nHomes, wide), 1540, 700);
+    for (const c of [wide - 4, wide - 1, wide + 1, wide + 4, DISTRICT_COLS]) {
+      expect(fitScale(townSize(nDistrict, nHomes, c), 1540, 700)).toBeLessThanOrEqual(best + 1e-12);
+    }
+    // A wide window now shows houses big enough for the figures, where the old 20 columns did not.
+    expect(LOT_W * best).toBeGreaterThanOrEqual(24);
+    expect(LOT_W * fitScale(townSize(nDistrict, nHomes, DISTRICT_COLS), 1540, 700)).toBeLessThan(24);
+  });
+
+  it('falls back to the default columns before the canvas has a size', () => {
+    expect(chooseDistrictCols(500, 0, 0, 600)).toBe(DISTRICT_COLS);
+    expect(chooseDistrictCols(500, 0, 900, 0)).toBe(DISTRICT_COLS);
+  });
+
+  it('lays every district out with the chosen columns, and townSize agrees with the layout', () => {
+    const world = bigWorld();
+    const layout = buildLayout(world, undefined, 31);
+    expect(layout.districtCols).toBe(31);
+    expect(layout.control.w).toBe(31 * LOT_W);
+    expect(layout.control.h).toBe(Math.ceil(500 / 31) * LOT_H);
+    const { nDistrict, nHomes } = townCounts(world);
+    expect(townSize(nDistrict, nHomes, 31)).toEqual({ width: layout.width, height: layout.height });
+    const second = layout.order.control[31];
+    const lot = layout.lots[second]!;
+    expect([lot.col, lot.row]).toEqual([0, 1]);
+    expect(lotAt(layout, lot.x + 2, lot.y + 2)).toBe(second);
+    const order = focusOrder(layout);
+    expect(moveFocus(layout, order, 0, 'ArrowDown')).toBe(31);
+  });
+
+  it('colours a person drawn as a dot by state, and keeps the dot the same size on screen at any zoom', () => {
+    expect(dotTint('home', 'control', 'initial')).toBe(0x2a78d6);
+    expect(dotTint('home', 'treatment', 'initial')).toBe(0xeb6834);
+    expect(dotTint('home', null, 'remarriage')).toBe(0x8e6bd6);
+    expect(dotTint('conflict', 'control', 'initial')).toBe(0xf6c945);
+    expect(dotTint('away', 'treatment', 'initial')).toBe(0xd35400);
+    expect(dotTint('single', null, null)).toBe(dotTint('dating', null, 'remarriage'));
+    for (const s of [0.12, 0.3, 0.7]) expect(dotWorldSize(s, 6) * s).toBeCloseTo(6);
+  });
+});

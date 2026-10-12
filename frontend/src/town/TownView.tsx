@@ -7,12 +7,20 @@ import type { Application, Container, Graphics, Sprite, Texture } from 'pixi.js'
 import { listCouples } from '../api';
 import type { CoupleRow, WorldResponse } from '../types';
 import {
+  DISTRICT_COLS,
   LOT_H,
   LOT_W,
   MARGIN,
+  ROOFS_ONLY_BELOW,
+  TITLE_BAND,
   buildAgents,
   buildLayout,
+  chooseDistrictCols,
+  dotTint,
+  dotWorldSize,
   everMarried,
+  fitScale,
+  townCounts,
   focusOrder,
   hash01,
   houseState,
@@ -26,6 +34,7 @@ import {
   walkSpeed,
   type AgentInfo,
   type Posture,
+  type Rect,
   type TownLayout,
 } from './layout';
 
@@ -73,6 +82,9 @@ interface Scene {
   houses: (Sprite | null)[];
   markers: (Sprite | null)[];
   figures: Sprite[];
+  /** Each figure's own person sprite, swapped for the dot when people are drawn as dots. */
+  personTex: Texture[];
+  dot: Texture;
   figureLayer: Container;
   markerLayer: Container;
   highlight: Graphics;
@@ -182,24 +194,9 @@ function buildScene(PIXI: Pixi, app: Application, layout: TownLayout, agents: Ag
   }
   root.addChild(plaza);
 
-  const label = (text: string, x: number, y: number, size = 22, weight: '400' | '600' = '600', alignRight = false) => {
-    const t = new PIXI.Text({
-      text,
-      style: { fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif', fontSize: size, fontWeight: weight, fill: 0x14301c },
-      resolution: 3,
-    });
-    if (alignRight) t.anchor.set(1, 0);
-    t.position.set(x, y);
-    root.addChild(t);
-  };
-  // The control titles sit at the district's inner edge, so the opening view shows both arms' names.
-  const controlRight = layout.control.x + layout.control.w;
-  label(titles[0], controlRight, MARGIN + 8, 22, '600', true);
-  label(`${layout.order.control.length.toLocaleString()} couples`, controlRight, MARGIN + 36, 16, '400', true);
-  label(titles[1], layout.treatment.x, MARGIN + 8);
-  label(`${layout.order.treatment.length.toLocaleString()} couples`, layout.treatment.x, MARGIN + 36, 16, '400');
-  label('Plaza', layout.plaza.x, MARGIN + 8);
-  label('singles, dating, new homes', layout.plaza.x, MARGIN + 36, 16, '400');
+  // District titles, counts and the plaza label are HTML over the canvas (see TownLabels), so they
+  // stay readable at every zoom; `titles` is kept for the caller's signature.
+  void titles;
 
   // Houses: four textures (left and right roof halves in either arm colour) shared by all lots.
   const houseTex: Record<string, Texture> = {};
@@ -266,19 +263,26 @@ function buildScene(PIXI: Pixi, app: Application, layout: TownLayout, agents: Ag
 
   const figureLayer = new PIXI.Container();
   figureLayer.sortableChildren = true;
-  const figures = agents.map((a) => {
-    const s = new PIXI.Sprite(tex[`person-${Math.floor(hash01(Math.abs(a.id), 7) * PEOPLE)}`]);
+  const personTex = agents.map((a) => tex[`person-${Math.floor(hash01(Math.abs(a.id), 7) * PEOPLE)}`]);
+  const figures = agents.map((_, i) => {
+    const s = new PIXI.Sprite(personTex[i]);
     s.anchor.set(0.5, 1);
     figureLayer.addChild(s);
     return s;
   });
+  // A white dot with a dark rim, tinted per person, for zoom levels where the sprites are too small.
+  const dotG = new PIXI.Graphics();
+  dotG.circle(8, 8, 7).fill(0xffffff).stroke({ width: 2, color: 0x1a1a1a });
+  const dot = app.renderer.generateTexture({ target: dotG, resolution: 4, antialias: true });
+  owned.push(dot);
+  dotG.destroy();
   root.addChild(figureLayer);
   root.addChild(markerLayer);
 
   const highlight = new PIXI.Graphics();
   root.addChild(highlight);
 
-  return { root, houses, markers, figures, figureLayer, markerLayer, highlight, owned, allTextures: [...Object.values(tex), ...owned] };
+  return { root, houses, markers, figures, personTex, dot, figureLayer, markerLayer, highlight, owned, allTextures: [...Object.values(tex), ...owned] };
 }
 
 export default function TownView({ world, day, speed, controlTitle, treatmentTitle, onPickCouple, onPickAgent, onFallback }: Props) {
@@ -330,12 +334,28 @@ export default function TownView({ world, day, speed, controlTitle, treatmentTit
     };
   }, [world]);
 
-  const layout = useMemo(() => buildLayout(world, everMarried(world)), [world]);
+  // Columns per district follow the canvas shape, so a wide window gets a wide town that fills it.
+  const homes = useMemo(() => everMarried(world), [world]);
+  const counts = useMemo(() => townCounts(world, homes), [world, homes]);
+  const [cols, setCols] = useState<number | null>(() => (typeof ResizeObserver === 'undefined' ? DISTRICT_COLS : null));
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      const w = host.clientWidth;
+      const h = host.clientHeight;
+      const c = w > 0 && h > 0 ? chooseDistrictCols(counts.nDistrict, counts.nHomes, w, h) : DISTRICT_COLS;
+      setCols((prev) => (prev === c ? prev : c));
+    });
+    ro.observe(host);
+    return () => ro.disconnect();
+  }, [counts]);
+  const layout = useMemo(() => buildLayout(world, homes, cols ?? DISTRICT_COLS), [world, homes, cols]);
   const agents = useMemo(() => (rows === null ? null : buildAgents(world, rows)), [world, rows]);
 
   useEffect(() => {
     const host = hostRef.current;
-    if (!host || !agents) return;
+    if (!host || !agents || cols === null) return;
     let disposed = false;
     let app: Application | null = null;
     let scene: Scene | null = null;
@@ -374,6 +394,27 @@ export default function TownView({ world, day, speed, controlTitle, treatmentTit
       // Camera: pan, zoom about a point, the opening view on the plaza, and the whole town.
       let scale = 1;
       let nearest: boolean | null = null;
+      let dotMode: boolean | null = null;
+      let onCamera = () => {};
+      const n = agents.length;
+      const tints = new Uint32Array(n).fill(0x3b3b3b);
+      // People are never hidden: when the sprites would be too small, each person is a dot in the
+      // colour of their state, and dots walk exactly as the figures do.
+      const swapFigures = () => {
+        for (let i = 0; i < n; i++) {
+          const f = sc.figures[i];
+          if (dotMode) {
+            f.texture = sc.dot;
+            f.anchor.set(0.5, 0.5);
+            f.tint = tints[i];
+          } else {
+            f.texture = sc.personTex[i];
+            f.anchor.set(0.5, 1);
+            f.tint = 0xffffff;
+            f.scale.set(1);
+          }
+        }
+      };
       const view = () => ({ w: theApp.screen.width, h: theApp.screen.height });
       const clampCamera = () => {
         const { w, h } = view();
@@ -381,13 +422,21 @@ export default function TownView({ world, day, speed, controlTitle, treatmentTit
         const th = layout.height * scale;
         sc.root.x = tw <= w ? (w - tw) / 2 : Math.min(w * 0.08, Math.max(w * 0.92 - tw, sc.root.x));
         sc.root.y = th <= h ? (h - th) / 2 : Math.min(h * 0.08, Math.max(h * 0.92 - th, sc.root.y));
+        onCamera();
       };
       const applyScale = (s: number) => {
         scale = s;
         sc.root.scale.set(s);
-        const roofs = roofsOnly(s);
-        sc.figureLayer.visible = !roofs;
-        sc.markerLayer.visible = !roofs;
+        const dots = roofsOnly(s);
+        sc.markerLayer.visible = !dots;
+        if (dots !== dotMode) {
+          dotMode = dots;
+          swapFigures();
+        }
+        if (dots) {
+          const k = dotWorldSize(s, 7) / 16;
+          for (const f of sc.figures) f.scale.set(k);
+        }
         const wantNearest = s * theApp.renderer.resolution >= 1;
         if (wantNearest !== nearest) {
           nearest = wantNearest;
@@ -416,11 +465,59 @@ export default function TownView({ world, day, speed, controlTitle, treatmentTit
         sc.root.y = 4 - 12 * s;
         clampCamera();
       };
+      // The left district, fitted so its people read as figures where the width allows it.
+      const focusLeft = () => {
+        const r: Rect = layout.control;
+        const { w, h } = view();
+        const widthFit = (w - 16) / (r.w + 24);
+        const both = Math.min(widthFit, (h - 16) / (r.h + TITLE_BAND + 16));
+        const s = Math.min(MAX_SCALE, widthFit, Math.max(both, (ROOFS_ONLY_BELOW + 1) / LOT_W));
+        applyScale(Math.max(minScale(), s));
+        sc.root.x = 8 - (r.x - 12) * scale;
+        sc.root.y = 4 - (r.y - TITLE_BAND) * scale;
+        clampCamera();
+      };
       camera.current = { fit, open, zoom: (f: number) => zoomAt(view().w / 2, view().h / 2, scale * f) };
-      open();
+
+      // Labels: district titles, counts and the plaza, as HTML over the canvas at a fixed size.
+      const labelBox = document.createElement('div');
+      labelBox.className = 'town-labels';
+      labelBox.setAttribute('aria-hidden', 'true');
+      const makeLabel = (cls: string, title: string, sub: string) => {
+        const el = document.createElement('div');
+        el.className = `town-label ${cls}`;
+        const strong = document.createElement('strong');
+        strong.textContent = title;
+        const span = document.createElement('span');
+        span.textContent = sub;
+        el.append(strong, span);
+        labelBox.appendChild(el);
+        return { el, span };
+      };
+      const lControl = makeLabel('town-label-end', controlTitle, `${layout.order.control.length.toLocaleString()} couples`);
+      const lPlaza = makeLabel('town-label-mid', 'Plaza', 'singles, dating, new homes');
+      const lTreatment = makeLabel('town-label-start', treatmentTitle, `${layout.order.treatment.length.toLocaleString()} couples`);
+      host.appendChild(labelBox);
+      cleanups.push(() => labelBox.remove());
+      onCamera = () => {
+        const top = Math.max(4, sc.root.y + (MARGIN + 6) * scale);
+        lControl.el.style.transform = `translate(${(sc.root.x + (layout.control.x + layout.control.w) * scale).toFixed(1)}px, ${top.toFixed(1)}px) translateX(-100%)`;
+        lTreatment.el.style.transform = `translate(${(sc.root.x + layout.treatment.x * scale).toFixed(1)}px, ${top.toFixed(1)}px)`;
+        lPlaza.el.style.transform = `translate(${(sc.root.x + (layout.plaza.x + layout.plaza.w / 2) * scale).toFixed(1)}px, ${top.toFixed(1)}px) translateX(-50%)`;
+        lPlaza.span.style.display = layout.plaza.w * scale < 200 ? 'none' : '';
+      };
+
+      // A resize that keeps the same columns still moves the canvas edges: re-clamp the camera,
+      // which also repositions the labels.
+      const onResize = () => clampCamera();
+      theApp.renderer.on('resize', onResize);
+      cleanups.push(() => theApp.renderer.off('resize', onResize));
+
+      // Open where people are visible: the whole town if a house is big enough, else the left district.
+      if (LOT_W * fitScale(layout, view().w, view().h) >= ROOFS_ONLY_BELOW) fit();
+      else focusLeft();
 
       // Figures: targets come from the day's states; positions walk toward them each frame.
-      const n = agents.length;
       const tx = new Float32Array(n);
       const ty = new Float32Array(n);
       const x = new Float32Array(n);
@@ -443,6 +540,8 @@ export default function TownView({ world, day, speed, controlTitle, treatmentTit
           facing[i] = p.facing;
           anchorCouple[i] = p.couple ?? -1;
           placements[i] = p.couple;
+          tints[i] = dotTint(p.posture, p.couple === null ? null : (world.arms[p.couple] ?? null), p.couple === null ? null : (world.origin[p.couple] ?? null));
+          if (dotMode) sc.figures[i].tint = tints[i];
         }
         world.couples.forEach((_, idx) => {
           const st = houseState(states[idx] ?? '-', world.origin[idx]);
@@ -499,9 +598,13 @@ export default function TownView({ world, day, speed, controlTitle, treatmentTit
             y[i] = ny;
           }
           const s = sc.figures[i];
-          const bob = moving ? Math.abs(Math.sin(now * 14 + phase[i])) * 1.5 : 0;
-          s.position.set(x[i], y[i] - bob);
-          s.scale.x = facing[i];
+          if (dotMode) {
+            s.position.set(x[i], y[i] - 6);
+          } else {
+            const bob = moving ? Math.abs(Math.sin(now * 14 + phase[i])) * 1.5 : 0;
+            s.position.set(x[i], y[i] - bob);
+            s.scale.x = facing[i];
+          }
           s.zIndex = y[i];
         }
         snapFrame = false;
@@ -534,9 +637,8 @@ export default function TownView({ world, day, speed, controlTitle, treatmentTit
       // Every drawn person can be hovered and opened. A figure stands below its house's walls, so
       // a point on the house itself still opens the couple.
       const figureAt = (wx: number, wy: number): number | null => {
-        if (!sc.figureLayer.visible) return null;
         let best: number | null = null;
-        let bestD = 8;
+        let bestD = dotMode ? Math.max(8, dotWorldSize(scale, 5)) : 8;
         for (let i = 0; i < n; i++) {
           const dd = Math.hypot(x[i] - wx, y[i] - 8 - wy);
           if (dd < bestD) {
@@ -734,7 +836,7 @@ export default function TownView({ world, day, speed, controlTitle, treatmentTit
       app = null;
       scene = null;
     };
-  }, [agents, layout, world, controlTitle, treatmentTitle]);
+  }, [agents, layout, world, controlTitle, treatmentTitle, cols]);
 
   const zoomIn = useCallback(() => camera.current?.zoom(1.4), []);
   const zoomOut = useCallback(() => camera.current?.zoom(1 / 1.4), []);
@@ -802,6 +904,7 @@ export function TownLegend({ controlTitle, treatmentTitle }: { controlTitle: str
       <span>Separated, one partner waits at the plaza edge</span>
       <span>Divorced, the house dims and both walk to the plaza</span>
       <span>Dating again, pairs strolling in the plaza</span>
+      <span>Zoomed far out, each person is a dot: their arm colour at home, yellow in a conflict, red when one has walked out, grey in the plaza</span>
     </div>
   );
 }

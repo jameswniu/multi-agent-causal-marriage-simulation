@@ -219,7 +219,7 @@ details.tableview summary { cursor: pointer; color: var(--ink-2); font-size: 0.9
 .town-toolbar button { min-width: 2.2rem; }
 .town-hint { font-size: 0.9rem; }
 .town-hover { min-height: 1.4em; }
-.town-canvas { position: relative; width: 100%; height: clamp(420px, 68vh, 760px); border-radius: 6px; overflow: hidden; background: #7cc576; }
+.town-canvas { position: relative; width: 100%; height: max(560px, 70vh); border-radius: 6px; overflow: hidden; background: #7cc576; }
 .town-canvas canvas { max-width: none; }
 .town-legend { display: flex; flex-wrap: wrap; gap: 0.6rem 1.2rem; font-size: 0.95rem; color: var(--ink-2); align-items: center; margin-top: 0.6rem; }
 .town-roof { display: inline-flex; vertical-align: -4px; margin-right: 0.4rem; }
@@ -228,3 +228,11 @@ details.tableview summary { cursor: pointer; color: var(--ink-2); font-size: 0.9
 .town-footnote { margin-top: 0.4rem; }
 .town-canvas canvas:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
 .town-canvas canvas:focus:not(:focus-visible) { outline: none; }
+
+/* District titles, counts and the plaza label: HTML over the canvas so they read at every zoom. */
+.town-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.town-label { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; gap: 0.1rem; padding: 0.2rem 0.5rem; border-radius: 6px; background: var(--surface); color: var(--ink); border: 1px solid var(--border); white-space: nowrap; }
+.town-label strong { font-size: 16px; line-height: 1.2; }
+.town-label span { font-size: 14px; line-height: 1.2; }
+.town-label-end { text-align: right; align-items: flex-end; }
+.town-label-mid { text-align: center; align-items: center; }
