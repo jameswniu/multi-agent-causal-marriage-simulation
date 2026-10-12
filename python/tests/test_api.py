@@ -679,7 +679,7 @@ def test_a_translated_custom_shock_runs_and_records_its_translation(tmp_path: Pa
         "analysis": {"n_boot": 20, "n_perm": 20},
         "translations": [{"translation_id": t["translation_id"], "shock_index": 0}],
     }
-    r = client.post("/api/experiments/run", json=body)
+    r = client.post("/api/experiments/run?wait=true", json=body)
     assert r.status_code == 200, r.text
     record = json.loads((tmp_path / "mother" / "translation.json").read_text())["translations"][0]
     assert record["verified"] is True and record["edited"] is False
