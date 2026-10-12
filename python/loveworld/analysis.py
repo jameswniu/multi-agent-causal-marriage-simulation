@@ -25,9 +25,10 @@ import pyarrow.parquet as pq
 from loveworld.experiment import AnalysisSettings, intervention_summary, shocks_summary
 from loveworld.schema import (
     BALANCE_COVARIATES,
+    DAILY_OPTIONAL_DEFAULTS,
     DISCLAIMER,
-    EPISODE_COLUMNS,
     EVIDENCE_CLASS,
+    OPTIONAL_COLUMNS,
     OPTIONAL_TABLES,
     OUTCOMES,
     SAFE_NAME,
@@ -50,6 +51,7 @@ class Tables:
     interventions: pd.DataFrame
     conflicts: pd.DataFrame
     episodes: pd.DataFrame
+    legacies: pd.DataFrame
 
     @property
     def days(self) -> int:
@@ -77,8 +79,11 @@ def load_tables(results_dir: str | Path) -> Tables:
     for name in OPTIONAL_TABLES:
         path = d / f"{name}.parquet"
         frames[name] = (
-            pq.read_table(path).to_pandas() if path.exists() else pd.DataFrame({c: [] for c in EPISODE_COLUMNS})
+            pq.read_table(path).to_pandas() if path.exists() else pd.DataFrame({c: [] for c in OPTIONAL_COLUMNS[name]})
         )
+    for col, default in DAILY_OPTIONAL_DEFAULTS.items():
+        if col not in frames["daily"].columns:
+            frames["daily"][col] = default
     return Tables(results_dir=d, manifest=manifest, config=config, **frames)
 
 

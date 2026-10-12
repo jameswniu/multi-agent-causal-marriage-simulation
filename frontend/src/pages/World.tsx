@@ -26,6 +26,15 @@ interface TickerState {
  * Events for one day at a time through the per-day endpoint. One request in flight; a newer day
  * aborts the older request; failures are never cached and surface as an error with retry.
  */
+/** Memory housekeeping events: logged for the developer view, kept out of the day's ticker. */
+const HOUSEKEEPING = new Set(['memory_consolidated']);
+
+/** The day's events a viewer should read, and how many housekeeping events were set aside. */
+export function splitTicker(items: EventRow[]): { shown: EventRow[]; housekeeping: number } {
+  const shown = items.filter((e) => !HOUSEKEEPING.has(e.kind));
+  return { shown, housekeeping: items.length - shown.length };
+}
+
 function useDayEvents(day: number, enabled: boolean) {
   const cache = useRef<Map<number, EventRow[]>>(new Map());
   const ctrl = useRef<AbortController | null>(null);
@@ -402,8 +411,20 @@ export default function World() {
                 <p className="muted">Loading events...</p>
               ) : (
                 <div className={ticker.day === d ? '' : 'stale'} data-testid="ticker">
-                  <EventMarkers events={ticker.items} limit={40} withCouple />
-                  {ticker.items.length > 40 ? <p className="muted">Showing 40 of {ticker.items.length}.</p> : null}
+                  {(() => {
+                    const { shown, housekeeping } = splitTicker(ticker.items);
+                    return (
+                      <>
+                        <EventMarkers events={shown} limit={40} withCouple />
+                        {shown.length > 40 ? <p className="muted">Showing 40 of {shown.length}.</p> : null}
+                        {housekeeping > 0 ? (
+                          <p className="muted">
+                            {housekeeping} memory {housekeeping === 1 ? 'consolidation' : 'consolidations'} not listed; a couple's Under the hood panel shows them.
+                          </p>
+                        ) : null}
+                      </>
+                    );
+                  })()}
                 </div>
               )}
             </div>

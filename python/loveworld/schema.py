@@ -22,9 +22,31 @@ TABLES = (
 )
 
 # Written by newer engines; tolerated when absent.
-OPTIONAL_TABLES = ("episodes",)
+OPTIONAL_TABLES = ("episodes", "legacies")
 
 EPISODE_COLUMNS = ("day", "couple_id", "agent_id", "partner_id", "kind", "intensity", "source", "amplified")
+
+# One row per agent per divorce: the sealed record of the marriage that just ended.
+LEGACY_COLUMNS = (
+    "day",
+    "couple_id",
+    "agent_id",
+    "partner_id",
+    "ended_by",
+    "conflicts",
+    "reconciled",
+    "final_trust",
+    "final_neg_load",
+    "final_pos_load",
+    "match_quality",
+    "commitment_shift",
+    "trust_prior",
+)
+
+OPTIONAL_COLUMNS: dict[str, tuple[str, ...]] = {"episodes": EPISODE_COLUMNS, "legacies": LEGACY_COLUMNS}
+
+# Daily columns added by newer engines, with the value an older run implies.
+DAILY_OPTIONAL_DEFAULTS: dict[str, Any] = {"orphan_days": 0}
 
 STATES = ("dating", "married", "separated", "divorced", "broken_up")
 
@@ -45,6 +67,8 @@ EVENT_KINDS = (
     "matched",
     "married",
     "disappointed",
+    "sealed",
+    "memory_consolidated",
 )
 
 CONFLICT_OUTCOMES = ("reconciled", "faded", "separated", "breakup", "open_at_end")

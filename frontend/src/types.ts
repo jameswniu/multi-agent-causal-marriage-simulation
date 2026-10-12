@@ -78,6 +78,8 @@ export interface DailyRow {
   pos_b: number;
   stress_a: number;
   stress_b: number;
+  /** Consecutive days without a warm memory on both sides (newer engines; absent means 0). */
+  orphan_days?: number;
 }
 
 export interface DecisionRow {
@@ -240,6 +242,8 @@ export interface PolicySpec {
   sampling: { rule: string; temperature: number };
   contexts: Record<string, Record<string, string>>;
   weights: Record<string, number>;
+  /** When leaving is on the menu for a married or separated couple (newer engines). */
+  leave_rule?: { association_window_days: number; orphan_days_to_leave: number; unlock_intensity: number; applies_to: string[] };
 }
 
 export interface Manifest {
@@ -286,6 +290,7 @@ export interface CoupleDetailResponse {
   conflicts: ConflictRow[];
   decisions: DecisionRow[];
   episodes?: EpisodeRow[];
+  legacies?: LegacyRow[];
 }
 
 export interface AgentDailyRow {
@@ -298,6 +303,7 @@ export interface AgentDailyRow {
   pos: number;
   stress: number;
   state: RelState;
+  orphan_days?: number;
 }
 
 export interface AgentDetailResponse {
@@ -307,6 +313,7 @@ export interface AgentDetailResponse {
   daily: AgentDailyRow[];
   episodes?: EpisodeRow[];
   decisions?: DecisionRow[];
+  legacies?: LegacyRow[];
 }
 
 // Section 5: world replay.
@@ -425,6 +432,23 @@ export interface RunResponse {
   name: string;
   dir: string;
   summary: Summary;
+}
+
+/** The sealed record of a marriage that ended in divorce, one per member (newer engines). */
+export interface LegacyRow {
+  day: number;
+  couple_id: number;
+  agent_id: number;
+  partner_id: number;
+  ended_by: 'self' | 'partner' | 'time';
+  conflicts: number;
+  reconciled: number;
+  final_trust: number;
+  final_neg_load: number;
+  final_pos_load: number;
+  match_quality: number;
+  commitment_shift: number;
+  trust_prior: number;
 }
 
 export interface EpisodeRow {

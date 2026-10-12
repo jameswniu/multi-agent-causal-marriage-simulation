@@ -11,10 +11,10 @@ import { useAsync } from '../useAsync';
 import StateGantt from '../components/StateGantt';
 import { fmtCi, fmtP } from '../format';
 import { oneInN } from '../components/Scoreboard';
-import { framingSentence, gridTitles, takeaway } from '../pages/World';
+import { framingSentence, gridTitles, splitTicker, takeaway } from '../pages/World';
 import { armLabels, differenceClause, humanDuration, interventionOf, interventionSummary, memoryWords, sharedClause, shockShort, whatDiffers, toCatalog, type Catalog } from '../arms';
 import { validateRun, type RunForm } from '../validation';
-import { previousRecords, unionOfDays } from '../components/UnderTheHood';
+import { legacySentence, orphanNote, previousRecords, unionOfDays } from '../components/UnderTheHood';
 import * as api from '../api';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -302,6 +302,26 @@ describe('pulses, probabilities, requests, async', () => {
     const prev = previousRecords(members);
     expect(prev.get(1)?.get(2)?.day).toBe(0);
     expect(prev.get(1)?.get(0)).toBeUndefined();
+  });
+
+  it('the developer log words a sealed marriage and the orphan state plainly', () => {
+    const row = { day: 210, couple_id: 4, agent_id: 9, partner_id: 8, ended_by: 'partner' as const, conflicts: 7, reconciled: 4, final_trust: 0.214, final_neg_load: 0.9, final_pos_load: 0.1, match_quality: 0.7, commitment_shift: 0.3, trust_prior: 0.402 };
+    expect(legacySentence(row)).toBe(
+      'Day 210: agent 9 sealed the marriage with agent 8 after 7 conflicts, 4 reconciled, the partner left. Final trust 0.21. The next relationship starts at trust 0.40, and leaving is 0.30 easier in later relationships.',
+    );
+    expect(legacySentence({ ...row, conflicts: 1, ended_by: 'time', commitment_shift: 0 })).toMatch(/after 1 conflict, 4 reconciled, the separation ran out\. Final trust 0\.21\. The next relationship starts at trust 0\.40\.$/);
+    expect(orphanNote(undefined, 21)).toBeNull();
+    expect(orphanNote(0, 21)).toBeNull();
+    expect(orphanNote(1, 21)).toBe('No warm memory on both sides for 1 day, leaving opens after 21.');
+    expect(orphanNote(25, 21)).toBe('No warm memory on both sides for 25 days, leaving is now possible.');
+    expect(orphanNote(5, null)).toBe('No warm memory on both sides for 5 days.');
+  });
+
+  it('the day ticker keeps memory housekeeping out of the list and counts it instead', () => {
+    const ev = (seq: number, kind: string) => ({ day: 7, seq, couple_id: seq, agent_id: null, kind, from_state: null, to_state: null, value: null });
+    const { shown, housekeeping } = splitTicker([ev(0, 'conflict_started'), ev(1, 'memory_consolidated'), ev(2, 'sealed'), ev(3, 'memory_consolidated')]);
+    expect(shown.map((e) => e.kind)).toEqual(['conflict_started', 'sealed']);
+    expect(housekeeping).toBe(2);
   });
 
   it('chart text and scoreboard sublines are at least 0.875rem', () => {

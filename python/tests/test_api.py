@@ -117,7 +117,7 @@ def test_couples_listing_and_detail(client: TestClient) -> None:
     detail = client.get("/api/couples/0")
     assert detail.status_code == 200
     d = detail.json()
-    assert set(d) == {"couple", "agents", "daily", "events", "conflicts", "decisions", "episodes"}
+    assert set(d) == {"couple", "agents", "daily", "events", "conflicts", "decisions", "episodes", "legacies"}
     assert d["couple"]["couple_id"] == 0
     assert [a["agent_id"] for a in d["agents"]] == [d["couple"]["agent_a"], d["couple"]["agent_b"]]
     assert len(d["daily"]) >= 1 and d["daily"][0]["day"] == 0
@@ -133,13 +133,24 @@ def test_agent_detail(client: TestClient) -> None:
     r = client.get("/api/agents/1")
     assert r.status_code == 200
     a = r.json()
-    assert set(a) == {"agent", "couples", "events", "daily", "episodes"}
+    assert set(a) == {"agent", "couples", "events", "daily", "episodes", "legacies"}
     assert a["agent"]["agent_id"] == 1
     assert a["couples"][0]["couple_id"] == 0
     assert len(a["daily"]) >= 1
-    assert {"day", "trust", "affect", "neg", "pos", "stress", "state", "couple_id", "satisfaction"} <= set(
-        a["daily"][0]
-    )
+    expected_daily = {
+        "day",
+        "trust",
+        "affect",
+        "neg",
+        "pos",
+        "stress",
+        "state",
+        "couple_id",
+        "satisfaction",
+        "orphan_days",
+    }
+    assert expected_daily <= set(a["daily"][0])
+    assert isinstance(a["legacies"], list)
     assert all(e["agent_id"] == 1 for e in a["events"])
     _no_nan(json.loads(r.text))
     assert client.get("/api/agents/999999").status_code == 404
@@ -262,7 +273,8 @@ def test_twins_couple_detail(client: TestClient) -> None:
     body = r.json()
     assert set(body) == {"control", "treatment"}
     for arm in ("control", "treatment"):
-        assert set(body[arm]) == {"couple", "agents", "daily", "events", "conflicts", "decisions", "episodes"}
+        detail_keys = {"couple", "agents", "daily", "events", "conflicts", "decisions", "episodes", "legacies"}
+        assert set(body[arm]) == detail_keys
         assert body[arm]["couple"]["couple_id"] == 3
         assert body[arm]["couple"]["arm"] == arm
     ca, ta = body["control"]["agents"], body["treatment"]["agents"]
@@ -412,3 +424,46 @@ def test_root_mode_startup_recovers_a_stranded_swap(results_root: Path, tmp_path
     app = create_app(tmp_path, frontend_dist=tmp_path / "no-dist")
     assert TestClient(app).get("/api/health").json()["experiments"] == ["smoke"]
     assert not old.exists() and not (tmp_path / "smoke" / runner.SWAP_MARKER).exists()
+
+
+def test_legacies_and_orphan_days_are_tolerated_when_absent_and_served_when_present(
+    lonely_results: Path, tmp_path: Path
+) -> None:
+    """A run from an older engine has neither; a newer one has both, and each reaches the detail payloads."""
+    old = tmp_path / "older-engine"
+    shutil.copytree(lonely_results, old)
+    (old / "legacies.parquet").unlink(missing_ok=True)
+    daily = pq.read_table(old / "daily.parquet")
+    if "orphan_days" in daily.column_names:
+        pq.write_table(daily.drop(["orphan_days"]), old / "daily.parquet")
+    c = TestClient(create_app(old, frontend_dist=old / "no-dist"))
+    d = c.get("/api/couples/0").json()
+    assert d["legacies"] == [] and all(row["orphan_days"] == 0 for row in d["daily"])
+    assert all(row["orphan_days"] == 0 for row in c.get("/api/agents/0").json()["daily"])
+
+    new = tmp_path / "newer-engine"
+    shutil.copytree(old, new)
+    table = pa.table(
+        {
+            "day": pa.array([40, 40], pa.int32()),
+            "couple_id": pa.array([0, 0], pa.int64()),
+            "agent_id": pa.array([0, 1], pa.int64()),
+            "partner_id": pa.array([1, 0], pa.int64()),
+            "ended_by": ["self", "partner"],
+            "conflicts": pa.array([5, 5], pa.int32()),
+            "reconciled": pa.array([2, 2], pa.int32()),
+            "final_trust": [0.21, 0.33],
+            "final_neg_load": [0.9, 0.7],
+            "final_pos_load": [0.1, 0.2],
+            "match_quality": [0.71, 0.71],
+            "commitment_shift": [0.3, 0.3],
+            "trust_prior": [0.4, 0.45],
+        }
+    )
+    pq.write_table(table, new / "legacies.parquet")
+    c = TestClient(create_app(new, frontend_dist=new / "no-dist"))
+    d = c.get("/api/couples/0").json()
+    assert [(row["agent_id"], row["ended_by"]) for row in d["legacies"]] == [(0, "self"), (1, "partner")]
+    a = c.get("/api/agents/1").json()
+    assert [row["trust_prior"] for row in a["legacies"]] == [0.45]
+    assert c.get("/api/agents/2").json()["legacies"] == []

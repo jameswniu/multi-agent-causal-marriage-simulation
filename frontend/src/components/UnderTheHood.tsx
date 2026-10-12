@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { DecisionRow, EpisodeRow, EventRow } from '../types';
+import type { DecisionRow, EpisodeRow, EventRow, LegacyRow } from '../types';
 import { getPolicy } from '../api';
 import { useAsync } from '../useAsync';
 import { safeFixed } from '../format';
@@ -12,6 +12,8 @@ export interface MemberDay {
   stress: number;
   neg: number;
   pos: number;
+  /** Consecutive days the couple has gone without a warm memory on both sides. */
+  orphanDays?: number;
 }
 
 export interface HoodMember {
@@ -25,6 +27,7 @@ interface Props {
   decisions: DecisionRow[];
   episodes?: EpisodeRow[];
   events: EventRow[];
+  legacies?: LegacyRow[];
 }
 
 const ACTIONS: [keyof DecisionRow, string][] = [
@@ -68,15 +71,40 @@ export function previousRecords(members: HoodMember[]): Map<number, Map<number, 
   return out;
 }
 
+const ENDED_BY: Record<LegacyRow['ended_by'], string> = {
+  self: 'this agent left',
+  partner: 'the partner left',
+  time: 'the separation ran out',
+};
+
+/** One plain sentence for a sealed marriage, as the developer log shows it. */
+export function legacySentence(row: LegacyRow): string {
+  const shift = row.commitment_shift > 0 ? `, and leaving is ${row.commitment_shift.toFixed(2)} easier in later relationships` : '';
+  return (
+    `Day ${row.day}: agent ${row.agent_id} sealed the marriage with agent ${row.partner_id} after ${row.conflicts} ` +
+    `${row.conflicts === 1 ? 'conflict' : 'conflicts'}, ${row.reconciled} reconciled, ${ENDED_BY[row.ended_by] ?? row.ended_by}. ` +
+    `Final trust ${row.final_trust.toFixed(2)}. The next relationship starts at trust ${row.trust_prior.toFixed(2)}${shift}.`
+  );
+}
+
+/** The couple-level note for a day: how long the couple has gone without a shared warm memory. */
+export function orphanNote(orphanDays: number | undefined, unlockAfter: number | null): string | null {
+  if (!orphanDays || orphanDays <= 0) return null;
+  const unit = orphanDays === 1 ? 'day' : 'days';
+  const lock = unlockAfter === null ? '' : orphanDays >= unlockAfter ? ', leaving is now possible' : `, leaving opens after ${unlockAfter}`;
+  return `No warm memory on both sides for ${orphanDays} ${unit}${lock}.`;
+}
+
 function delta(cur: number, prev: number | undefined): string {
   if (prev === undefined || cur === null || prev === null || Number.isNaN(cur - prev)) return '';
   const d = cur - prev;
   return ` (${d >= 0 ? '+' : ''}${d.toFixed(3)})`;
 }
 
-function Body({ members, decisions, episodes, events }: Props) {
+function Body({ members, decisions, episodes, events, legacies }: Props) {
   const policy = useAsync(() => getPolicy().catch(() => null), []);
   const temperature = policy.data?.sampling.temperature ?? 0.6;
+  const unlockAfter = policy.data?.leave_rule?.orphan_days_to_leave ?? null;
   const allDays = useMemo(() => unionOfDays(members, episodes, decisions, events), [members, episodes, decisions, events]);
   const first = allDays[0] ?? 0;
   const last = allDays[allDays.length - 1] ?? 0;
@@ -146,9 +174,21 @@ function Body({ members, decisions, episodes, events }: Props) {
           {shown.length} of {allDays.length} days. {episodes ? `${episodes.length} episodes logged.` : 'No episodes table in this run.'}
         </span>
       </div>
+      {legacies && legacies.length > 0 ? (
+        <div data-testid="hood-legacies">
+          <div className="dayhead">Sealed marriages</div>
+          {legacies.map((row, i) => (
+            <div key={i}>{legacySentence(row)}</div>
+          ))}
+        </div>
+      ) : null}
       {shown.map((day) => (
         <div key={day} data-testid="hood-day">
           <div className="dayhead">Day {day}</div>
+          {(() => {
+            const note = orphanNote(members[0] ? byDay.get(members[0].id)?.get(day)?.orphanDays : undefined, unlockAfter);
+            return note ? <div className="muted">{note}</div> : null;
+          })()}
           {shocksFor(day).map((s, i) => (
             <div key={i} className="muted">
               Shock: {s.kind.replace('shock_', '').replace(/_/g, ' ')}

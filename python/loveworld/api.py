@@ -167,6 +167,8 @@ class Loaded:
         self.decisions_by_couple = _index(t.decisions, "couple_id")
         self.episodes_by_couple = _index(t.episodes, "couple_id")
         self.episodes_by_agent = _index(t.episodes, "agent_id")
+        self.legacies_by_couple = _index(t.legacies, "couple_id")
+        self.legacies_by_agent = _index(t.legacies, "agent_id")
         self.couples_by_id = {int(r["couple_id"]): i for i, r in t.couples.reset_index(drop=True).iterrows()}
         self.events_sorted = t.events.sort_values(["day", "seq"], kind="stable")
         self.world = build_world(t)
@@ -220,6 +222,11 @@ def couple_detail(loaded: Loaded, couple_id: int) -> dict[str, Any] | None:
             if couple_id in loaded.episodes_by_couple
             else empty
         ),
+        "legacies": records(
+            loaded.legacies_by_couple.get(couple_id, empty).sort_values(["day", "agent_id"])
+            if couple_id in loaded.legacies_by_couple
+            else empty
+        ),
     }
 
 
@@ -248,6 +255,7 @@ def agent_detail(loaded: Loaded, agent_id: int) -> dict[str, Any] | None:
                     "pos": dd[f"pos_{side}"],
                     "stress": dd[f"stress_{side}"],
                     "state": dd["state"],
+                    "orphan_days": dd["orphan_days"] if "orphan_days" in dd.columns else 0,
                 }
             )
         )
@@ -265,6 +273,11 @@ def agent_detail(loaded: Loaded, agent_id: int) -> dict[str, Any] | None:
         "episodes": records(
             loaded.episodes_by_agent.get(agent_id, empty).sort_values("day")
             if agent_id in loaded.episodes_by_agent
+            else empty
+        ),
+        "legacies": records(
+            loaded.legacies_by_agent.get(agent_id, empty).sort_values("day")
+            if agent_id in loaded.legacies_by_agent
             else empty
         ),
     }

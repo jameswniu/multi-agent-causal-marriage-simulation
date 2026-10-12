@@ -107,10 +107,11 @@ export default function AgentDetail() {
         </div>
       </div>
       <UnderTheHood
-        members={[{ id: agent.agent_id, label: `Agent ${agent.agent_id}`, days: daily.map((d) => ({ day: d.day, trust: d.trust, affect: d.affect, stress: d.stress, neg: d.neg, pos: d.pos })) }]}
+        members={[{ id: agent.agent_id, label: `Agent ${agent.agent_id}`, days: daily.map((d) => ({ day: d.day, trust: d.trust, affect: d.affect, stress: d.stress, neg: d.neg, pos: d.pos, orphanDays: d.orphan_days })) }]}
         decisions={decisions ?? []}
         episodes={episodes}
         events={events}
+        legacies={data.legacies}
       />
     </div>
   );

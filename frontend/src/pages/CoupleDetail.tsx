@@ -129,12 +129,13 @@ export default function CoupleDetail() {
       </div>
       <UnderTheHood
         members={[
-          { id: couple.agent_a, label: `Agent ${couple.agent_a}`, days: daily.map((d) => ({ day: d.day, trust: d.trust_a, affect: d.affect_a, stress: d.stress_a, neg: d.neg_a, pos: d.pos_a })) },
-          { id: couple.agent_b, label: `Agent ${couple.agent_b}`, days: daily.map((d) => ({ day: d.day, trust: d.trust_b, affect: d.affect_b, stress: d.stress_b, neg: d.neg_b, pos: d.pos_b })) },
+          { id: couple.agent_a, label: `Agent ${couple.agent_a}`, days: daily.map((d) => ({ day: d.day, trust: d.trust_a, affect: d.affect_a, stress: d.stress_a, neg: d.neg_a, pos: d.pos_a, orphanDays: d.orphan_days })) },
+          { id: couple.agent_b, label: `Agent ${couple.agent_b}`, days: daily.map((d) => ({ day: d.day, trust: d.trust_b, affect: d.affect_b, stress: d.stress_b, neg: d.neg_b, pos: d.pos_b, orphanDays: d.orphan_days })) },
         ]}
         decisions={decisions}
         episodes={episodes}
         events={events}
+        legacies={data.legacies}
       />
     </div>
   );
