@@ -1,3 +1,8 @@
+// The tile grids of the World page, which replays a simulated year of married couples. Each couple is one
+// small tile coloured by its state on the day shown (married, in a conflict, separated, divorced, dating or
+// broken up), drawn on one canvas per grid so a fast replay touches no page element per tile. Hover, the
+// arrow keys, Enter or a click open a couple, and a forked world's grids ring the couples whose state differs
+// from the same couples in the world it was forked from.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { StateChar } from '../types';
 import { stateColor, inkColor, gridColor } from '../palette';
@@ -52,7 +57,7 @@ interface Props {
   onPick: (coupleId: number) => void;
   /** Extra hover text for a tile, e.g. the twin's state. */
   hoverExtra?: (idx: number, day: number) => string;
-  /** Positions to ring today, as the town rings their houses: the couples whose state differs from the world this one is compared with. */
+  /** Positions to ring today: couples whose state that day differs from the same couple's in another world this one is compared with, such as the world a fork was made from. The town picture of the World page rings the same couples' houses. */
   rings?: number[] | null;
   testId?: string;
 }

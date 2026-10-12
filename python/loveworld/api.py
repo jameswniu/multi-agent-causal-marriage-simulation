@@ -191,7 +191,11 @@ class Loaded:
         self._views_lock = threading.Lock()
 
     def lens(self, name: str) -> bytes | None:
-        """One lens as day-major bytes, built on first use and kept (None when the run lacks it)."""
+        """Return one colour lens as day-major bytes, built on first use and kept.
+
+        A lens is a daily measure per couple, such as trust or stress, that recolours the town. None when the
+        run lacks the columns it reads.
+        """
         with self._views_lock:
             if name not in self._lenses:
                 self._lenses[name] = world_views.lens_bytes(self.tables, name)
@@ -831,7 +835,10 @@ def check_public_run(raw: Any, config: pubmod.PublicConfig) -> None:
 
 
 def parse_run_body(raw: Any) -> tuple[dict[str, Any], bool]:
-    """Validate a POST /api/experiments/run body against the section 6 bounds (ExperimentError on any problem)."""
+    """Validate a POST /api/experiments/run body: its keys, couples, days, name and resamples.
+
+    Any problem raises ExperimentError naming it.
+    """
     if not isinstance(raw, dict):
         raise ExperimentError("body must be a JSON object")
     unknown = sorted(set(raw) - set(RUN_BODY_KEYS))
