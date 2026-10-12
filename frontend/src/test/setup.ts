@@ -7,6 +7,24 @@ import { vi } from 'vitest';
  */
 export const canvasStats = { fillRect: 0, strokeRect: 0, clearRect: 0, contexts: 0 };
 
+/** One outlined rectangle, with the colour and width it was stroked in. */
+export interface StrokedRect {
+  style: string;
+  width: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Each canvas's outlined rectangles since it was last cleared: what the frame it shows now outlines. */
+const frames = new WeakMap<HTMLCanvasElement, StrokedRect[]>();
+
+/** The rectangles a canvas outlines in the frame it shows now. */
+export function strokesOn(canvas: HTMLCanvasElement): StrokedRect[] {
+  return frames.get(canvas) ?? [];
+}
+
 export function resetCanvasStats(): void {
   canvasStats.fillRect = 0;
   canvasStats.strokeRect = 0;
@@ -14,7 +32,7 @@ export function resetCanvasStats(): void {
   canvasStats.contexts = 0;
 }
 
-function fakeContext(): CanvasRenderingContext2D {
+function fakeContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
   canvasStats.contexts += 1;
   const noop = () => {};
   const ctx = {
@@ -25,12 +43,16 @@ function fakeContext(): CanvasRenderingContext2D {
     setTransform: noop,
     clearRect: () => {
       canvasStats.clearRect += 1;
+      frames.set(canvas, []);
     },
     fillRect: () => {
       canvasStats.fillRect += 1;
     },
-    strokeRect: () => {
+    strokeRect: (x: number, y: number, w: number, h: number) => {
       canvasStats.strokeRect += 1;
+      const list = frames.get(canvas) ?? [];
+      list.push({ style: String(ctx.strokeStyle), width: ctx.lineWidth, x, y, w, h });
+      frames.set(canvas, list);
     },
     beginPath: noop,
     moveTo: noop,
@@ -45,5 +67,5 @@ function fakeContext(): CanvasRenderingContext2D {
 
 HTMLCanvasElement.prototype.getContext = vi.fn(function (this: HTMLCanvasElement, kind: string) {
   if (kind !== '2d') throw new Error(`unexpected canvas context ${kind}`);
-  return fakeContext();
+  return fakeContext(this);
 }) as unknown as HTMLCanvasElement['getContext'];

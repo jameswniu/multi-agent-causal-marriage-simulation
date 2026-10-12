@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { StateChar } from '../types';
 import { stateColor, inkColor, gridColor } from '../palette';
+import { DIFF_RING_CSS, DIFF_RING_PX, RING_WORDS } from '../worldDiff';
 
 export interface TileStyle {
   fill: string;
@@ -51,6 +52,8 @@ interface Props {
   onPick: (coupleId: number) => void;
   /** Extra hover text for a tile, e.g. the twin's state. */
   hoverExtra?: (idx: number, day: number) => string;
+  /** Positions to ring today, as the town rings their houses: the couples whose state differs from the world this one is compared with. */
+  rings?: number[] | null;
   testId?: string;
 }
 
@@ -58,13 +61,14 @@ const GAP = 2;
 
 /** One canvas per grid; redraws on day change without any per-tile React work. Keyboard: focus the
  * canvas, arrows move between tiles, Enter opens the couple; a live region reads the tile out. */
-export default function WorldGrid({ title, subtitle, couples, states, indices, day, tile = 12, onPick, hoverExtra, testId }: Props) {
+export default function WorldGrid({ title, subtitle, couples, states, indices, day, tile = 12, onPick, hoverExtra, rings = null, testId }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(480);
   const [hover, setHover] = useState('');
   const [focus, setFocus] = useState<number | null>(null);
   const [hasFocus, setHasFocus] = useState(false);
+  const ringed = useMemo(() => (rings && rings.length ? new Set(rings) : null), [rings]);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -99,6 +103,7 @@ export default function WorldGrid({ title, subtitle, couples, states, indices, d
     const grid = gridColor();
     const innerSide = Math.max(4, Math.round(tile * 0.55));
     const innerOff = Math.floor((tile - innerSide) / 2);
+    const ringPx = Math.min(DIFF_RING_PX, Math.max(1, Math.floor(tile / 4)));
     for (let k = 0; k < indices.length; k++) {
       const idx = indices[k];
       const ch = chars[idx] ?? '-';
@@ -125,6 +130,13 @@ export default function WorldGrid({ title, subtitle, couples, states, indices, d
           ctx.stroke();
         }
       }
+      if (ringed?.has(idx)) {
+        // Inside the tile, as the town's ring sits inside its lot, so the pulse and the focus ring
+        // drawn around the tile still show.
+        ctx.strokeStyle = DIFF_RING_CSS;
+        ctx.lineWidth = ringPx;
+        ctx.strokeRect(x + ringPx / 2, y + ringPx / 2, tile - ringPx, tile - ringPx);
+      }
       if (changedOnDay(states, d, idx)) {
         ctx.strokeStyle = ink;
         ctx.lineWidth = 2;
@@ -138,7 +150,7 @@ export default function WorldGrid({ title, subtitle, couples, states, indices, d
         ctx.setLineDash([]);
       }
     }
-  }, [states, indices, d, width, height, cols, tile, focus, hasFocus]);
+  }, [states, indices, d, width, height, cols, tile, focus, hasFocus, ringed]);
 
   const tileAt = (ev: React.MouseEvent<HTMLCanvasElement>): number | null => {
     const rect = ev.currentTarget.getBoundingClientRect();
@@ -155,7 +167,8 @@ export default function WorldGrid({ title, subtitle, couples, states, indices, d
     const idx = indices[k];
     const ch = states[d]?.[idx] ?? '-';
     const extra = hoverExtra ? ` ${hoverExtra(idx, d)}` : '';
-    return `Couple ${couples[idx]}: ${charStyle(ch).label}.${extra}`;
+    const ring = ringed?.has(idx) ? ` ${RING_WORDS}.` : '';
+    return `Couple ${couples[idx]}: ${charStyle(ch).label}.${ring}${extra}`;
   };
 
   const onKey = (ev: React.KeyboardEvent<HTMLCanvasElement>) => {

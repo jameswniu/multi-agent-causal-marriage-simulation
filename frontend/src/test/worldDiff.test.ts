@@ -2,9 +2,10 @@
 // fork came from on a day, the counter's words, the day the new world's replay starts on, the ring's
 // width at every zoom, and the words for a run with no intervention.
 import { describe, expect, it } from 'vitest';
-import { differCounter, differingOnDay, matchCouples } from '../worldDiff';
+import { DIFF_RING, DIFF_RING_CSS, differCounter, differingOnDay, matchCouples } from '../worldDiff';
 import { REPLAY_LEAD_DAYS, replayStartDay } from '../shockForm';
 import { ringWidth } from '../town/layout';
+import { cssColor } from '../town/lens';
 import { chanceWords, noIntervention, signedPoints, twinWords } from '../nullRun';
 import type { Outcome, WorldResponse } from '../types';
 import type { ShockForm } from '../validation';
@@ -86,6 +87,11 @@ describe('where the new world replay starts', () => {
 });
 
 describe('the ring around a house that differs', () => {
+  it('is one colour for the town, the grid and the page, the one the contract names', () => {
+    expect(DIFF_RING_CSS).toBe('#ff2bd6');
+    expect(cssColor(DIFF_RING)).toBe(DIFF_RING_CSS);
+  });
+
   it('stays about three screen pixels wide when zoomed out and never thinner than three world units', () => {
     for (const scale of [0.2, 0.35, 0.5, 0.75]) expect(ringWidth(scale) * scale).toBeCloseTo(3, 5);
     expect(ringWidth(1)).toBe(3);

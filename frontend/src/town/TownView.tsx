@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Application, Container, Graphics, Sprite, Texture } from 'pixi.js';
 import { listCouples } from '../api';
 import type { Arm, CoupleRow, LensData, LensMeta, Origin, WorldResponse } from '../types';
+import { DIFF_RING, DIFF_RING_PX, RING_WORDS } from '../worldDiff';
 import { LENS_EMPTY, cssColor, fmtLens, lensByte, lensColor, meanValue, rampColor } from './lens';
 import {
   DISTRICT_COLS,
@@ -43,10 +44,6 @@ type Pixi = typeof import('pixi.js');
 const ASSET = '/assets/kenney';
 const PEOPLE = 8;
 const MAX_SCALE = 4;
-/** The ring around a house whose couple differs from the world this one is compared with: one colour that no arm, state or lens uses. */
-export const DIFF_RING = 0xff2bd6;
-/** Screen pixels the ring is drawn at when the whole town is in view, so it reads at every zoom. */
-const DIFF_RING_PX = 3;
 const DRAG_PX = 5;
 const STATS_WINDOW = 120;
 /** How long the town waits for the couples table before drawing stand-in people instead. */
@@ -1180,7 +1177,7 @@ export function TownLegend({ controlTitle, treatmentTitle, ringed = false }: { c
       {ringed ? (
         <span data-testid="ring-key">
           <span className="diff-ring-key" aria-hidden="true" />
-          Ringed, in a different state today than in the world this one is compared with
+          {RING_WORDS}
         </span>
       ) : null}
       <span>

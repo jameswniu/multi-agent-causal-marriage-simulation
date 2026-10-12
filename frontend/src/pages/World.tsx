@@ -599,7 +599,7 @@ export default function World() {
             {townNote}
           </p>
         ) : null}
-        {showTown ? null : <TileLegend legend={world.legend} />}
+        {showTown ? null : <TileLegend legend={world.legend} ringed={mode === 'randomized' && rings !== null} />}
       </div>
 
       {scoreboard}
@@ -676,7 +676,7 @@ export default function World() {
                     {differCounter(rings?.length ?? 0, match.compared, parentName)}.
                   </p>
                   <p className="muted">
-                    {flipped ? `The town now shows ${parentName} on day ${d}. The scoreboard, the counts and the events on this page stay with this world. ` : ''}A ring marks each house whose couple is in a different state today than the same couple in{' '}
+                    {flipped ? `The town now shows ${parentName} on day ${d}. The scoreboard, the counts and the events on this page stay with this world. ` : ''}A ring marks each {showTown ? 'house' : 'tile'} whose couple is in a different state today than the same couple in{' '}
                     {flipped ? 'this world' : parentName}. Both worlds run the same couples on the same random draws, so every ring is the added shock's doing. Each couple's whole year is compared on{' '}
                     <ExpLink to="/overview">Overview, under Versus its parent</ExpLink>.
                   </p>
@@ -712,8 +712,8 @@ export default function World() {
           ) : (
             <>
               <div className="grid-2">
-                <WorldGrid title={drawnControl} subtitle={controlSub} couples={drawn.couples} states={drawn.states} indices={shownGroups.control} day={d} onPick={openInspector} testId="grid-control" />
-                <WorldGrid title={drawnTreatment} subtitle={treatmentSub} couples={drawn.couples} states={drawn.states} indices={shownGroups.treatment} day={d} onPick={openInspector} testId="grid-treatment" />
+                <WorldGrid title={drawnControl} subtitle={controlSub} couples={drawn.couples} states={drawn.states} indices={shownGroups.control} day={d} onPick={openInspector} rings={rings} testId="grid-control" />
+                <WorldGrid title={drawnTreatment} subtitle={treatmentSub} couples={drawn.couples} states={drawn.states} indices={shownGroups.treatment} day={d} onPick={openInspector} rings={rings} testId="grid-treatment" />
               </div>
               <WorldGrid
                 title={`After divorce, dating and remarriage${counts && !flipped ? `: ${counts.remarriage.dating} dating, ${counts.remarriage.married} married today` : ''}`}

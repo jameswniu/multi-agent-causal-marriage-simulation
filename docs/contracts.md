@@ -860,7 +860,8 @@ id, since a remarriage can pair different people under the same id. Each day:
 
 - Every house whose couple's state letter differs from the same couple's in the parent gets a ring, in
   one colour (`#ff2bd6`) that no arm, state or lens uses, about three screen pixels wide at any zoom,
-  and the mini-map outlines the same lots.
+  and the mini-map outlines the same lots. The Grid view rings the same couples' tiles in the same
+  colour, three pixels wide inside the tile, and its key says what a ring means.
 - A counter reads "N of 1,000 couples differ from <parent> today".
 - A switch draws the parent on the same day instead, with the parent's own couples table and arm
   labels and the same rings. The scoreboard, the counts and the events stay with the child and say so,

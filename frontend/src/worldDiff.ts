@@ -4,6 +4,15 @@
 // formed by a remarriage can pair different people in each world, even under the same id.
 import type { WorldResponse } from './types';
 
+/** The ring around a house, or a grid tile, whose couple differs from the world this one is compared with: one colour that no arm, state or lens uses. */
+export const DIFF_RING_CSS = '#ff2bd6';
+/** The same colour as a number, for the town's PixiJS graphics. */
+export const DIFF_RING = Number.parseInt(DIFF_RING_CSS.slice(1), 16);
+/** Screen pixels the ring is drawn at, in the town at any zoom and around a grid tile. */
+export const DIFF_RING_PX = 3;
+/** What a ring means, in the town's legend, the grid's legend and a ringed tile's description. */
+export const RING_WORDS = 'Ringed, in a different state today than in the world this one is compared with';
+
 type Shape = Pick<WorldResponse, 'couples' | 'origin'>;
 
 export interface CoupleMatch {

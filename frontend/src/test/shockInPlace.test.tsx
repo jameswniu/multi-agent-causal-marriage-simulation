@@ -8,6 +8,8 @@ import * as mock from './mockApi';
 import App from '../App';
 import { jobPolling } from '../jobs';
 import type { ExperimentResponse, Outcome, TwinsRun, TwinsWorldResponse } from '../types';
+import { DIFF_RING_CSS, DIFF_RING_PX, RING_WORDS } from '../worldDiff';
+import { strokesOn } from './setup';
 
 vi.mock('../api', () => import('./mockApi'));
 
@@ -29,6 +31,13 @@ function at(path: string) {
 
 const MOTHER = 'His mother moves in for two months starting in month four';
 const dayShown = () => Number(/Day (\d+)/.exec(screen.getByTestId('day-label').textContent ?? '')?.[1] ?? -1);
+const JOB_LOSS = { kind: 'job_loss', target: 'treatment' as const, member: 'random' as const, start_day: 30, end_day: 50, magnitude: 1.5 };
+
+/** Where a grid draws its rings in the frame it shows now, as positions in the grid's own order (12 px tiles 2 px apart, one row here). */
+function ringedTiles(testId: string): number[] {
+  const rings = strokesOn(screen.getByTestId(testId) as HTMLCanvasElement).filter((s) => s.style === DIFF_RING_CSS);
+  return rings.map((s) => Math.round((s.x - s.width / 2) / 14)).sort((a, b) => a - b);
+}
 
 beforeEach(() => {
   mock.resetMockState();
@@ -134,11 +143,45 @@ describe('shocking a world in place', () => {
     expect(await screen.findByTestId('versus-parent')).toHaveTextContent('Forked from retention-90d');
   });
 
-  it('shows no comparison on a world that is not a fork', async () => {
+  it('rings the grid tiles of the couples that differ, in the town ring colour, whichever world the grid draws', async () => {
+    await mock.forkExperiment({ parent: 'retention-90d', shocks: [JOB_LOSS] });
+    at('/world?experiment=retention-90d-fork');
+    const count = await screen.findByTestId('differ-count');
+    const slider = screen.getByLabelText('Day');
+    fireEvent.change(slider, { target: { value: String(mock.FORK_DIVERGES_FROM_DAY - 1) } });
+    expect(count).toHaveTextContent('0 of 6 couples differ from retention-90d today.');
+    for (const grid of ['grid-control', 'grid-treatment', 'grid-remarriage']) expect(ringedTiles(grid)).toEqual([]);
+    fireEvent.change(slider, { target: { value: '40' } });
+    expect(count).toHaveTextContent('2 of 6 couples differ from retention-90d today.');
+    // The fixture alternates arms: couple 1 is the first treatment tile and couple 2 the second control tile.
+    expect(ringedTiles('grid-treatment')).toEqual([0]);
+    expect(ringedTiles('grid-control')).toEqual([1]);
+    expect(ringedTiles('grid-remarriage')).toEqual([]);
+    // The ring sits inside its tile, three pixels wide, as the town draws it around a house.
+    const [ring] = strokesOn(screen.getByTestId('grid-treatment') as HTMLCanvasElement).filter((s) => s.style === DIFF_RING_CSS);
+    expect(ring).toEqual({ style: DIFF_RING_CSS, width: DIFF_RING_PX, x: 1.5, y: 1.5, w: 9, h: 9 });
+    expect(screen.getByTestId('ring-key')).toHaveTextContent(RING_WORDS);
+    expect(screen.getByTestId('compare')).toHaveTextContent('A ring marks each tile whose couple is in a different state today than the same couple in retention-90d.');
+    fireEvent.focus(screen.getByTestId('grid-treatment'));
+    expect(screen.getByTestId('grid-treatment-live')).toHaveTextContent(`Couple 1: married, in conflict. ${RING_WORDS}.`);
+    fireEvent.focus(screen.getByTestId('grid-control'));
+    expect(screen.getByTestId('grid-control-live')).toHaveTextContent('Couple 0: married.');
+    expect(screen.getByTestId('grid-control-live')).not.toHaveTextContent('Ringed');
+    // Drawn as the parent on the same day, the grid rings the very same couples.
+    fireEvent.click(within(screen.getByRole('group', { name: 'The town shows' })).getByRole('button', { name: 'retention-90d' }));
+    expect(ringedTiles('grid-treatment')).toEqual([0]);
+    expect(ringedTiles('grid-control')).toEqual([1]);
+  });
+
+  it('shows no comparison and no rings on a world that is not a fork', async () => {
     at('/world?experiment=retention-90d');
     await screen.findByRole('heading', { name: 'World replay' });
     await screen.findByTestId('grid-control');
     expect(screen.queryByTestId('compare')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Day'), { target: { value: '40' } });
+    expect(ringedTiles('grid-control')).toEqual([]);
+    expect(ringedTiles('grid-treatment')).toEqual([]);
+    expect(screen.queryByTestId('ring-key')).not.toBeInTheDocument();
   });
 
   it('says so when the parent world cannot be loaded, and still shows the child', async () => {
