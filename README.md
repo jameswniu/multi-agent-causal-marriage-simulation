@@ -92,13 +92,12 @@ You need Rust, uv (a Python project manager) and Node 20 or newer.
 ```bash
 make placebo twins example   # build the engine, run both checks, then the example experiment
 make replay                  # rerun the example and compare every table's SHA-256 fingerprint
-make frontend-install        # dashboard dependencies, once
-make dashboard               # build the dashboard and serve it on http://127.0.0.1:8765
+make frontend-install build  # dashboard dependencies, then the engine and dashboard builds
 make test                    # Rust, Python and frontend test suites
 make figures-check           # fail if a figure or a badge no longer matches the results
 ```
 
-The shock box needs an Anthropic key in `ANTHROPIC_API_KEY`, and everything else runs offline. A public deployment with visitor limits is described in [docs/deploy.md](docs/deploy.md).
+Then `make serve` hosts the dashboard on http://127.0.0.1:8765. The shock box needs an Anthropic key in `ANTHROPIC_API_KEY`, and everything else runs offline. A public deployment with visitor limits is described in [docs/deploy.md](docs/deploy.md).
 
 ## Limits
 
