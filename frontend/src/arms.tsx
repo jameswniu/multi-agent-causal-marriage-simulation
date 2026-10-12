@@ -69,15 +69,62 @@ function upperFirst(s: string): string {
   return s.length ? s[0].toUpperCase() + s.slice(1) : s;
 }
 
-/** "One partner loses their job on day 60": the catalog blurb before its colon, lowercased first letter kept, plus the day. */
-export function shockWords(s: ShockSpec, catalog: Catalog | null | undefined): string {
-  if (s.trait) {
-    const sign = s.magnitude > 0 ? '+' : '';
-    return `One partner's ${s.trait.replace(/_/g, ' ')} shifts by ${sign}${s.magnitude} on day ${s.start_day}`;
-  }
+/** The kind's base words: the catalog blurb before its first colon, or the kind itself; a trait shift names the trait. */
+function shockBase(s: ShockSpec, catalog: Catalog | null | undefined): string {
+  if (s.trait) return `One partner's ${s.trait.replace(/_/g, ' ')} shifts`;
   const k = catalog?.[s.kind];
-  const base = k ? k.blurb.split(/[:;.]/)[0].trim() : upperFirst(kindWords(s.kind));
-  return `${base} on day ${s.start_day}`;
+  return k ? k.blurb.split(/[:;.]/)[0].trim() : upperFirst(kindWords(s.kind));
+}
+
+/** "+0.3" for kinds whose magnitude can go either way, "1.5" otherwise, at most three decimals. */
+function shockMagnitude(s: ShockSpec, catalog: Catalog | null | undefined): string {
+  const n = Number(s.magnitude.toFixed(3)).toString();
+  const signed = s.trait != null || (catalog?.[s.kind]?.magnitude.min ?? 0) < 0;
+  return signed && s.magnitude > 0 ? `+${n}` : n;
+}
+
+/** "a random partner", "partner A", "partner B", or "both partners" for kinds that act on the couple. */
+function shockMember(s: ShockSpec, catalog: Catalog | null | undefined): string {
+  if (catalog?.[s.kind]?.member_applies === false) return 'both partners';
+  if (s.member === 'a') return 'partner A';
+  if (s.member === 'b') return 'partner B';
+  return 'a random partner';
+}
+
+function shockTarget(s: ShockSpec): string {
+  if (s.target === 'treatment') return 'treatment arm';
+  if (s.target === 'control') return 'control arm';
+  return 'everyone';
+}
+
+/** "days 60 to 210", "day 30", or "from day 0 to the end of the run", resolving an open end the way the engine does. */
+function shockDays(s: ShockSpec, catalog: Catalog | null | undefined): string {
+  let end = s.end_day;
+  if (end == null) {
+    const k = catalog?.[s.kind];
+    if (!k) return `from day ${s.start_day} on`;
+    const len = k.default_length_days ?? (k.default_end_day != null ? k.default_end_day - k.default_start_day : null);
+    if (len == null) return `from day ${s.start_day} to the end of the run`;
+    end = s.start_day + len;
+  }
+  return end === s.start_day ? `day ${s.start_day}` : `days ${s.start_day} to ${end}`;
+}
+
+/**
+ * Every field of a shock in plain words, so two shocks that differ in any field never read the
+ * same: "One partner loses their job (a random partner, treatment arm), days 60 to 210,
+ * magnitude 1.5 (stress)".
+ */
+export function shockWords(s: ShockSpec, catalog: Catalog | null | undefined): string {
+  const unit = catalog?.[s.kind]?.magnitude.unit;
+  const magnitude = `magnitude ${shockMagnitude(s, catalog)}${unit ? ` (${unit})` : ''}`;
+  return `${shockBase(s, catalog)} (${shockMember(s, catalog)}, ${shockTarget(s)}), ${shockDays(s, catalog)}, ${magnitude}`;
+}
+
+/** The short form for an arm's label, which still carries the size: "One partner loses their job on day 60 (1.5 stress)". */
+export function shockBrief(s: ShockSpec, catalog: Catalog | null | undefined): string {
+  const unit = catalog?.[s.kind]?.magnitude.unit;
+  return `${shockBase(s, catalog)} on day ${s.start_day} (${shockMagnitude(s, catalog)}${unit ? ` ${unit}` : ''})`;
 }
 
 /** "job loss" for the control side: the catalog label lowercased, or the kind in words; a trait shift names the trait. */
@@ -116,7 +163,7 @@ export function armLabelsFor(iv: Intervention, catalog: Catalog | null | undefin
   const smallMem = mem && mem.parameter === 'conflict_half_life_days' ? [`${fmtDays(mem.control_value)}-day memory half-life`, `${fmtDays(mem.treatment_value)}-day memory half-life`] : mem ? [`${mem.parameter} ${fmtDays(mem.control_value)}`, `${mem.parameter} ${fmtDays(mem.treatment_value)}`] : ['', ''];
   const shocks = iv.treatmentShocks;
   const shockControl = shocks.length ? `No ${joinWords(shocks.map((s) => shockShort(s, catalog)))}` : '';
-  const shockTreatment = shocks.length ? joinWords(shocks.map((s, i) => (i === 0 ? shockWords(s, catalog) : lowerFirst(shockWords(s, catalog))))) : '';
+  const shockTreatment = shocks.length ? joinWords(shocks.map((s, i) => (i === 0 ? shockBrief(s, catalog) : lowerFirst(shockBrief(s, catalog))))) : '';
   const smallShocks = shocks.length ? shocks.map((s) => `${kindWords(s.kind)} day ${s.start_day}`).join(', ') : '';
   if (!mem && !shocks.length) return DEFAULT_LABELS;
   const plainControl = [memControl, shockControl ? (memControl ? lowerFirst(shockControl) : shockControl) : ''].filter(Boolean).join(', ');

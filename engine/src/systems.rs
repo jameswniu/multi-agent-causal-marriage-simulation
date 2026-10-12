@@ -1478,7 +1478,9 @@ fn shock_system(world: &mut World) {
             if !fires_today {
                 continue;
             }
-            // Resolve the member once per couple, deterministically from the couple's stream.
+            // Resolve the member once per couple, from a stateless stream keyed by (seed, shock,
+            // couple) so that resolving it never moves the couple's own stream: a shock that does
+            // nothing must leave every other draw, and so every other row, exactly as it was.
             let resolved = world
                 .get::<ShockState>(ce)
                 .and_then(|st| st.member.get(si).copied().flatten());
@@ -1490,8 +1492,9 @@ fn shock_system(world: &mut World) {
                         ShockMember::A => 0u8,
                         ShockMember::B => 1u8,
                         ShockMember::Random => {
-                            let mut crng = world.get_mut::<CoupleRng>(ce).expect("couple rng");
-                            if rng::coin(&mut crng.0, 0.5) {
+                            let domain = format!("shock_member_{si}");
+                            let mut r = rng::stream(cfg.seeds.dynamics, &domain, couple_id);
+                            if rng::coin(&mut r, 0.5) {
                                 1u8
                             } else {
                                 0u8

@@ -296,3 +296,101 @@ fn a_held_lock_refuses_a_second_run_on_the_same_target() {
     sim::run_to_dir(&small("r"), &out, false).unwrap();
     assert!(!dir.path().join(".r.lock").exists(), "the lock is released");
 }
+
+#[test]
+fn a_zero_magnitude_shock_changes_nothing_but_its_own_rows() {
+    // A job loss of size zero on everyone, with the partner drawn at random, must leave every
+    // behavioural row identical: only the shock's own intervention and event rows may appear.
+    let base = SimConfig {
+        name: "zero".to_string(),
+        n_couples: 60,
+        days: 90,
+        ..SimConfig::default()
+    };
+    let mut v = serde_json::to_value(&base).unwrap();
+    v["shocks"] = serde_json::json!([{
+        "kind": "job_loss",
+        "target": "all",
+        "member": "random",
+        "start_day": 5,
+        "end_day": 60,
+        "magnitude": 0.0
+    }]);
+    let shocked: SimConfig = serde_json::from_value(v).unwrap();
+    shocked.validate().unwrap();
+    let a = sim::run(&base);
+    let b = sim::run(&shocked);
+    assert!(
+        b.logs.events.iter().any(|e| e.kind == "shock_job_loss"),
+        "the shock was applied"
+    );
+    assert_eq!(a.logs.daily, b.logs.daily, "daily rows moved");
+    assert_eq!(a.logs.decisions, b.logs.decisions, "decisions moved");
+    assert_eq!(a.logs.conflicts, b.logs.conflicts, "conflicts moved");
+    assert_eq!(a.logs.episodes, b.logs.episodes, "episodes moved");
+    assert_eq!(a.logs.legacies, b.logs.legacies, "legacies moved");
+    let others = |r: &sim::SimResult| {
+        r.logs
+            .events
+            .iter()
+            .filter(|e| !e.kind.starts_with("shock_"))
+            .map(|e| {
+                (
+                    e.day,
+                    e.couple_id,
+                    e.agent_id,
+                    e.kind,
+                    e.from_state,
+                    e.to_state,
+                    e.value.map(f64::to_bits),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        others(&a),
+        others(&b),
+        "events other than the shock's own moved"
+    );
+}
+
+#[test]
+fn unknown_config_keys_are_rejected_by_name() {
+    let err = SimConfig::from_json(r#"{"n_couples": 10, "bogus_knob": 1}"#)
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("bogus_knob"), "{err}");
+    let shock =
+        r#"{"shocks": [{"kind": "job_loss", "target": "all", "start_day": 1, "magnitud": 2.0}]}"#;
+    let err = SimConfig::from_json(shock).unwrap_err().to_string();
+    assert!(err.contains("magnitud"), "{err}");
+    let err = SimConfig::from_json(r#"{"dynamics": {"onset_intercep": 0.1}}"#)
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("onset_intercep"), "{err}");
+    // The full default config, exactly as the engine prints it, still parses.
+    let text = serde_json::to_string(&SimConfig::default()).unwrap();
+    SimConfig::from_json(&text).unwrap();
+}
+
+#[test]
+fn the_cli_refuses_a_misspelt_key_and_names_it() {
+    let out = Command::new(bin())
+        .args(["assign", "--config", "-"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(br#"{"n_couples": 4, "provenance": {"model": "x"}}"#)?;
+            child.wait_with_output()
+        })
+        .unwrap();
+    assert!(!out.status.success(), "an unknown key must fail the run");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("provenance"));
+}

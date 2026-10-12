@@ -27,7 +27,7 @@ impl Arm {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Seeds {
     pub population: u64,
     pub assignment: u64,
@@ -56,7 +56,7 @@ pub enum AssignmentMode {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct AssignmentConfig {
     pub mode: AssignmentMode,
     pub treatment_fraction: f64,
@@ -75,7 +75,7 @@ impl Default for AssignmentConfig {
 
 /// Half-lives (days) of each memory class. The intervention is a change to one of these.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct MemoryParams {
     pub conflict_half_life_days: f64,
     pub repair_half_life_days: f64,
@@ -96,7 +96,7 @@ impl Default for MemoryParams {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct MemoryConfig {
     pub control: MemoryParams,
     pub treatment: MemoryParams,
@@ -125,7 +125,7 @@ impl Default for MemoryConfig {
 /// Rules every memory follows whatever the arm: they never differ between arms and the
 /// intervention never writes them.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct MemoryRules {
     /// Days an episode keeps its full intensity before its half-life decay starts (0 = none).
     pub plateau_days: f64,
@@ -154,7 +154,7 @@ impl Default for MemoryRules {
 /// `unlock_intensity`. Dating couples are not gated, and neither is finalising a separation:
 /// separating already is the sustained distance, and the separation cap still ends it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct AssociationConfig {
     pub window_days: u32,
     /// 0 turns the gate off: leaving is always on the menu, as before.
@@ -177,7 +177,7 @@ impl Default for AssociationConfig {
 /// relationships (weaker commitment to marriage, after Amato and DeBoer 2001) and pulls the next
 /// relationship's starting trust toward the trust the marriage ended with.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct LegacyConfig {
     /// Added to the leave utility in every later relationship (0 = no commitment effect).
     pub commitment_shift: f64,
@@ -195,6 +195,7 @@ impl Default for LegacyConfig {
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TraitDist {
     pub mean: f64,
     pub sd: f64,
@@ -207,7 +208,7 @@ impl TraitDist {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct PopulationConfig {
     pub neuroticism: TraitDist,
     pub agreeableness: TraitDist,
@@ -261,7 +262,7 @@ impl Default for PopulationConfig {
 /// The world: stress shocks, affect coupling, trust integration, conflict hazards.
 /// None of these depend on the arm.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct DynamicsConfig {
     // Stress
     pub stress_shock_prob: f64,
@@ -395,7 +396,7 @@ impl Default for DynamicsConfig {
 /// The policy never sees the arm; it sees the agent's own private state plus observable
 /// partner behaviour. `loveworld-engine policy-spec` prints these with the formulas.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct PolicyConfig {
     pub temperature: f64,
     // Calm days: Affiliate vs Neutral
@@ -509,7 +510,7 @@ impl Default for PolicyConfig {
 /// accept when compatibility clears a personal threshold that relaxes with time alone and
 /// is anchored to the last marriage after a divorce.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct MarketConfig {
     pub meet_per_day: usize,
     pub initial_threshold: f64,
@@ -632,6 +633,7 @@ pub enum ShockMember {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ShockConfig {
     pub kind: ShockKind,
     pub target: ShockTarget,
@@ -685,7 +687,7 @@ pub fn shock_catalog() -> serde_json::Value {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct SimConfig {
     pub name: String,
     pub n_couples: u32,

@@ -408,6 +408,8 @@ export interface ShockKind {
   traits?: string[];
   magnitude: { min: number; max: number; default: number; unit: string };
   default_start_day: number;
+  /** Days a shock with no end day lasts, or null when it runs to the end of the run. */
+  default_length_days?: number | null;
   default_end_day: number | null;
 }
 

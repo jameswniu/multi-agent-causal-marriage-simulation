@@ -252,9 +252,9 @@ describe('pages', () => {
   it('Overview and World render a shock-only experiment without throwing', async () => {
     at('/overview?experiment=job-loss-api');
     expect(await screen.findByRole('heading', { name: 'job-loss-api' })).toBeInTheDocument();
-    expect(screen.getByText('Only this, one partner loses their job on day 60. Memory is identical in both arms. Everyone also lives through every seventh day both partners store a positive memory of an evening together on day 0.')).toBeInTheDocument();
+    expect(screen.getByText('Only this, one partner loses their job (a random partner, treatment arm), days 60 to 210, magnitude 1.5 (stress). Memory is identical in both arms. Everyone also lives through every seventh day both partners store a positive memory of an evening together (both partners, everyone), from day 0 to the end of the run, magnitude 1 (warmth).')).toBeInTheDocument();
     expect(screen.getAllByText('No job loss').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('One partner loses their job on day 60').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('One partner loses their job on day 60 (1.5 stress)').length).toBeGreaterThan(0);
     // The remarriage outcome carries nulls in this run and must render as n/a, not crash.
     expect(screen.getAllByText('n/a').length).toBeGreaterThan(0);
     expect(screen.getByText('not estimable in this run')).toBeInTheDocument();
@@ -263,10 +263,10 @@ describe('pages', () => {
   it('World frames a shock-only experiment by its shocks', async () => {
     at('/world?experiment=job-loss-api');
     await screen.findByRole('heading', { name: 'World replay' });
-    await waitFor(() => expect(screen.getByTestId('framing')).toHaveTextContent('Only this, one partner loses their job on day 60. Memory is identical in both arms.'));
+    await waitFor(() => expect(screen.getByTestId('framing')).toHaveTextContent('Only this, one partner loses their job (a random partner, treatment arm), days 60 to 210, magnitude 1.5 (stress). Memory is identical in both arms.'));
     expect(screen.getByText('No job loss')).toBeInTheDocument();
     fireEvent.keyDown(window, { key: 'End' });
-    await waitFor(() => expect(screen.getByTestId('takeaway')).toHaveTextContent('The only difference was this, one partner loses their job on day 60.'));
+    await waitFor(() => expect(screen.getByTestId('takeaway')).toHaveTextContent('The only difference was this, one partner loses their job (a random partner, treatment arm), days 60 to 210, magnitude 1.5 (stress).'));
     const select = screen.getByTestId('experiment-select') as HTMLSelectElement;
     await waitFor(() => expect(select.options.length).toBe(3));
     expect([...select.options].map((o) => o.textContent)).toContain('job-loss-api (job loss on day 60, everyone: date nights on day 0)');
