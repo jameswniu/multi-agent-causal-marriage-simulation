@@ -733,7 +733,18 @@ directory and published together (`runner.run_with_twins`), so the run's `summar
 `governance.twins`, and a run that fails at any step, an overwrite included, leaves the earlier run and
 its own twins as they were. The job's run cap, queue limit and public rules therefore cover the twins
 too. A `<name>-twins` directory that already exists is a 409 before anything is queued, unless a run sets
-`overwrite` (a fork never does). With identical arms, as in a run with no intervention, the twins never
+`overwrite` (a fork never does).
+
+Readers check that the twins beside a run were made for it, since a publication that stops between its
+two renames can still leave the new twins beside the earlier run. Twins count for a run only when both
+halves' manifests carry the run's own engine config apart from `name` and `arm_override` (each half's
+`arm_override` its own arm), and, where the run's summary recorded the halves' determinism hashes under
+`governance.twins.runs`, only when they are those very runs. Otherwise `/api/twins/world` answers
+`available: false` with the reason, `/api/twins/couples/{id}` is a 404, the list's `has_twins` is false,
+and `/api/experiment` serves the summary with `governance.twins` null, so the dashboard uses its words for
+a run without twins. The summary file itself is left as the run wrote it. The check is made again
+whenever the run's summary or a twins run beside it changes on disk, so twins made or replaced later
+are judged afresh rather than answered from memory. With identical arms, as in a run with no intervention, the twins never
 differ, and `/api/twins/world` reports zero diverged couples on every day.
 
 ```

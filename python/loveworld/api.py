@@ -185,7 +185,7 @@ class Loaded:
         self.couples_by_id = {int(r["couple_id"]): i for i, r in t.couples.reset_index(drop=True).iterrows()}
         self.events_sorted = t.events.sort_values(["day", "seq"], kind="stable")
         self.world = build_world(t)
-        self.twins = TwinsCache(results_dir)
+        self.twins = TwinsCache(results_dir, t.manifest)
         self._lenses: dict[str, bytes | None] = {}
         self._digest: dict[str, Any] | None = None
         self._views_lock = threading.Lock()
@@ -353,52 +353,148 @@ def experiment_names(results_dir: Path) -> list[str]:
     return names
 
 
-def find_sibling(results_dir: Path, kind: str) -> Path | None:
-    """Find the experiment's `-placebo` or `-twins` sibling: derived from its names, contained in the parent."""
+def find_placebo(results_dir: Path) -> Path | None:
+    """Find the experiment's `-placebo` sibling: derived from its names, contained in the parent."""
     parent = results_dir.resolve().parent
     for name in experiment_names(results_dir):
-        sib = sibling_dir(parent, name, kind)
-        if sib is None:
-            continue
-        if kind == "twins" and runner.is_twins_dir(sib):
-            return sib
-        if kind == "placebo" and runner.is_results_dir(sib):
+        sib = sibling_dir(parent, name, "placebo")
+        if sib is not None and runner.is_results_dir(sib):
             return sib
     return None
 
 
-def find_twins_dir(results_dir: Path) -> Path | None:
-    """Locate the twins run next to a results directory (names only; stored paths are ignored)."""
-    return find_sibling(results_dir, "twins")
+def twins_link(summary: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Return the twins a run's summary links (its `governance.twins`), or None."""
+    governance = (summary or {}).get("governance")
+    link = governance.get("twins") if isinstance(governance, dict) else None
+    return link if isinstance(link, dict) else None
+
+
+def find_twins(
+    results_dir: Path, run_manifest: dict[str, Any], link: dict[str, Any] | None = None
+) -> tuple[Path | None, str | None, dict[str, Any]]:
+    """Find the twins run beside a results directory that was made for its run.
+
+    Returns the twins directory with each half's determinism hash; or None with the reason when a twins run
+    sits beside the results but was made for another run (`runner.check_twins`); or None and no reason when
+    none sits there. Candidates come from the run's names only, never from a path stored in a summary, and
+    must be direct siblings.
+    """
+    parent = results_dir.resolve().parent
+    reason: str | None = None
+    for name in experiment_names(results_dir):
+        sib = sibling_dir(parent, name, "twins")
+        if sib is None or not runner.is_twins_dir(sib):
+            continue
+        problem, hashes = runner.check_twins(run_manifest, sib, link)
+        if problem is None:
+            return sib, None, hashes
+        if reason is None:
+            reason = f"{sib.name} was made for a different run than {results_dir.name}, since {problem}"
+    return None, reason, {}
+
+
+def _records_these_twins(link: dict[str, Any], hashes: dict[str, Any]) -> bool:
+    """Tell whether a summary's twins link records these halves' hashes, or records none to compare."""
+    return all(hashes.get(arm) == value for arm, value in runner.linked_twin_hashes(link).items())
 
 
 class TwinsCache:
-    """Lazily loaded twin runs (control and treatment) for one results directory."""
+    """The twins made for one results directory's run: found by their manifests, their tables read lazily.
 
-    def __init__(self, results_dir: Path) -> None:
-        """Remember the results directory; nothing is read until `load`."""
+    Twins beside the run that were made for another run, as a publication that stopped between its twins
+    and its run leaves them, are never served: not by the twins endpoints, and not as the summary's link.
+    The check is made again whenever what it read changes on disk (the run's summary, or a twins run made,
+    replaced or removed beside the run), so twins published later are found and replaced ones are not
+    served from memory.
+    """
+
+    def __init__(self, results_dir: Path, run_manifest: dict[str, Any]) -> None:
+        """Remember the run as it was read; nothing about its twins is read until `check` or `load`."""
         self.results_dir = results_dir
-        self.loaded = False
+        self.run_manifest = run_manifest
         self.path: Path | None = None
+        # Why the twins beside the run are not shown for it; None when it has its own or none sits beside it.
+        self.reason: str | None = None
+        self.hashes: dict[str, Any] = {}
         self.control: Loaded | None = None
         self.treatment: Loaded | None = None
         self.world: dict[str, Any] | None = None
+        # What the last check read, as stamps, and the hashes of the twin runs whose tables are held now.
+        self._checked: tuple[Any, ...] | None = None
+        self._held: dict[str, Any] | None = None
+        # The check reads a few small files and is quick, while a load reads two whole runs, so a request that
+        # needs only the check never waits behind a load.
+        self._check_lock = threading.Lock()
+        self._load_lock = threading.Lock()
+
+    def _stamp(self) -> tuple[Any, ...]:
+        """Stamp everything the check reads: the run's summary and the two manifests of each candidate twins run."""
+        parent = self.results_dir.resolve().parent
+        halves = []
+        for name in experiment_names(self.results_dir):
+            sib = sibling_dir(parent, name, "twins")
+            halves.append(tuple(_disk_stamp(sib / arm) if sib is not None else None for arm in runner.TWIN_ARMS))
+        return (_file_stamp(self.results_dir / "summary.json"), tuple(halves))
+
+    def check(self) -> Path | None:
+        """Find the twins beside the run that were made for it, from their manifests alone, again on any change."""
+        with self._check_lock:
+            stamp = self._stamp()
+            if stamp != self._checked:
+                link = twins_link(_summary(self.results_dir))
+                self.path, self.reason, self.hashes = find_twins(self.results_dir, self.run_manifest, link)
+                self._checked = stamp
+            return self.path
 
     def load(self) -> None:
-        """Find and read the twin runs once; later calls are no-ops."""
-        if self.loaded:
-            return
-        self.loaded = True
-        self.path = find_twins_dir(self.results_dir)
-        if self.path is None:
-            return
-        self.control = Loaded(self.path / "control")
-        self.treatment = Loaded(self.path / "treatment")
-        self.world = self._build_world(_summary(self.results_dir))
+        """Hold the tables of the twins made for this run, read again only when the check finds other twins."""
+        with self._load_lock:
+            path = self.check()
+            hashes = dict(self.hashes)
+            if path is not None and self._held == hashes:
+                return
+            # Twin tables read for an earlier check are not the twins beside the run now.
+            self.control = self.treatment = self.world = None
+            self._held = None
+            if path is None:
+                return
+            control, treatment = Loaded(path / "control"), Loaded(path / "treatment")
+            read = {
+                arm: half.tables.manifest.get("determinism_hash")
+                for arm, half in zip(runner.TWIN_ARMS, (control, treatment), strict=True)
+            }
+            world = self._build_world(path, control, treatment, self.vetted(_summary(self.results_dir)))
+            # Checked once more with everything read: twins replaced meanwhile are not the ones that were
+            # checked, so nothing is held and the next request checks again.
+            if read != hashes or self.check() != path or self.hashes != hashes:
+                with self._check_lock:
+                    self.path, self._checked = None, None
+                    self.reason = f"{path.name} changed while it was being read"
+                return
+            self.control, self.treatment, self.world = control, treatment, world
+            self._held = hashes
 
-    def _build_world(self, summary: dict[str, Any] | None) -> dict[str, Any]:
-        assert self.control is not None and self.treatment is not None and self.path is not None
-        tc, tt = self.control.tables, self.treatment.tables
+    def vetted(self, summary: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Return the run's summary as served: its twins link is dropped when the twins beside it are not its own.
+
+        A link stays when the twins beside the run were made for it and are the runs it records, and when no
+        twins run sits beside the run at all, since it then only reports what the run's own twins found.
+        """
+        link = twins_link(summary)
+        if summary is None or link is None:
+            return summary
+        self.check()
+        if self.reason is None and (self.path is None or _records_these_twins(link, self.hashes)):
+            return summary
+        governance = dict(summary.get("governance") or {})
+        governance["twins"] = None
+        return {**summary, "governance": governance}
+
+    @staticmethod
+    def _build_world(path: Path, control: Loaded, treatment: Loaded, summary: dict[str, Any] | None) -> dict[str, Any]:
+        """Build the /api/twins/world payload from the twin runs read from `path`."""
+        tc, tt = control.tables, treatment.tables
         n = int(tc.config["n_couples"])
         days = tc.days
         ids = list(range(n))
@@ -410,7 +506,7 @@ class TwinsCache:
         gc, gt = grids["control"], grids["treatment"]
         all_mask = np.ones(n, dtype=bool)
         paired = ((summary or {}).get("governance") or {}).get("twins") or {}
-        twins_summary_path = self.path / "summary.json"
+        twins_summary_path = path / "summary.json"
         if not paired.get("paired") and twins_summary_path.exists():
             paired = json.loads(twins_summary_path.read_text())
         return {
@@ -424,7 +520,7 @@ class TwinsCache:
             "counts_treatment": grid_counts(gt, all_mask, ARM_LETTERS),
             "legend": LEGEND,
             "paired": list(paired.get("paired", [])),
-            "path": self.path.name,
+            "path": path.name,
         }
 
 
@@ -435,6 +531,15 @@ DEFAULT_MAX_LOADED = 2
 """Experiments kept in memory at once; each loaded 1,000 x 365 run holds about half a gigabyte."""
 
 
+def _file_stamp(path: Path) -> tuple[int, int, int] | None:
+    """Return a file's inode, modification time and size, or None when it cannot be read."""
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return (st.st_ino, st.st_mtime_ns, st.st_size)
+
+
 def _disk_stamp(results_dir: Path) -> tuple[int, int, int] | None:
     """Return the stamp of a results directory's manifest: its inode, modification time and size.
 
@@ -442,11 +547,7 @@ def _disk_stamp(results_dir: Path) -> tuple[int, int, int] | None:
     whole new directory into place, so a re-run from this server, the command line or another process
     leaves a manifest with another inode and modification time.
     """
-    try:
-        st = (results_dir / "manifest.json").stat()
-    except OSError:
-        return None
-    return (st.st_ino, st.st_mtime_ns, st.st_size)
+    return _file_stamp(results_dir / "manifest.json")
 
 
 def _max_loaded_from_env() -> int:
@@ -653,8 +754,8 @@ class ExperimentStore:
                     "divorce_treatment": divorce.get("treatment_mean"),
                     "generated_at_unix": manifest.get("generated_at_unix"),
                     "determinism_hash": manifest.get("determinism_hash"),
-                    "has_placebo": find_sibling(d, "placebo") is not None,
-                    "has_twins": find_sibling(d, "twins") is not None,
+                    "has_placebo": find_placebo(d) is not None,
+                    "has_twins": find_twins(d, manifest, twins_link(summary))[0] is not None,
                     "parent": (read_parent(d) or {}).get("parent"),
                 }
             )
@@ -1085,7 +1186,7 @@ def create_app(
         parent = read_parent(loaded.dir)
         return {
             "manifest": loaded.tables.manifest,
-            "summary": loaded.summary,
+            "summary": loaded.twins.vetted(loaded.summary),
             "parent": sanitize(parent) if parent is not None else None,
         }
 
@@ -1203,18 +1304,22 @@ def create_app(
     def twins_world(experiment: str | None = Query(None)) -> dict[str, Any]:
         loaded = store.get(experiment)
         loaded.twins.load()
-        if loaded.twins.world is None:
-            return {"available": False, "reason": f"no twins run found for {loaded.dir.name} (run `loveworld twins`)"}
-        return loaded.twins.world
+        world = loaded.twins.world
+        if world is None:
+            reason = loaded.twins.reason or f"no twins run found for {loaded.dir.name} (run `loveworld twins`)"
+            return {"available": False, "reason": reason}
+        return world
 
     @app.get("/api/twins/couples/{couple_id}")
     def twins_couple(couple_id: int, experiment: str | None = Query(None)) -> dict[str, Any]:
         loaded = store.get(experiment)
         loaded.twins.load()
-        if loaded.twins.control is None or loaded.twins.treatment is None:
+        # Taken once, so a load answering another request meanwhile cannot change them halfway through.
+        twin_control, twin_treatment = loaded.twins.control, loaded.twins.treatment
+        if twin_control is None or twin_treatment is None:
             raise HTTPException(status_code=404, detail="no twins run available")
-        control = couple_detail(loaded.twins.control, couple_id)
-        treatment = couple_detail(loaded.twins.treatment, couple_id)
+        control = couple_detail(twin_control, couple_id)
+        treatment = couple_detail(twin_treatment, couple_id)
         if control is None or treatment is None:
             raise HTTPException(status_code=404, detail=f"couple {couple_id} not found in the twins run")
         return {"control": control, "treatment": treatment}

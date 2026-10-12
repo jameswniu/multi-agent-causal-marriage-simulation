@@ -42,6 +42,75 @@ def is_twins_dir(path: Path) -> bool:
     return is_results_dir(path / "control") and is_results_dir(path / "treatment")
 
 
+TWIN_ARMS = ("control", "treatment")
+# The keys a twins half's engine config may differ from its run's in: the name and the arm override that the
+# engine's --name and --arm-override set. Every other key, the seeds among them, is the run's own.
+TWIN_ONLY_CONFIG_KEYS = ("name", "arm_override")
+
+
+def _read_manifest(results_dir: Path) -> dict[str, Any] | None:
+    """Return a results directory's manifest.json as a mapping, or None when it is missing or unreadable."""
+    try:
+        data = json.loads((results_dir / "manifest.json").read_text())
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _shared_config(manifest: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Return the engine config a run shares with its twins: the manifest's config without the twin-only keys."""
+    cfg = manifest.get("config") if manifest is not None else None
+    if not isinstance(cfg, dict):
+        return None
+    return {k: v for k, v in cfg.items() if k not in TWIN_ONLY_CONFIG_KEYS}
+
+
+def linked_twin_hashes(link: dict[str, Any] | None) -> dict[str, str]:
+    """Return the determinism hash a run summary's twins link (`governance.twins`) records for each half."""
+    runs = link.get("runs") if isinstance(link, dict) else None
+    out: dict[str, str] = {}
+    for arm in TWIN_ARMS:
+        entry = runs.get(arm) if isinstance(runs, dict) else None
+        value = entry.get("determinism_hash") if isinstance(entry, dict) else None
+        if isinstance(value, str) and value:
+            out[arm] = value
+    return out
+
+
+def check_twins(
+    run_manifest: dict[str, Any], twins_dir: Path, link: dict[str, Any] | None = None
+) -> tuple[str | None, dict[str, Any]]:
+    """Tell whether the twins in `twins_dir` were made for the run whose manifest is `run_manifest`.
+
+    Returns why not (None when they were) and each half's determinism hash as the check read it. Twins run
+    their run's own engine config with only the name and the arm override changed, so their manifests
+    already record the run they were made for: every other config key, the seeds among them, must equal the
+    run's, and each half must have run every couple under its own arm. `link` is the run summary's
+    `governance.twins`; where it recorded the halves' determinism hashes, the twins must be exactly those
+    runs, which also tells apart twins made again from the same config by another engine build. A
+    publication that stopped between its twins and its run leaves the earlier run beside the new twins, and
+    this is how a reader tells.
+    """
+    hashes: dict[str, Any] = {}
+    want = _shared_config(run_manifest)
+    if want is None:
+        return "this run's manifest has no config", hashes
+    recorded = linked_twin_hashes(link)
+    for arm in TWIN_ARMS:
+        twin = _read_manifest(twins_dir / arm)
+        got = _shared_config(twin)
+        if twin is None or got is None:
+            return f"its {arm} half has no readable manifest", hashes
+        hashes[arm] = twin.get("determinism_hash")
+        if twin["config"].get("arm_override") != arm:
+            return f"its {arm} half did not run every couple under the {arm} arm", hashes
+        if got != want:
+            return "it ran another config than this run's", hashes
+        if arm in recorded and hashes[arm] != recorded[arm]:
+            return "it is not the twins run this run's summary was written with", hashes
+    return None, hashes
+
+
 def check_target(target: Path, overwrite: bool) -> None:
     """Refuse targets that are not ours to replace."""
     if target.exists() and not target.is_dir():
