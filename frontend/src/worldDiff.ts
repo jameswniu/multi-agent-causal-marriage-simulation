@@ -58,6 +58,30 @@ export function differingOnDay(shown: Pick<WorldResponse, 'states'>, other: Pick
   return out;
 }
 
+/** Whether the parent world the API serves now is the run a fork was made from. */
+export type ParentCheck = 'same' | 'rerun' | 'unknown';
+
+/**
+ * Compare the parent's determinism hash as the fork recorded it (`parent_determinism_hash` in parent.json)
+ * with the one served with the parent's states and, when the experiment list gives one, the parent's hash
+ * in the list, which a page left open reads again when it comes back into view. All are the engine's hash
+ * of every table a run wrote, so they agree exactly when the states being compared are the ones the fork
+ * started from. A parent run again under its name with anything changed no longer matches, and a hash
+ * missing from parent.json or from the parent's states cannot be checked.
+ */
+export function checkParent(recorded: string | null | undefined, served: string | null | undefined, listed?: string | null): ParentCheck {
+  if (!recorded || !served) return 'unknown';
+  if (served !== recorded || (listed && listed !== recorded)) return 'rerun';
+  return 'same';
+}
+
+/** The sentence shown in place of the rings and the counter when the parent is not the run the fork came from. */
+export function parentNotComparedWords(check: Exclude<ParentCheck, 'same'>, parent: string): string {
+  return check === 'rerun'
+    ? `The world this one came from, ${parent}, was run again after the fork, so houses are not compared.`
+    : `The world this one came from, ${parent}, cannot be checked against the run this one was forked from, so houses are not compared.`;
+}
+
 /** "37 of 1,000 couples differ from example today" ("1 of 1,000 couples differs"). */
 export function differCounter(n: number, compared: number, parent: string): string {
   return `${n.toLocaleString()} of ${compared.toLocaleString()} couples ${n === 1 ? 'differs' : 'differ'} from ${parent} today`;

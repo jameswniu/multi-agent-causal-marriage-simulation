@@ -252,7 +252,8 @@ GET /api/world             -> {"days": 365,
                                "legend": {"M": "married", "C": "married, in conflict", "S": "separated", "D": "divorced",
                                           "T": "dating", "B": "broken up", "-": "not formed yet"},
                                "counts": [{"day": 0, "control": {"married": n, "conflict": n, "separated": n, "divorced": n},
-                                           "treatment": {...}, "remarriage": {"dating": n, "married": n}}, ...]}
+                                           "treatment": {...}, "remarriage": {"dating": n, "married": n}}, ...],
+                               "determinism_hash": "..."}              (the manifest's hash of the run the states were read from)
 GET /api/events?day=N      -> {"day": N, "items": [event rows of that day, in seq order]}
 GET /api/events?from=A&to=B -> {"items": [event rows with A <= day <= B]}   (cap 5000 rows)
 ```
@@ -370,11 +371,14 @@ parent by name and are not listed on their own. Every existing endpoint accepts
 `?experiment=<name>` (default: the single experiment, or the first by name). At most two experiments
 stay loaded in memory at once (env `LOVEWORLD_MAX_LOADED`), since one loaded year of 1,000 couples holds
 about half a gigabyte; the least recently used is dropped and read again from disk when it is next asked for.
+A loaded experiment whose results on disk were replaced since it was read (a run published over it by this
+server, the command line or any other process, told by its `manifest.json`) is read again on its next
+request rather than served from memory, and results replaced while they were being read are read once more.
 
 ```
 GET  /api/experiments      -> {"default": name, "items": [{"name", "dir", "n_couples", "days", "seeds",
                                "intervention": {"memory": {parameter: [control, treatment]} | null, "shocks": [...]},
-                               "divorce_control", "divorce_treatment", "generated_at_unix", "parent": name | null}]}
+                               "divorce_control", "divorce_treatment", "generated_at_unix", "determinism_hash", "parent": name | null}]}
 GET  /api/shocks/catalog   -> {"kinds": [{"kind", "label", "blurb", "member_applies", "magnitude": {"min","max","default","unit"},
                                "default_start_day", "default_length_days", "default_end_day"}],
                                "effects": {"channels": [{"channel", "op", "identity", "cadences": {cadence: {"min","max","sustained"}},
@@ -855,8 +859,16 @@ seconds for them. Run on the New experiment page lands the same way.
 
 A forked world's World page reads its parent's states as well (`/api/world?experiment=<parent>`) and
 compares the two worlds day by day under "Compared with the world it came from"
-(`frontend/src/worldDiff.ts`). Only the couples both worlds start with are compared, matched by couple
-id, since a remarriage can pair different people under the same id. Each day:
+(`frontend/src/worldDiff.ts`), but only while the parent the API serves is the run the fork was made
+from: the `determinism_hash` that comes with the parent's states must equal `parent_determinism_hash`
+in `parent.json`. Both are the engine's hash of every table a run wrote, so a parent run again under
+the same name with anything changed fails the check, while one run again exactly as it was writes the
+same tables and passes. A page left open also reads the experiment list again whenever it comes back into
+view and every two minutes while in view, and a parent whose listed `determinism_hash` has moved since fails
+the check too. When the check fails, or either hash is missing, the page draws no rings, no counter and no
+switch, and says in one sentence that the world this one came from was run again after the fork (or cannot
+be checked), so houses are not compared. Only the couples both worlds start with are
+compared, matched by couple id, since a remarriage can pair different people under the same id. Each day:
 
 - Every house whose couple's state letter differs from the same couple's in the parent gets a ring, in
   one colour (`#ff2bd6`) that no arm, state or lens uses, about three screen pixels wide at any zoom,

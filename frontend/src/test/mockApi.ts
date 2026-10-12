@@ -60,34 +60,48 @@ export const getAgent = async (id: number) => {
 /** Day from which a fork the mock has run differs from its parent, and the couples (by index) that differ. */
 export const FORK_DIVERGES_FROM_DAY = 32;
 export const FORK_DIFFERING = [1, 2];
+/** The fixture world as the server sends it, with the determinism hash of the run its states come from. */
+const fixtureWorld: WorldResponse = { ...(world as unknown as WorldResponse), determinism_hash: exp.manifest.determinism_hash };
 /** The world a fork runs: its parent's fixture world, with two couples in a different state from FORK_DIVERGES_FROM_DAY on. */
-function forkedWorld(): WorldResponse {
-  const base = world as unknown as WorldResponse;
+function forkedWorld(name: string): WorldResponse {
+  const base = fixtureWorld;
   const states = base.states.map((row, d) => {
     if (d < FORK_DIVERGES_FROM_DAY) return row;
     const chars = row.split('');
     for (const i of FORK_DIFFERING) chars[i] = chars[i] === 'C' ? 'M' : 'C';
     return chars.join('');
   });
-  return { ...base, states };
+  return { ...base, states, determinism_hash: `hash-of-${name}` };
 }
 const forkWorlds = new Map<string, WorldResponse>();
 /** The fixture world, or for a fork the mock has run, that world with a few couples changed. */
 export const getWorld = async (experiment?: string) => {
   const name = experiment ?? current;
   if (name && forks[name]) {
-    if (!forkWorlds.has(name)) forkWorlds.set(name, forkedWorld());
+    if (!forkWorlds.has(name)) forkWorlds.set(name, forkedWorld(name));
     return forkWorlds.get(name)!;
   }
-  return world as unknown as WorldResponse;
+  return fixtureWorld;
 };
 export const getEventsForDay = async (day: number) => ({ day, items: byDay[String(day)] ?? [] });
 export const getTwinsWorld = async () => twinsWorld as unknown as TwinsWorldResponse;
 const baseExperiments = experiments as unknown as ExperimentsResponse;
 let extraExperiments: ExperimentsResponse['items'] = [];
 export const listCalls = { count: 0 };
+/** The hash each listed world's run on disk carries: the fixture world's run, a fork's own, or one a test set. */
+let listedHashes: Record<string, string> = {};
+/** Test hook: the run on disk under `name` is now another one, as when it is run again elsewhere. */
+export function setListedHash(name: string, hash: string): void {
+  listedHashes = { ...listedHashes, [name]: hash };
+}
+function listedHash(name: string): string | null {
+  if (listedHashes[name]) return listedHashes[name];
+  if (forks[name]) return `hash-of-${name}`;
+  return name === exp.manifest.name ? exp.manifest.determinism_hash : null;
+}
 export function resetMockState(): void {
   extraExperiments = [];
+  listedHashes = {};
   listCalls.count = 0;
   lensCalls.count = 0;
   digestCalls.count = 0;
@@ -99,7 +113,8 @@ export function resetMockState(): void {
 }
 export const listExperiments = async () => {
   listCalls.count += 1;
-  return { default: baseExperiments.default, items: [...baseExperiments.items, ...extraExperiments] };
+  const items = [...baseExperiments.items, ...extraExperiments].map((it) => ({ ...it, determinism_hash: listedHash(it.name) }));
+  return { default: baseExperiments.default, items };
 };
 export const getShocksCatalog = async () => shocksCatalog as unknown as ShocksCatalog;
 const KINDS_SENTENCE = 'LoveWorld can run these kinds of shock: job loss, financial crisis, temptation, intimacy mismatch, daily texts, anniversary, date nights and trait shift.';

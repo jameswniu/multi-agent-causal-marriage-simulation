@@ -144,6 +144,44 @@ def test_the_comparison_refuses_a_parent_that_changed_or_a_different_engine(root
     assert versions["comparable"] is False and "0.0.1" in versions["reason"]
 
 
+def test_the_parent_world_says_which_run_it_is_so_a_fork_can_tell_it_was_run_again(root: Path) -> None:
+    """The World page compares a fork with its parent only while the parent is the run it was forked from.
+
+    parent.json records the parent's determinism hash at the fork, and /api/world serves the hash of the
+    tables its states come from, so the page can compare the two like with like.
+    """
+    c = _client(root)
+    r = c.post("/api/experiments/fork?wait=true", json={"parent": "smoke", "name": "calm", "shocks": [_job_loss(0.0)]})
+    assert r.status_code == 200, r.text
+    recorded = c.get("/api/experiment", params={"experiment": "calm"}).json()["parent"]["parent_determinism_hash"]
+
+    def served() -> str:
+        return str(c.get("/api/world", params={"experiment": "smoke"}).json()["determinism_hash"])
+
+    def listed() -> str:
+        items = {i["name"]: i for i in c.get("/api/experiments").json()["items"]}
+        return str(items["smoke"]["determinism_hash"])
+
+    assert served() == recorded == listed()
+    # The parent run again under its own name with a longer memory is another run, and says so.
+    rerun = {
+        "name": "smoke",
+        "n_couples": 40,
+        "days": 60,
+        "seeds": {"population": 11, "assignment": 22, "dynamics": 33},
+        "analysis": {"n_boot": 20, "n_perm": 20},
+        "overwrite": True,
+    }
+    r = c.post("/api/experiments/run?wait=true", json={**rerun, "treatment": {"conflict_half_life_days": 30}})
+    assert r.status_code == 200, r.text
+    assert served() != recorded
+    assert served() == json.loads((root / "smoke" / "manifest.json").read_text())["determinism_hash"] == listed()
+    # Run again as it was, it writes the very same tables, so it is the fork's parent again.
+    r = c.post("/api/experiments/run?wait=true", json={**rerun, "treatment": {"conflict_half_life_days": 90}})
+    assert r.status_code == 200, r.text
+    assert served() == recorded == listed()
+
+
 def test_plan_fork_rejects_a_twins_half(root: Path) -> None:
     half = root / "half"
     shutil.copytree(root / "smoke", half)

@@ -2,7 +2,7 @@
 // fork came from on a day, the counter's words, the day the new world's replay starts on, the ring's
 // width at every zoom, and the words for a run with no intervention.
 import { describe, expect, it } from 'vitest';
-import { DIFF_RING, DIFF_RING_CSS, differCounter, differingOnDay, matchCouples } from '../worldDiff';
+import { DIFF_RING, DIFF_RING_CSS, checkParent, differCounter, differingOnDay, matchCouples, parentNotComparedWords } from '../worldDiff';
 import { REPLAY_LEAD_DAYS, replayStartDay } from '../shockForm';
 import { ringWidth } from '../town/layout';
 import { cssColor } from '../town/lens';
@@ -49,6 +49,24 @@ describe('what differs between a fork and its parent', () => {
     const empty = world([], [], []);
     expect(matchCouples(child, empty).compared).toBe(0);
     expect(differingOnDay(child, empty, matchCouples(child, empty), 1)).toEqual([]);
+  });
+
+  it('compares only with the very run the fork came from, told by the hash of every table', () => {
+    expect(checkParent('abc', 'abc')).toBe('same');
+    expect(checkParent('abc', 'def')).toBe('rerun');
+    // The experiment list, read again when a page comes back into view, can tell of a later run as well.
+    expect(checkParent('abc', 'abc', 'abc')).toBe('same');
+    expect(checkParent('abc', 'abc', null)).toBe('same');
+    expect(checkParent('abc', 'abc', 'def')).toBe('rerun');
+    // A hash missing on either side cannot be checked, so nothing is compared either.
+    expect(checkParent('abc', undefined)).toBe('unknown');
+    expect(checkParent('abc', null)).toBe('unknown');
+    expect(checkParent(null, 'abc')).toBe('unknown');
+    expect(checkParent('', '')).toBe('unknown');
+    expect(parentNotComparedWords('rerun', 'example')).toBe('The world this one came from, example, was run again after the fork, so houses are not compared.');
+    expect(parentNotComparedWords('unknown', 'example')).toBe(
+      'The world this one came from, example, cannot be checked against the run this one was forked from, so houses are not compared.',
+    );
   });
 
   it('words the counter for any count', () => {

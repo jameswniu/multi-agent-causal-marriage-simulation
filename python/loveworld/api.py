@@ -119,7 +119,12 @@ def grid_counts(grid: np.ndarray, mask: np.ndarray, letters: dict[str, bytes]) -
 
 
 def build_world(tables: Tables) -> dict[str, Any]:
-    """Per-day state strings for every couple (initial first, then remarriage), with counts."""
+    """Per-day state strings for every couple (initial first, then remarriage), with counts.
+
+    The payload carries the determinism hash of the run these states were read from, the engine's hash of
+    every table it wrote, so a forked world can tell whether its parent is still the run it was forked
+    from (parent.json records the parent's hash at the fork) before comparing house by house.
+    """
     days = tables.days
     cp = tables.couples
     initial = cp[cp["origin"] == "initial"].sort_values("couple_id")
@@ -153,6 +158,7 @@ def build_world(tables: Tables) -> dict[str, Any]:
         "states": states,
         "legend": LEGEND,
         "counts": counts,
+        "determinism_hash": tables.manifest.get("determinism_hash"),
     }
 
 
@@ -429,6 +435,20 @@ DEFAULT_MAX_LOADED = 2
 """Experiments kept in memory at once; each loaded 1,000 x 365 run holds about half a gigabyte."""
 
 
+def _disk_stamp(results_dir: Path) -> tuple[int, int, int] | None:
+    """Return the stamp of a results directory's manifest: its inode, modification time and size.
+
+    The stamp tells whether the directory still holds the run that was read. A run publishes by renaming a
+    whole new directory into place, so a re-run from this server, the command line or another process
+    leaves a manifest with another inode and modification time.
+    """
+    try:
+        st = (results_dir / "manifest.json").stat()
+    except OSError:
+        return None
+    return (st.st_ino, st.st_mtime_ns, st.st_size)
+
+
 def _max_loaded_from_env() -> int:
     """LOVEWORLD_MAX_LOADED when it is a positive integer, else the default."""
     raw = os.environ.get("LOVEWORLD_MAX_LOADED", "")
@@ -466,6 +486,9 @@ class ExperimentStore:
         self._lock = threading.Lock()
         self._load_lock = threading.Lock()
         self._generation: dict[str, int] = {}
+        # The manifest stamp each cached copy was read under: a copy whose results changed on disk since,
+        # by a run this server never saw, is read again instead of served.
+        self._stamps: dict[str, tuple[int, int, int] | None] = {}
         # Public mode points the default at a curated experiment, never at a visitor's run, and with
         # `public_default_only` there is no default at all when no curated experiment exists.
         self.preferred_default: str | None = None
@@ -512,33 +535,49 @@ class ExperimentStore:
         return names[0] if names else None
 
     def get(self, name: str | None) -> Loaded:
-        """Load (once) and return an experiment; 404 when unknown or outside the root."""
+        """Load (once) and return an experiment; 404 when unknown or outside the root.
+
+        A cached copy is served only while the results on disk are still the run it was read from, so a
+        run published over it by another process is read again rather than hidden behind the old copy.
+        """
         resolved = name or self.default()
         if resolved is None or resolved not in self.names():
             raise HTTPException(status_code=404, detail=f"unknown experiment {name!r}")
         path = self.dir_for(resolved)
         if path is None:
             raise HTTPException(status_code=404, detail=f"unknown experiment {name!r}")
+        # Taken before any table is read, so results that change during the read are read again next time.
+        stamp = _disk_stamp(path)
         with self._lock:
             item = self.loaded.get(resolved)
-            if item is not None:
+            if item is not None and self._stamps.get(resolved) == stamp:
                 self.loaded.move_to_end(resolved)
                 return item
         with self._load_lock:
             with self._lock:
                 item = self.loaded.get(resolved)
-                if item is not None:
+                if item is not None and self._stamps.get(resolved) == stamp:
                     self.loaded.move_to_end(resolved)
                     return item
+                # A copy of results that have changed on disk since it was read is dropped, never served.
+                self.loaded.pop(resolved, None)
+                self._stamps.pop(resolved, None)
                 generation = self._generation.get(resolved, 0)
                 # Make room first, so the new copy and the cache together stay within the limit.
                 while len(self.loaded) >= self.max_loaded:
-                    self.loaded.popitem(last=False)
+                    dropped, _ = self.loaded.popitem(last=False)
+                    self._stamps.pop(dropped, None)
             item = Loaded(path)
+            # Tables are read one file after another, so results published over them meanwhile may mix two
+            # runs: read them once more, under the stamp of what is there now.
+            fresh = _disk_stamp(path)
+            if fresh != stamp:
+                stamp, item = fresh, Loaded(path)
             with self._lock:
                 # A re-run that invalidated this name while it loaded wins: serve, do not cache.
                 if self._generation.get(resolved, 0) == generation:
                     self.loaded[resolved] = item
+                    self._stamps[resolved] = stamp
                     self.loaded.move_to_end(resolved)
         return item
 
@@ -546,6 +585,7 @@ class ExperimentStore:
         """Forget a cached experiment (after a re-run) and list it (after a new run)."""
         with self._lock:
             self.loaded.pop(name, None)
+            self._stamps.pop(name, None)
             self._generation[name] = self._generation.get(name, 0) + 1
         if self.single and name != self.root.name:
             self.extra.add(name)
@@ -581,6 +621,7 @@ class ExperimentStore:
                     "divorce_control": divorce.get("control_mean"),
                     "divorce_treatment": divorce.get("treatment_mean"),
                     "generated_at_unix": manifest.get("generated_at_unix"),
+                    "determinism_hash": manifest.get("determinism_hash"),
                     "has_placebo": find_sibling(d, "placebo") is not None,
                     "has_twins": find_sibling(d, "twins") is not None,
                     "parent": (read_parent(d) or {}).get("parent"),

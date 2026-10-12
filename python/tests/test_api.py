@@ -215,7 +215,9 @@ def test_world_replay(client: TestClient) -> None:
     r = client.get("/api/world")
     assert r.status_code == 200
     w = r.json()
-    assert set(w) == {"days", "couples", "arms", "origin", "states", "legend", "counts"}
+    assert set(w) == {"days", "couples", "arms", "origin", "states", "legend", "counts", "determinism_hash"}
+    # The hash of the very tables the states were read from, the one the run's manifest records.
+    assert w["determinism_hash"] == client.get("/api/experiment").json()["manifest"]["determinism_hash"]
     assert w["days"] == 60 and len(w["states"]) == 60 and len(w["counts"]) == 60
     n = len(w["couples"])
     assert len(w["arms"]) == n == len(w["origin"])
@@ -580,6 +582,55 @@ def test_a_rerun_during_a_load_is_not_hidden_behind_the_old_copy(
     monkeypatch.setattr(api, "Loaded", loaded_then_rerun)
     store.get("alpha")
     assert "alpha" not in store.loaded, "the stale copy is served once and not cached"
+
+
+def test_results_published_over_by_another_process_are_read_again(results_root: Path, tmp_path: Path) -> None:
+    """A run published over an experiment outside this server, from the command line say, is what it serves next.
+
+    A forked world compares its parent only while the parent's served hash is the one it recorded, so a
+    copy kept in memory after the results on disk changed would hide a re-run from that check.
+    """
+    shutil.copytree(results_root / "smoke", tmp_path / "alpha")
+    c = TestClient(create_app(tmp_path, frontend_dist=tmp_path / "no-dist"))
+    first = c.get("/api/world", params={"experiment": "alpha"}).json()
+    assert first["days"] == 60
+    assert c.get("/api/world", params={"experiment": "alpha"}).json() == first, "unchanged results come from memory"
+    # Published the way every run publishes: a whole new directory renamed into place.
+    shutil.copytree(results_root / "zeta", tmp_path / ".alpha.tmp-1")
+    shutil.rmtree(tmp_path / "alpha")
+    (tmp_path / ".alpha.tmp-1").rename(tmp_path / "alpha")
+    again = c.get("/api/world", params={"experiment": "alpha"}).json()
+    assert again["days"] == 30
+    on_disk = json.loads((tmp_path / "alpha" / "manifest.json").read_text())["determinism_hash"]
+    assert again["determinism_hash"] == on_disk != first["determinism_hash"]
+    manifest = c.get("/api/experiment", params={"experiment": "alpha"}).json()["manifest"]
+    assert manifest["determinism_hash"] == on_disk
+
+
+def test_results_published_over_while_being_read_are_read_once_more(
+    results_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from loveworld import api
+
+    shutil.copytree(results_root / "smoke", tmp_path / "alpha")
+    real = api.Loaded
+    published: list[str] = []
+
+    def read_while_published_over(path: Path) -> object:
+        item = real(path)
+        if not published:  # a run lands in place of the one being read
+            published.append(path.name)
+            shutil.copytree(results_root / "zeta", tmp_path / ".alpha.tmp-1")
+            shutil.rmtree(path)
+            (tmp_path / ".alpha.tmp-1").rename(path)
+        return item
+
+    monkeypatch.setattr(api, "Loaded", read_while_published_over)
+    store = api.ExperimentStore(tmp_path, max_loaded=2)
+    item = store.get("alpha")
+    assert published == ["alpha"]
+    assert item.tables.days == 30, "the run published over the old one is what is served"
+    assert store.get("alpha") is item, "and it is kept under the stamp of what is on disk"
 
 
 def _translating_client(tmp_path: Path, answers: dict[str, dict[str, Any]]) -> tuple[TestClient, Any]:

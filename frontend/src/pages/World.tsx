@@ -22,7 +22,7 @@ import TimeStrip from '../components/TimeStrip';
 import Inspector from '../town/Inspector';
 import { countsForDay, dayLabel, densitySeries, kindWords, nextEventDay, shockBands } from '../town/timebar';
 import ShockInPlace from '../components/ShockInPlace';
-import { differCounter, differingOnDay, matchCouples } from '../worldDiff';
+import { checkParent, differCounter, differingOnDay, matchCouples, parentNotComparedWords } from '../worldDiff';
 import { chanceWords, noIntervention } from '../nullRun';
 
 const TownView = lazy(() => import('../town/TownView'));
@@ -36,6 +36,10 @@ const EVENT_CACHE_MAX = 400;
 const REPLAY_WAIT_MS = 8000;
 /** A paused day's event list is fetched after this pause, so scrubbing asks once, not per day. */
 const EVENT_FETCH_DELAY_MS = 120;
+/** How often a forked world left open in view reads the experiment list again to check its parent. */
+const PARENT_RECHECK_MS = 120_000;
+/** Coming back into view fires both focus and visibilitychange; one read of the list answers both. */
+const PARENT_RECHECK_GAP_MS = 2000;
 
 interface TickerState {
   day: number | null;
@@ -239,7 +243,8 @@ async function loadTwins(): Promise<TwinsWorldResponse> {
 
 export default function World() {
   const navigate = useExpNavigate();
-  const expName = useExperiment().name;
+  const experiments = useExperiment();
+  const expName = experiments.name;
   const location = useLocation();
   // A world that was just run opens here and replays from just before its first shock, at ten days a second.
   const [pendingReplay, setPendingReplay] = useState<number | null>(() => {
@@ -266,7 +271,34 @@ export default function World() {
   const parentName = parentRecord?.parent ?? null;
   const parentWorld = useAsync(() => (parentName ? getWorld(parentName) : Promise.resolve(null)), [parentName]);
   const [showParent, setShowParent] = useState(false);
-  const pw = parentName ? parentWorld.data : null;
+  // Its parent is compared only while the API still serves the very run it was forked from: the hash that
+  // comes with the parent's states must be the one parent.json recorded at the fork. A parent run again
+  // under the same name since is another world, so nothing is ringed or counted against it.
+  const parentServed = parentName && !parentWorld.loading ? parentWorld.data : null;
+  // The experiment list names each world's run on disk too, and a page left open reads it again whenever it
+  // comes back into view, so a parent run again since its states were fetched stops being compared then.
+  const parentListed = parentName ? experiments.items.find((i) => i.name === parentName)?.determinism_hash : null;
+  const parentCheck = parentServed ? checkParent(parentRecord?.parent_determinism_hash, parentServed.determinism_hash, parentListed) : null;
+  const refreshList = experiments.refresh;
+  useEffect(() => {
+    if (!parentName) return;
+    let last = 0;
+    const recheck = () => {
+      const now = Date.now();
+      if (document.visibilityState === 'hidden' || now - last < PARENT_RECHECK_GAP_MS) return;
+      last = now;
+      void refreshList();
+    };
+    window.addEventListener('focus', recheck);
+    document.addEventListener('visibilitychange', recheck);
+    const timer = window.setInterval(recheck, PARENT_RECHECK_MS);
+    return () => {
+      window.removeEventListener('focus', recheck);
+      document.removeEventListener('visibilitychange', recheck);
+      window.clearInterval(timer);
+    };
+  }, [parentName, refreshList]);
+  const pw = parentCheck === 'same' ? parentServed : null;
   const flipped = showParent && pw !== null;
   // The world the town (or the grids) draws: this one, or the one it came from on the same day.
   const shown = flipped ? pw : world;
@@ -667,6 +699,8 @@ export default function World() {
                 <div className="status error" role="alert">
                   Could not load {parentName} to compare: {parentWorld.error}
                 </div>
+              ) : parentCheck !== null && parentCheck !== 'same' ? (
+                <p data-testid="parent-not-compared">{parentNotComparedWords(parentCheck, parentName)}</p>
               ) : !pw || !match ? (
                 <p className="muted">Loading {parentName} to compare...</p>
               ) : (

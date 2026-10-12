@@ -373,6 +373,8 @@ export interface WorldResponse {
   states: string[];
   legend: Record<string, string>;
   counts: WorldCount[];
+  /** The determinism hash of the run these states were read from, the engine's hash of every table it wrote. */
+  determinism_hash?: string | null;
 }
 
 export interface EventsDayResponse {
@@ -411,6 +413,8 @@ export interface ExperimentListItem {
   divorce_control: number | null;
   divorce_treatment: number | null;
   generated_at_unix: number;
+  /** The determinism hash of the run on disk under this name now, the engine's hash of every table it wrote. */
+  determinism_hash?: string | null;
   /** The world this one was forked from, when it is a fork. */
   parent?: string | null;
 }

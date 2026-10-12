@@ -3,7 +3,7 @@
 // world and replays it, and the child is compared with its parent day by day.
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as mock from './mockApi';
 import App from '../App';
 import { jobPolling } from '../jobs';
@@ -41,6 +41,11 @@ function ringedTiles(testId: string): number[] {
 
 beforeEach(() => {
   mock.resetMockState();
+});
+
+// A test that fails before its own mockRestore must not leave its stand-in for the next test.
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('shocking a world in place', () => {
@@ -182,6 +187,54 @@ describe('shocking a world in place', () => {
     expect(ringedTiles('grid-control')).toEqual([]);
     expect(ringedTiles('grid-treatment')).toEqual([]);
     expect(screen.queryByTestId('ring-key')).not.toBeInTheDocument();
+  });
+
+  it('compares nothing with a parent run again after the fork, and says so in one sentence', async () => {
+    await mock.forkExperiment({ parent: 'retention-90d', shocks: [JOB_LOSS] });
+    const real = mock.getWorld;
+    // The API now serves another run under the parent's name: its hash is not the one the fork recorded.
+    const world = vi.spyOn(mock, 'getWorld').mockImplementation(async (experiment?: string) => {
+      const w = await real(experiment);
+      return experiment === 'retention-90d' ? { ...w, determinism_hash: 'hash-of-a-later-run' } : w;
+    });
+    at('/world?experiment=retention-90d-fork');
+    const compare = await screen.findByTestId('compare');
+    expect(await within(compare).findByTestId('parent-not-compared')).toHaveTextContent(
+      'The world this one came from, retention-90d, was run again after the fork, so houses are not compared.',
+    );
+    // On a day the fork and the original parent differ, nothing is counted, ringed or offered to flip to.
+    fireEvent.change(screen.getByLabelText('Day'), { target: { value: '40' } });
+    expect(within(compare).queryByTestId('differ-count')).not.toBeInTheDocument();
+    expect(within(compare).queryByRole('group', { name: 'The town shows' })).not.toBeInTheDocument();
+    expect(ringedTiles('grid-control')).toEqual([]);
+    expect(ringedTiles('grid-treatment')).toEqual([]);
+    expect(screen.queryByTestId('ring-key')).not.toBeInTheDocument();
+    fireEvent.focus(screen.getByTestId('grid-treatment'));
+    expect(screen.getByTestId('grid-treatment-live')).toHaveTextContent('Couple 1: married, in conflict.');
+    expect(screen.getByTestId('grid-treatment-live')).not.toHaveTextContent('Ringed');
+    world.mockRestore();
+  });
+
+  it('stops comparing on a page left open once the parent is run again, read when the page comes back into view', async () => {
+    await mock.forkExperiment({ parent: 'retention-90d', shocks: [JOB_LOSS] });
+    at('/world?experiment=retention-90d-fork');
+    const compare = await screen.findByTestId('compare');
+    const count = await within(compare).findByTestId('differ-count');
+    fireEvent.change(screen.getByLabelText('Day'), { target: { value: '40' } });
+    expect(count).toHaveTextContent('2 of 6 couples differ from retention-90d today.');
+    expect(ringedTiles('grid-treatment')).toEqual([0]);
+    // The parent is run again elsewhere while this page is open; coming back into view reads the list again.
+    mock.setListedHash('retention-90d', 'hash-of-a-later-run');
+    const before = mock.listCalls.count;
+    fireEvent.focus(window);
+    await waitFor(() => expect(mock.listCalls.count).toBe(before + 1));
+    expect(await within(compare).findByTestId('parent-not-compared')).toHaveTextContent(
+      'The world this one came from, retention-90d, was run again after the fork, so houses are not compared.',
+    );
+    expect(within(compare).queryByTestId('differ-count')).not.toBeInTheDocument();
+    expect(within(compare).queryByRole('group', { name: 'The town shows' })).not.toBeInTheDocument();
+    expect(ringedTiles('grid-treatment')).toEqual([]);
+    expect(ringedTiles('grid-control')).toEqual([]);
   });
 
   it('says so when the parent world cannot be loaded, and still shows the child', async () => {
