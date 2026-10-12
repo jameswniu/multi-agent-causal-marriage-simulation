@@ -22,6 +22,8 @@ let widgetId: string | null = null;
 let mounting = false;
 let script: Promise<void> | null = null;
 let waiters: ((t: string | null) => void)[] = [];
+// Where the page last asked for the check, so a request can mount it again after a failed load.
+let lastMount: { el: HTMLElement; siteKey: string } | null = null;
 
 /** How long a request waits for the check to hand over a fresh token, in milliseconds. */
 export const TOKEN_WAIT_MS = 15000;
@@ -41,7 +43,12 @@ function loadScript(): Promise<void> {
       el.src = SCRIPT_URL;
       el.async = true;
       el.onload = () => resolve();
-      el.onerror = () => reject(new Error('the bot check could not load'));
+      el.onerror = () => {
+        // Forget a failed load, so the next mount fetches the script again instead of failing until a reload.
+        el.remove();
+        script = null;
+        reject(new Error('the bot check could not load'));
+      };
       document.head.appendChild(el);
     });
   }
@@ -52,6 +59,7 @@ function loadScript(): Promise<void> {
 export async function mountTurnstile(el: HTMLElement, siteKey: string): Promise<void> {
   // Set before the first await, so a request made while the script loads waits for a token.
   mounting = true;
+  lastMount = { el, siteKey };
   try {
     await loadScript();
     if (!window.turnstile) return;
@@ -86,6 +94,8 @@ export function takeTurnstileToken(waitMs: number = TOKEN_WAIT_MS): Promise<stri
     if (widgetId && window.turnstile) window.turnstile.reset(widgetId);
     return Promise.resolve(ready);
   }
+  // A check that failed to load is tried again for this request, so a passing network fault costs a retry, not a reload.
+  if (!mounting && !widgetId && lastMount?.el.isConnected) void mountTurnstile(lastMount.el, lastMount.siteKey).catch(() => undefined);
   if (!mounting && (!widgetId || !window.turnstile)) return Promise.resolve(null);
   return new Promise((resolve) => {
     let settled = false;
@@ -112,5 +122,6 @@ export function setTurnstileTokenForTests(t: string | null, forgetWidget = false
     mounting = false;
     script = null;
     waiters = [];
+    lastMount = null;
   }
 }

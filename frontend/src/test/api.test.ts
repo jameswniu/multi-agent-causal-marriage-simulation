@@ -124,6 +124,33 @@ describe('api client', () => {
     expect(((calls[0].init?.headers ?? {}) as Record<string, string>)['cf-turnstile-response']).toBeUndefined();
   });
 
+  it('loads the check again for the next POST after a failed load, so a passing network fault needs no reload', async () => {
+    const el = document.body.appendChild(document.createElement('div'));
+    const first = mountTurnstile(el, 'site-key');
+    document.head.querySelector<HTMLScriptElement>('script[src*="turnstile"]')!.onerror!(new Event('error'));
+    await expect(first).rejects.toThrow('the bot check could not load');
+    expect(document.head.querySelectorAll('script[src*="turnstile"]')).toHaveLength(0);
+    const calls = stubFetch([{ translation_id: 't' }]);
+    const sent = translateShock('She starts night shifts', 365);
+    await new Promise((r) => setTimeout(r, 5));
+    // The request waits while the check loads again, instead of going out without a token.
+    expect(calls).toHaveLength(0);
+    let callback: ((t: string) => void) | null = null;
+    vi.stubGlobal('turnstile', {
+      render: (_el: HTMLElement, opts: Record<string, unknown>) => {
+        callback = opts.callback as (t: string) => void;
+        return 'w3';
+      },
+      reset: vi.fn(),
+    });
+    document.head.querySelector<HTMLScriptElement>('script[src*="turnstile"]')!.onload!(new Event('load'));
+    await new Promise((r) => setTimeout(r, 0));
+    callback!('tok-retry');
+    await sent;
+    expect(((calls[0].init?.headers ?? {}) as Record<string, string>)['cf-turnstile-response']).toBe('tok-retry');
+    el.remove();
+  });
+
   it('gives every protected POST its own bot-check token, waiting for the check to hand over a fresh one', async () => {
     let callback: ((t: string) => void) | null = null;
     const reset = vi.fn();
