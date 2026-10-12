@@ -291,6 +291,26 @@ ticker listing the current day's events in plain words (couple id, kind, value);
 open that couple's detail page. Must stay smooth at 50x with 1,000 tiles (render tiles as a single
 canvas or CSS grid of divs with className changes only; no per-tile React re-render per day).
 
+Town view (added 2026-10-11). Where the browser offers WebGL, the World page opens on a town drawn
+with PixiJS 8 (pinned at 8.21.0 and loaded only when the town is shown) in place of the grids. A Town
+or Grid switch keeps the grids, which are also the fallback when WebGL is missing or the town fails to
+start, and the twins mode always uses them. The town reads only `/api/world` and
+`/api/couples?limit=10000`, for the two agent ids of every couple, and draws a pure layout from them
+(`frontend/src/town/layout.ts`). Control lots sit left of a central plaza and treatment lots right of
+it, in couple id order, 20 to a row. Remarried couples that marry at some point in the run get
+new-home lots at the foot of the plaza, each roof half in the colour of the arm its partner first
+married in, and a pair that only dates never gets a lot.
+
+Each day an agent's place is a function of that day's state letters. `M` stands both partners at
+home. `C` puts both outside and apart under a conflict sign. `S` sends one partner, a fixed choice by
+couple id, to the plaza edge on its district's side while the other stays home. `D` and `B` make both
+single, each at a fixed spot in the plaza, and `T` walks the pair together in the plaza's dating
+area. The walk between two days' places is cosmetic: it snaps at 50x and on jumps of more than one
+day, and it is never stored or read back. Below 24 screen pixels per lot only the houses are drawn.
+The town must stay smooth at 50x with 2,000 figures. Measured on 2026-10-11 on an Apple M5 Pro
+(headless Chromium on Metal), the frame time averaged 8.3 ms with a 95th percentile of 9.2 ms, and
+updating every figure took 0.18 ms a frame.
+
 ## 6. Experiment picker, on-demand runs and shocks (added 2026-10-10 late)
 
 ### Shocks (engine)

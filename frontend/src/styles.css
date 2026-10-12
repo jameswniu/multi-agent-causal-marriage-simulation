@@ -212,3 +212,19 @@ details.tableview summary { cursor: pointer; color: var(--ink-2); font-size: 0.9
 .hood table.data td, .hood table.data th { font-size: 0.875rem; padding: 0.25rem 0.4rem; }
 .hood .dayhead { font-weight: 600; margin: 0.75rem 0 0.25rem; }
 .delta { color: var(--muted); font-size: 0.875rem; }
+
+/* Town view: the canvas is a fixed-height window onto a town larger than the screen. */
+.town { padding-bottom: 0.75rem; }
+.town-toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.4rem; }
+.town-toolbar button { min-width: 2.2rem; }
+.town-hint { font-size: 0.9rem; }
+.town-hover { min-height: 1.4em; }
+.town-canvas { position: relative; width: 100%; height: clamp(420px, 68vh, 760px); border-radius: 6px; overflow: hidden; background: #7cc576; }
+.town-canvas canvas { max-width: none; }
+.town-legend { display: flex; flex-wrap: wrap; gap: 0.6rem 1.2rem; font-size: 0.95rem; color: var(--ink-2); align-items: center; margin-top: 0.6rem; }
+.town-roof { display: inline-flex; vertical-align: -4px; margin-right: 0.4rem; }
+.town-roof img { width: 12px; height: 16px; object-fit: cover; object-position: top; image-rendering: pixelated; }
+.town-marker { display: inline-block; width: 10px; height: 10px; background: #f6c945; border: 1.5px solid #3f2631; transform: rotate(45deg); margin: 0 0.5rem 0 0.2rem; vertical-align: 0; }
+.town-footnote { margin-top: 0.4rem; }
+.town-canvas canvas:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
+.town-canvas canvas:focus:not(:focus-visible) { outline: none; }

@@ -1,7 +1,8 @@
 // World replay page. It plays a finished run day by day so a viewer can watch what the memory
-// setting does to 1,000 couples, with playback controls, side-by-side control and treatment grids
-// (or each couple under both settings), counters and the day's events.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+// setting does to 1,000 couples: a town where every couple is a house with its two agents (or the
+// tile grids, side by side, or each couple under both settings), playback controls, counters and
+// the day's events.
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ExpLink, useExpNavigate } from '../nav';
 import { getCurves, getEventsForDay, getExperiment, getTwinsWorld, getWorld } from '../api';
 import type { ArmCounts, Curves, EventRow, ExperimentResponse, TwinsWorldResponse, WorldResponse } from '../types';
@@ -13,9 +14,13 @@ import TileLegend from '../components/TileLegend';
 import Scoreboard, { pct } from '../components/Scoreboard';
 import EventMarkers from '../components/EventMarkers';
 import { differenceClause, sharedClause, useArmContext, whatDiffers, type ArmLabels, type Catalog, type Intervention } from '../arms';
+import { supportsWebGL } from '../town/webgl';
+
+const TownView = lazy(() => import('../town/TownView'));
 
 const SPEEDS = [1, 10, 50] as const;
 type Mode = 'randomized' | 'twins';
+type View = 'town' | 'grid';
 
 const EVENT_CACHE_MAX = 400;
 
@@ -78,7 +83,7 @@ function useDayEvents(day: number, enabled: boolean) {
 }
 
 /** The one-sentence framing of the experiment, filled from the intervention. */
-export function framingSentence(n: number, iv: Intervention, catalog: Catalog | null, mode: Mode): string {
+export function framingSentence(n: number, iv: Intervention, catalog: Catalog | null, mode: Mode, picture: 'grids' | 'districts' = 'grids'): string {
   if (mode === 'twins') {
     const lead = 'Each tile is one couple shown twice, the same people and the same random events';
     if (!iv.memory && !iv.treatmentShocks.length) {
@@ -90,7 +95,7 @@ export function framingSentence(n: number, iv: Intervention, catalog: Catalog | 
   }
   const couples = n.toLocaleString();
   const mem = iv.memory;
-  const lead = `Both grids start from the same ${couples} couples on the same day.`;
+  const lead = `Both ${picture} start from the same ${couples} couples on the same day.`;
   if (mem && mem.parameter === 'conflict_half_life_days' && iv.treatmentShocks.length === 0) {
     const shared = sharedClause(iv, catalog);
     const tail = shared ? ` ${shared[0].toUpperCase()}${shared.slice(1)}.` : '';
@@ -188,6 +193,9 @@ export default function World() {
   const twins = useAsync(loadTwins, []);
   const arms = useArmContext();
   const [mode, setMode] = useState<Mode>('randomized');
+  const webgl = useMemo(() => supportsWebGL(), []);
+  const [view, setView] = useState<View>(() => (webgl ? 'town' : 'grid'));
+  const [townNote, setTownNote] = useState<string | null>(null);
   const [day, setDay] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(10);
@@ -270,6 +278,12 @@ export default function World() {
   const trustC = curves?.trust.control_mean[Math.min(d, curves.trust.control_mean.length - 1)];
   const trustT = curves?.trust.treatment_mean[Math.min(d, curves.trust.treatment_mean.length - 1)];
   const pick = (id: number) => navigate(`/couples/${id}`);
+  const pickAgent = (id: number) => navigate(`/agents/${id}`);
+  const townFallback = (reason: string) => {
+    setTownNote(`Showing the grid because ${reason}.`);
+    setView('grid');
+  };
+  const showTown = mode === 'randomized' && view === 'town';
   const twinsReason = twins.data && !twins.data.available ? twins.data.reason : twins.loading ? 'loading' : null;
 
   const scoreboard =
@@ -303,7 +317,7 @@ export default function World() {
         </ExpLink>
       </p>
       <p className="framing" data-testid="framing">
-        {framingSentence(nInitial, arms.intervention, arms.catalog, mode)}
+        {framingSentence(nInitial, arms.intervention, arms.catalog, mode, showTown ? 'districts' : 'grids')}
       </p>
       <div className="card">
         <div className="filters" role="group" aria-label="Playback">
@@ -315,6 +329,16 @@ export default function World() {
               Same couples, both arms
             </button>
           </div>
+          {mode === 'randomized' ? (
+            <div className="segmented" role="group" aria-label="Picture">
+              <button onClick={() => setView('town')} aria-pressed={view === 'town'} disabled={!webgl} title={webgl ? undefined : 'The town needs WebGL, which this browser does not offer.'}>
+                Town
+              </button>
+              <button onClick={() => setView('grid')} aria-pressed={view === 'grid'}>
+                Grid
+              </button>
+            </div>
+          ) : null}
           <button onClick={() => setPlaying((p) => !p)} aria-pressed={playing}>
             {playing ? 'Pause' : 'Play'}
           </button>
@@ -342,7 +366,12 @@ export default function World() {
           </p>
         ) : null}
         <p className="muted">Arrow keys step a day, shift and arrow ten, space plays.</p>
-        <TileLegend legend={world.legend} />
+        {townNote ? (
+          <p className="muted" data-testid="town-note">
+            {townNote}
+          </p>
+        ) : null}
+        {showTown ? null : <TileLegend legend={world.legend} />}
       </div>
 
       {scoreboard}
@@ -384,21 +413,29 @@ export default function World() {
         </>
       ) : (
         <>
-          <div className="grid-2">
-            <WorldGrid title={controlTitle} subtitle={controlSub} couples={world.couples} states={world.states} indices={groups.control} day={d} onPick={pick} testId="grid-control" />
-            <WorldGrid title={treatmentTitle} subtitle={treatmentSub} couples={world.couples} states={world.states} indices={groups.treatment} day={d} onPick={pick} testId="grid-treatment" />
-          </div>
-          <WorldGrid
-            title={`After divorce, dating and remarriage${counts ? `: ${counts.remarriage.dating} dating, ${counts.remarriage.married} married today` : ''}`}
-            subtitle="Dating only appears here. Every initial couple starts married, so these are divorced agents who met someone new."
-            couples={world.couples}
-            states={world.states}
-            indices={groups.remarriage}
-            day={d}
-            tile={10}
-            onPick={pick}
-            testId="grid-remarriage"
-          />
+          {showTown ? (
+            <Suspense fallback={<Loading what="the town" />}>
+              <TownView world={world} day={d} speed={speed} controlTitle={controlTitle} treatmentTitle={treatmentTitle} onPickCouple={pick} onPickAgent={pickAgent} onFallback={townFallback} />
+            </Suspense>
+          ) : (
+            <>
+              <div className="grid-2">
+                <WorldGrid title={controlTitle} subtitle={controlSub} couples={world.couples} states={world.states} indices={groups.control} day={d} onPick={pick} testId="grid-control" />
+                <WorldGrid title={treatmentTitle} subtitle={treatmentSub} couples={world.couples} states={world.states} indices={groups.treatment} day={d} onPick={pick} testId="grid-treatment" />
+              </div>
+              <WorldGrid
+                title={`After divorce, dating and remarriage${counts ? `: ${counts.remarriage.dating} dating, ${counts.remarriage.married} married today` : ''}`}
+                subtitle="Dating only appears here. Every initial couple starts married, so these are divorced agents who met someone new."
+                couples={world.couples}
+                states={world.states}
+                indices={groups.remarriage}
+                day={d}
+                tile={10}
+                onPick={pick}
+                testId="grid-remarriage"
+              />
+            </>
+          )}
           <div className="grid-2">
             <div className="card">
               <h3>Counts on day {d}</h3>

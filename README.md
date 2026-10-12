@@ -123,7 +123,7 @@ target/release/loveworld-engine policy-spec
 ## The dashboard
 
 <p align="center">
-  <img src="assets/world-randomized.png" alt="The World page on day 200 of 364. Two grids of 500 couples, one per arm. On the left, forgets fights in two weeks, 9 of 500 divorced, 58 in conflict, mean trust 0.66. On the right, holds onto fights for three months, 42 of 500 divorced, 229 in conflict, mean trust 0.30. Tiles are blue for married, outlined for a couple in conflict, orange for separated, dark for divorced, green for dating." width="100%">
+  <img src="assets/world-town.png" alt="The World page as a town on day 200 of 364 in the example run. Blue-roofed houses on the left are couples who forget a fight in two weeks and orange-roofed houses on the right are couples who hold onto it for three months, each house with its two people in front. On the left 9 of 500 couples are divorced and 58 are in a conflict. On the right 42 are divorced, their houses dimmed, and 229 are in a conflict, shown by a yellow sign with both partners standing apart. Divorced people gather in the dirt plaza between the two districts." width="100%">
 </p>
 
 <p align="center">
@@ -131,12 +131,16 @@ target/release/loveworld-engine policy-spec
 </p>
 <p align="center"><sub><a href="https://github.com/jameswniu/loveworld/raw/main/assets/loveworld-demo.mp4">Watch with sound</a></sub></p>
 
-The World page replays the year.
+The World page replays the year as a town.
 
-- Play, pause and fast-forward at 1x, 10x or 50x days per second, with every couple as a tile coloured by state and control and treatment side by side.
+- Every couple is a house with its two people in front, control on the left under blue roofs and treatment on the right under orange ones.
+- A couple in a conflict stands outside and apart under a yellow sign, a separated partner waits at the edge of the plaza, and a divorce dims the house and sends both people to the plaza, where some date and remarry into new homes.
+- Play, pause and fast-forward at 1x, 10x or 50x days per second while people walk to each day's place, and drag and scroll to move and zoom.
+- Click a house or a person for that couple's or agent's story, the state timeline, both partners' trust and affect, every conflict, and every decision with the utilities behind it.
 - Counters per arm and a ticker of the day's events.
-- Click a tile for that couple's story, the state timeline, both partners' trust and affect, every conflict, and every decision with the utilities behind it.
-- A second mode shows the same couples under both arms, each tile one couple twice, with a counter of how many fates differ that day.
+- A Grid switch shows the same run as one tile per couple, and a second mode shows the same couples under both arms, each tile one couple twice, with a counter of how many fates differ that day.
+
+Where a person stands is a layout of their state that day, since the engine has no space. The town art is Kenney's public-domain Tiny Town and Tiny Dungeon tiles, credited in `frontend/public/assets/kenney/CREDITS.md`.
 
 The other pages hold the causal readout.
 
