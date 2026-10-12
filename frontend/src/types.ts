@@ -389,14 +389,55 @@ export interface ExperimentsResponse {
 export type ShockTarget = 'treatment' | 'control' | 'all';
 export type ShockMember = 'a' | 'b' | 'random';
 
+export type EffectChannel = 'stress' | 'affect' | 'trust' | 'episode' | 'outside' | 'onset_hazard' | 'repair_propensity' | 'trait';
+export type EffectCadence = 'once' | 'daily' | 'weekly' | 'yearly';
+export type EffectWho = 'member' | 'partner' | 'both';
+
+/** One effect of a custom shock: a channel, how much, how often, whom it hits, and an optional window inside the shock's. */
+export interface EffectSpec {
+  channel: EffectChannel;
+  op: 'add' | 'multiply';
+  amount: number;
+  cadence: EffectCadence;
+  who: EffectWho;
+  class?: string | null;
+  trait?: string | null;
+  start_day?: number | null;
+  end_day?: number | null;
+}
+
 export interface ShockSpec {
   kind: string;
   target: ShockTarget;
   member: ShockMember;
   start_day: number;
   end_day: number | null;
+  /** Named kinds only; a custom shock carries an amount on each effect instead. */
   magnitude: number;
   trait?: string | null;
+  /** Custom shocks only. */
+  label?: string | null;
+  description?: string | null;
+  effects?: EffectSpec[] | null;
+}
+
+/** One effect channel as the engine's effect catalog describes it. */
+export interface EffectChannelSpec {
+  channel: EffectChannel;
+  op: 'add' | 'multiply';
+  identity: number;
+  cadences: Partial<Record<EffectCadence, { min: number; max: number; sustained: boolean }>>;
+  who: EffectWho[];
+  classes: string[];
+  traits: string[];
+  description: string;
+}
+
+export interface EffectCatalog {
+  channels: EffectChannelSpec[];
+  max_effects: number;
+  label_max_chars: number;
+  description_max_chars: number;
 }
 
 export interface ShockKind {
@@ -415,6 +456,8 @@ export interface ShockKind {
 
 export interface ShocksCatalog {
   kinds: ShockKind[];
+  /** Present on servers that run custom shocks. */
+  effects?: EffectCatalog;
 }
 
 /** One translated description: the shock it maps to, or why it maps to none (section 6). */
@@ -430,6 +473,9 @@ export interface TranslateResponse {
   message: string | null;
 }
 
+/** A shock as a run request carries it: the target is set by its section, and a custom shock has no magnitude. */
+export type RunShock = Omit<ShockSpec, 'target' | 'magnitude'> & { magnitude?: number };
+
 /** Points the server at the translation a shock came from; shock_index counts treatment shocks, then world shocks. */
 export interface RunTranslation {
   translation_id: string;
@@ -441,9 +487,9 @@ export interface RunRequest {
   n_couples?: number;
   days?: number;
   seeds?: Seeds;
-  treatment: { conflict_half_life_days?: number; shocks?: Omit<ShockSpec, 'target'>[] };
+  treatment: { conflict_half_life_days?: number; shocks?: RunShock[] };
   control?: Record<string, number>;
-  world?: { shocks: Omit<ShockSpec, 'target'>[] };
+  world?: { shocks: RunShock[] };
   engine?: Record<string, unknown>;
   analysis?: { n_boot: number; n_perm: number };
   overwrite?: boolean;

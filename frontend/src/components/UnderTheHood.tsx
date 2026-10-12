@@ -197,7 +197,7 @@ function Body({ members, decisions, episodes, events, legacies }: Props) {
           })()}
           {shocksFor(day).map((s, i) => (
             <div key={i} className="muted">
-              Shock: {s.kind.replace('shock_', '').replace(/_/g, ' ')}
+              Shock: {s.kind.replace('shock_', '').replace(/^custom:/, '').replace(/_/g, ' ')}
               {s.agent_id !== null ? ` on agent ${s.agent_id}` : ''}
               {s.value !== null ? `, magnitude ${Number(s.value).toFixed(2)}` : ''}
             </div>

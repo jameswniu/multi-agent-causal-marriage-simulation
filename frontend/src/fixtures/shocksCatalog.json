@@ -1,127 +1,472 @@
 {
- "kinds": [
-  {
-   "kind": "job_loss",
-   "label": "Job loss",
-   "blurb": "One partner loses their job: stress jumps on the start day and stays raised until the end day.",
-   "member_applies": true,
-   "magnitude": {
-    "min": 0.2,
-    "max": 3.0,
-    "default": 1.0,
-    "unit": "stress"
-   },
-   "default_start_day": 90,
-   "default_end_day": 210
-  },
-  {
-   "kind": "financial_crisis",
-   "label": "Financial crisis",
-   "blurb": "Money trouble for the household: both partners carry extra daily stress between the start and end days.",
-   "member_applies": false,
-   "magnitude": {
-    "min": 0.2,
-    "max": 3.0,
-    "default": 1.0,
-    "unit": "stress"
-   },
-   "default_start_day": 120,
-   "default_end_day": 240
-  },
-  {
-   "kind": "temptation",
-   "label": "Temptation",
-   "blurb": "One partner keeps meeting attractive alternatives: more outside encounters, and better matched ones, until the end day.",
-   "member_applies": true,
-   "magnitude": {
-    "min": 0.02,
-    "max": 0.6,
-    "default": 0.2,
-    "unit": "daily probability"
-   },
-   "default_start_day": 60,
-   "default_end_day": 180
-  },
-  {
-   "kind": "intimacy_mismatch",
-   "label": "Intimacy mismatch",
-   "blurb": "One partner starts wanting much more or less closeness; the gap wears on affect and the one who wants more may store disappointment each week.",
-   "member_applies": true,
-   "magnitude": {
-    "min": -0.5,
-    "max": 0.5,
-    "default": 0.3,
-    "unit": "closeness shift"
-   },
-   "default_start_day": 30,
-   "default_end_day": null
-  },
-  {
-   "kind": "daily_texts",
-   "label": "Daily texts",
-   "blurb": "One partner sends affection every day: the other stores a small positive memory and feels a little better each day.",
-   "member_applies": true,
-   "magnitude": {
-    "min": 0.2,
-    "max": 3.0,
-    "default": 1.0,
-    "unit": "warmth"
-   },
-   "default_start_day": 0,
-   "default_end_day": null
-  },
-  {
-   "kind": "anniversary",
-   "label": "Anniversary",
-   "blurb": "On the start day and every year after, both partners store a strong positive memory and trust rises.",
-   "member_applies": false,
-   "magnitude": {
-    "min": 0.2,
-    "max": 2.0,
-    "default": 1.0,
-    "unit": "warmth"
-   },
-   "default_start_day": 180,
-   "default_end_day": null
-  },
-  {
-   "kind": "date_nights",
-   "label": "Date nights",
-   "blurb": "Every seventh day both partners store a positive memory of an evening together.",
-   "member_applies": false,
-   "magnitude": {
-    "min": 0.2,
-    "max": 2.0,
-    "default": 1.0,
-    "unit": "warmth"
-   },
-   "default_start_day": 0,
-   "default_end_day": null
-  },
-  {
-   "kind": "trait_shift",
-   "label": "Trait shift",
-   "blurb": "One partner's trait moves by the magnitude on the start day (for example 0.3 more neurotic) and stays there.",
-   "member_applies": true,
-   "magnitude": {
-    "min": -0.5,
-    "max": 0.5,
-    "default": 0.3,
-    "unit": "trait units"
-   },
-   "default_start_day": 30,
-   "default_end_day": null,
-   "traits": [
-    "neuroticism",
-    "agreeableness",
-    "conscientiousness",
-    "openness",
-    "extraversion",
-    "forgiveness",
-    "commitment",
-    "closeness_pref",
-    "conflict_engagement"
-   ]
+  "kinds": [
+    {
+      "kind": "job_loss",
+      "label": "Job loss",
+      "blurb": "One partner loses their job: stress jumps on the start day and stays raised until the end day.",
+      "member_applies": true,
+      "magnitude": {
+        "min": 0.2,
+        "max": 3.0,
+        "default": 1.0,
+        "unit": "stress"
+      },
+      "default_start_day": 90,
+      "default_end_day": 210
+    },
+    {
+      "kind": "financial_crisis",
+      "label": "Financial crisis",
+      "blurb": "Money trouble for the household: both partners carry extra daily stress between the start and end days.",
+      "member_applies": false,
+      "magnitude": {
+        "min": 0.2,
+        "max": 3.0,
+        "default": 1.0,
+        "unit": "stress"
+      },
+      "default_start_day": 120,
+      "default_end_day": 240
+    },
+    {
+      "kind": "temptation",
+      "label": "Temptation",
+      "blurb": "One partner keeps meeting attractive alternatives: more outside encounters, and better matched ones, until the end day.",
+      "member_applies": true,
+      "magnitude": {
+        "min": 0.02,
+        "max": 0.6,
+        "default": 0.2,
+        "unit": "daily probability"
+      },
+      "default_start_day": 60,
+      "default_end_day": 180
+    },
+    {
+      "kind": "intimacy_mismatch",
+      "label": "Intimacy mismatch",
+      "blurb": "One partner starts wanting much more or less closeness; the gap wears on affect and the one who wants more may store disappointment each week.",
+      "member_applies": true,
+      "magnitude": {
+        "min": -0.5,
+        "max": 0.5,
+        "default": 0.3,
+        "unit": "closeness shift"
+      },
+      "default_start_day": 30,
+      "default_end_day": null
+    },
+    {
+      "kind": "daily_texts",
+      "label": "Daily texts",
+      "blurb": "One partner sends affection every day: the other stores a small positive memory and feels a little better each day.",
+      "member_applies": true,
+      "magnitude": {
+        "min": 0.2,
+        "max": 3.0,
+        "default": 1.0,
+        "unit": "warmth"
+      },
+      "default_start_day": 0,
+      "default_end_day": null
+    },
+    {
+      "kind": "anniversary",
+      "label": "Anniversary",
+      "blurb": "On the start day and every year after, both partners store a strong positive memory and trust rises.",
+      "member_applies": false,
+      "magnitude": {
+        "min": 0.2,
+        "max": 2.0,
+        "default": 1.0,
+        "unit": "warmth"
+      },
+      "default_start_day": 180,
+      "default_end_day": null
+    },
+    {
+      "kind": "date_nights",
+      "label": "Date nights",
+      "blurb": "Every seventh day both partners store a positive memory of an evening together.",
+      "member_applies": false,
+      "magnitude": {
+        "min": 0.2,
+        "max": 2.0,
+        "default": 1.0,
+        "unit": "warmth"
+      },
+      "default_start_day": 0,
+      "default_end_day": null
+    },
+    {
+      "kind": "trait_shift",
+      "label": "Trait shift",
+      "blurb": "One partner's trait moves by the magnitude on the start day (for example 0.3 more neurotic) and stays there.",
+      "member_applies": true,
+      "magnitude": {
+        "min": -0.5,
+        "max": 0.5,
+        "default": 0.3,
+        "unit": "trait units"
+      },
+      "default_start_day": 30,
+      "default_end_day": null,
+      "traits": [
+        "neuroticism",
+        "agreeableness",
+        "conscientiousness",
+        "openness",
+        "extraversion",
+        "forgiveness",
+        "commitment",
+        "closeness_pref",
+        "conflict_engagement"
+      ]
+    }
+  ],
+  "effects": {
+    "builtin_at_default_magnitude": {
+      "anniversary": [
+        {
+          "amount": 0.5,
+          "cadence": "yearly",
+          "channel": "episode",
+          "class": "positive",
+          "op": "add",
+          "who": "both"
+        },
+        {
+          "amount": 0.02,
+          "cadence": "yearly",
+          "channel": "trust",
+          "op": "add",
+          "who": "both"
+        }
+      ],
+      "daily_texts": [
+        {
+          "amount": 0.05,
+          "cadence": "daily",
+          "channel": "episode",
+          "class": "positive",
+          "op": "add",
+          "who": "partner"
+        },
+        {
+          "amount": 0.02,
+          "cadence": "daily",
+          "channel": "affect",
+          "op": "add",
+          "who": "partner"
+        }
+      ],
+      "date_nights": [
+        {
+          "amount": 0.15,
+          "cadence": "weekly",
+          "channel": "episode",
+          "class": "positive",
+          "op": "add",
+          "who": "both"
+        }
+      ],
+      "financial_crisis": [
+        {
+          "amount": 0.3,
+          "cadence": "daily",
+          "channel": "stress",
+          "op": "add",
+          "who": "both"
+        }
+      ],
+      "intimacy_mismatch": [
+        {
+          "amount": 0.4,
+          "cadence": "once",
+          "channel": "trait",
+          "op": "add",
+          "trait": "closeness_pref",
+          "who": "member"
+        }
+      ],
+      "job_loss": [
+        {
+          "amount": 1.5,
+          "cadence": "once",
+          "channel": "stress",
+          "op": "add",
+          "who": "member"
+        },
+        {
+          "amount": 0.15000000000000002,
+          "cadence": "daily",
+          "channel": "stress",
+          "op": "add",
+          "who": "member"
+        }
+      ],
+      "temptation": [
+        {
+          "amount": 0.2,
+          "cadence": "daily",
+          "channel": "outside",
+          "op": "add",
+          "who": "member"
+        }
+      ],
+      "trait_shift": [
+        {
+          "amount": 0.3,
+          "cadence": "once",
+          "channel": "trait",
+          "op": "add",
+          "trait": "neuroticism",
+          "who": "member"
+        }
+      ]
+    },
+    "channels": [
+      {
+        "cadences": {
+          "daily": {
+            "max": 1.5,
+            "min": -1.5,
+            "sustained": true
+          },
+          "once": {
+            "max": 5.0,
+            "min": -3.0,
+            "sustained": false
+          },
+          "weekly": {
+            "max": 5.0,
+            "min": -3.0,
+            "sustained": false
+          },
+          "yearly": {
+            "max": 5.0,
+            "min": -3.0,
+            "sustained": false
+          }
+        },
+        "channel": "stress",
+        "classes": [],
+        "description": "Stress level, 0 to 3. Once, weekly or yearly: added to the level on each day it acts. Daily: a standing daily stress input for the window, so stress settles higher rather than climbing without limit.",
+        "identity": 0.0,
+        "op": "add",
+        "traits": [],
+        "who": [
+          "member",
+          "partner",
+          "both"
+        ]
+      },
+      {
+        "cadences": {
+          "daily": {
+            "max": 0.1,
+            "min": -0.1,
+            "sustained": false
+          },
+          "once": {
+            "max": 1.0,
+            "min": -1.0,
+            "sustained": false
+          },
+          "weekly": {
+            "max": 0.5,
+            "min": -0.5,
+            "sustained": false
+          },
+          "yearly": {
+            "max": 1.0,
+            "min": -1.0,
+            "sustained": false
+          }
+        },
+        "channel": "affect",
+        "classes": [],
+        "description": "Mood toward the partner, -1 to 1, added on each day the effect acts.",
+        "identity": 0.0,
+        "op": "add",
+        "traits": [],
+        "who": [
+          "member",
+          "partner",
+          "both"
+        ]
+      },
+      {
+        "cadences": {
+          "daily": {
+            "max": 0.02,
+            "min": -0.02,
+            "sustained": false
+          },
+          "once": {
+            "max": 0.5,
+            "min": -0.5,
+            "sustained": false
+          },
+          "weekly": {
+            "max": 0.1,
+            "min": -0.1,
+            "sustained": false
+          },
+          "yearly": {
+            "max": 0.5,
+            "min": -0.5,
+            "sustained": false
+          }
+        },
+        "channel": "trust",
+        "classes": [],
+        "description": "Trust in the partner, 0 to 1, added on each day the effect acts.",
+        "identity": 0.0,
+        "op": "add",
+        "traits": [],
+        "who": [
+          "member",
+          "partner",
+          "both"
+        ]
+      },
+      {
+        "cadences": {
+          "daily": {
+            "max": 0.25,
+            "min": 0.0,
+            "sustained": false
+          },
+          "once": {
+            "max": 2.0,
+            "min": 0.0,
+            "sustained": false
+          },
+          "weekly": {
+            "max": 1.0,
+            "min": 0.0,
+            "sustained": false
+          },
+          "yearly": {
+            "max": 2.0,
+            "min": 0.0,
+            "sustained": false
+          }
+        },
+        "channel": "episode",
+        "classes": [
+          "positive",
+          "conflict",
+          "repair",
+          "disappointment"
+        ],
+        "description": "Stores a memory about the partner of the given class and intensity on each day the effect acts. Memories fade on the agent's own half-lives.",
+        "identity": 0.0,
+        "op": "add",
+        "traits": [],
+        "who": [
+          "member",
+          "partner",
+          "both"
+        ]
+      },
+      {
+        "cadences": {
+          "daily": {
+            "max": 1.0,
+            "min": 0.0,
+            "sustained": true
+          }
+        },
+        "channel": "outside",
+        "classes": [],
+        "description": "Daily chance of meeting an attractive alternative while the window lasts (the strongest active value wins).",
+        "identity": 0.0,
+        "op": "add",
+        "traits": [],
+        "who": [
+          "member",
+          "partner",
+          "both"
+        ]
+      },
+      {
+        "cadences": {
+          "daily": {
+            "max": 5.0,
+            "min": 0.0,
+            "sustained": true
+          }
+        },
+        "channel": "onset_hazard",
+        "classes": [],
+        "description": "Multiplies the couple's daily chance that a fight starts while the window lasts. Acts on the couple, so it always hits both.",
+        "identity": 1.0,
+        "op": "multiply",
+        "traits": [],
+        "who": [
+          "both"
+        ]
+      },
+      {
+        "cadences": {
+          "daily": {
+            "max": 10.0,
+            "min": 0.1,
+            "sustained": true
+          }
+        },
+        "channel": "repair_propensity",
+        "classes": [],
+        "description": "Multiplies the odds that the agent chooses to repair, or to reunite when separated, while the window lasts.",
+        "identity": 1.0,
+        "op": "multiply",
+        "traits": [],
+        "who": [
+          "member",
+          "partner",
+          "both"
+        ]
+      },
+      {
+        "cadences": {
+          "once": {
+            "max": 1.0,
+            "min": -1.0,
+            "sustained": false
+          },
+          "yearly": {
+            "max": 0.25,
+            "min": -0.25,
+            "sustained": false
+          }
+        },
+        "channel": "trait",
+        "classes": [],
+        "description": "Shifts a personality trait or preference (0 to 1) on each day the effect acts.",
+        "identity": 0.0,
+        "op": "add",
+        "traits": [
+          "neuroticism",
+          "agreeableness",
+          "conscientiousness",
+          "openness",
+          "extraversion",
+          "forgiveness",
+          "commitment",
+          "closeness_pref",
+          "conflict_engagement"
+        ],
+        "who": [
+          "member",
+          "partner",
+          "both"
+        ]
+      }
+    ],
+    "description_max_chars": 240,
+    "label_max_chars": 40,
+    "max_effects": 8
   }
- ]
 }

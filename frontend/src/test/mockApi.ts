@@ -70,6 +70,23 @@ export const translateShock = async (text: string, days: number): Promise<Transl
   if (t.includes('dog')) {
     return { ...base, translation_id: 'tr-dog', status: 'unsupported', spec: null, words: null, rationale: 'A pet dying is none of the kinds.', message: `A pet dying is not one of the kinds. ${KINDS_SENTENCE}` };
   }
+  if (t.includes('mother')) {
+    const custom = {
+      kind: 'custom',
+      target: 'treatment' as const,
+      member: 'random' as const,
+      start_day: 30,
+      end_day: 90,
+      magnitude: 0,
+      label: 'mother moves in',
+      description: "His mother moves into the couple's home for two months.",
+      effects: [
+        { channel: 'stress' as const, op: 'add' as const, amount: 0.3, cadence: 'daily' as const, who: 'both' as const },
+        { channel: 'onset_hazard' as const, op: 'multiply' as const, amount: 1.4, cadence: 'daily' as const, who: 'both' as const },
+      ],
+    };
+    return { ...base, translation_id: 'tr-mother', status: 'ok', spec: custom, words: null, rationale: 'No named kind fits a parent moving in, so it is written as effects.' };
+  }
   const spec = { kind: 'job_loss', target: 'treatment' as const, member: 'random' as const, start_day: 60, end_day: Math.min(180, days - 1), magnitude: 1.5, trait: null };
   if (t.includes('control group')) {
     const err = "target must be one of ['treatment', 'all'], got 'control'";

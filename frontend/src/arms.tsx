@@ -4,7 +4,7 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import { getExperiment, getShocksCatalog } from './api';
 import { useAsync } from './useAsync';
-import type { Arm, ExperimentListItem, ShockKind, ShockSpec, TreatmentSpec } from './types';
+import type { Arm, ExperimentListItem, ShockKind, ShockSpec, TreatmentSpec, EffectSpec } from './types';
 
 export interface ArmLabel {
   /** What a first-time viewer reads: "Forgets fights in 2 weeks". */
@@ -110,12 +110,88 @@ function shockDays(s: ShockSpec, catalog: Catalog | null | undefined): string {
   return end === s.start_day ? `day ${s.start_day}` : `days ${s.start_day} to ${end}`;
 }
 
+function isCustom(s: ShockSpec): boolean {
+  return s.kind === 'custom';
+}
+
+/** A custom shock's label in words, capitalised: "Mother moves in". */
+function customLabel(s: ShockSpec): string {
+  return upperFirst((s.label ?? 'custom shock').trim());
+}
+
+const EPISODE_WORDS: Record<string, string> = { positive: 'warm', conflict: 'hurtful', repair: 'reconciling', disappointment: 'disappointing' };
+const CADENCE_WORDS: Record<string, string> = { once: 'once', daily: 'every day', weekly: 'every week', yearly: 'every year' };
+
+function num(x: number): string {
+  return Number(Math.abs(x).toFixed(3)).toString();
+}
+
+function upDown(x: number): string {
+  return x < 0 ? `down ${num(x)}` : `up ${num(x)}`;
+}
+
+/** Whom an effect hits, in words, given the shock's member: "both partners", "partner A", "the other partner". */
+function effectWho(e: EffectSpec, s: ShockSpec): string {
+  if (e.channel === 'onset_hazard' || e.who === 'both') return 'both partners';
+  const chosen = s.member === 'a' ? 'partner A' : s.member === 'b' ? 'partner B' : 'a random partner';
+  if (e.who === 'member') return chosen;
+  return s.member === 'a' ? 'partner B' : s.member === 'b' ? 'partner A' : 'the other partner';
+}
+
+/** The effect's own window in words, defaulting to the shock's: "days 60 to 120". */
+function effectDays(e: EffectSpec, s: ShockSpec): string {
+  const start = e.start_day ?? s.start_day;
+  const end = e.end_day ?? s.end_day;
+  if (e.cadence === 'once') return `on day ${start}`;
+  if (end == null) return `from day ${start} to the end of the run`;
+  return end === start ? `on day ${start}` : `days ${start} to ${end}`;
+}
+
+/**
+ * One effect of a custom shock in plain words: "both partners: stress up 0.4 every day, days 60 to 120".
+ * Multipliers read as times ("fights start 1.3 times as often").
+ */
+export function effectWords(e: EffectSpec, s: ShockSpec): string {
+  const how = CADENCE_WORDS[e.cadence] ?? e.cadence;
+  let what: string;
+  switch (e.channel) {
+    case 'stress':
+      what = e.cadence === 'daily' ? `stress ${upDown(e.amount)} every day` : `stress ${upDown(e.amount)} ${how}`;
+      break;
+    case 'affect':
+      what = `mood ${upDown(e.amount)} ${how}`;
+      break;
+    case 'trust':
+      what = `trust ${upDown(e.amount)} ${how}`;
+      break;
+    case 'episode':
+      what = `a ${EPISODE_WORDS[e.class ?? 'positive'] ?? e.class} memory of strength ${num(e.amount)} ${how}`;
+      break;
+    case 'outside':
+      what = `a ${num(e.amount)} chance a day of meeting someone attractive`;
+      break;
+    case 'onset_hazard':
+      what = `fights start ${num(e.amount)} times as often`;
+      break;
+    case 'repair_propensity':
+      what = `${num(e.amount)} times the odds of making up`;
+      break;
+    case 'trait':
+      what = `${(e.trait ?? 'a trait').replace(/_/g, ' ')} ${upDown(e.amount)} ${how}`;
+      break;
+    default:
+      what = `${String(e.channel)} ${e.amount} ${how}`;
+  }
+  return `${effectWho(e, s)}: ${what}, ${effectDays(e, s)}`;
+}
+
 /**
  * Every field of a shock in plain words, so two shocks that differ in any field never read the
  * same: "One partner loses their job (a random partner, treatment arm), days 60 to 210,
- * magnitude 1.5 (stress)".
+ * magnitude 1.5 (stress)". A custom shock reads as its label, its arm and each effect.
  */
 export function shockWords(s: ShockSpec, catalog: Catalog | null | undefined): string {
+  if (isCustom(s)) return `${customLabel(s)} (${shockTarget(s)}): ${(s.effects ?? []).map((e) => effectWords(e, s)).join('; ')}`;
   const unit = catalog?.[s.kind]?.magnitude.unit;
   const magnitude = `magnitude ${shockMagnitude(s, catalog)}${unit ? ` (${unit})` : ''}`;
   return `${shockBase(s, catalog)} (${shockMember(s, catalog)}, ${shockTarget(s)}), ${shockDays(s, catalog)}, ${magnitude}`;
@@ -123,12 +199,17 @@ export function shockWords(s: ShockSpec, catalog: Catalog | null | undefined): s
 
 /** The short form for an arm's label, which still carries the size: "One partner loses their job on day 60 (1.5 stress)". */
 export function shockBrief(s: ShockSpec, catalog: Catalog | null | undefined): string {
+  if (isCustom(s)) {
+    const n = (s.effects ?? []).length;
+    return `${customLabel(s)} on day ${s.start_day} (${n} effect${n === 1 ? '' : 's'})`;
+  }
   const unit = catalog?.[s.kind]?.magnitude.unit;
   return `${shockBase(s, catalog)} on day ${s.start_day} (${shockMagnitude(s, catalog)}${unit ? ` ${unit}` : ''})`;
 }
 
 /** "job loss" for the control side: the catalog label lowercased, or the kind in words; a trait shift names the trait. */
 export function shockShort(s: ShockSpec, catalog: Catalog | null | undefined): string {
+  if (isCustom(s)) return customLabel(s).toLowerCase();
   const k = catalog?.[s.kind];
   const base = (k ? k.label : kindWords(s.kind)).toLowerCase();
   return s.trait ? `${base} (${s.trait.replace(/_/g, ' ')})` : base;
@@ -164,7 +245,7 @@ export function armLabelsFor(iv: Intervention, catalog: Catalog | null | undefin
   const shocks = iv.treatmentShocks;
   const shockControl = shocks.length ? `No ${joinWords(shocks.map((s) => shockShort(s, catalog)))}` : '';
   const shockTreatment = shocks.length ? joinWords(shocks.map((s, i) => (i === 0 ? shockBrief(s, catalog) : lowerFirst(shockBrief(s, catalog))))) : '';
-  const smallShocks = shocks.length ? shocks.map((s) => `${kindWords(s.kind)} day ${s.start_day}`).join(', ') : '';
+  const smallShocks = shocks.length ? shocks.map((s) => `${isCustom(s) ? shockShort(s, catalog) : kindWords(s.kind)} day ${s.start_day}`).join(', ') : '';
   if (!mem && !shocks.length) return DEFAULT_LABELS;
   const plainControl = [memControl, shockControl ? (memControl ? lowerFirst(shockControl) : shockControl) : ''].filter(Boolean).join(', ');
   const plainTreatment = [memTreatment, shockTreatment ? (memTreatment ? lowerFirst(shockTreatment) : shockTreatment) : ''].filter(Boolean).join(', ');

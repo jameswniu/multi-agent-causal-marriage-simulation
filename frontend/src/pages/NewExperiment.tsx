@@ -4,12 +4,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getExperiment, getShocksCatalog, runExperiment, translateShock } from '../api';
-import type { RunRequest, RunTranslation, ShockKind, ShockMember, ShockSpec, TranslateResponse } from '../types';
+import type { EffectCadence, EffectCatalog, EffectSpec, EffectWho, RunRequest, RunShock, RunTranslation, ShockKind, ShockMember, TranslateResponse } from '../types';
 import { useAsync } from '../useAsync';
 import { useExperiment } from '../experiment';
 import { useExpNavigate } from '../nav';
 import { ErrorBox, Loading } from '../components/Status';
-import { humanDuration, shockWords, toCatalog } from '../arms';
+import { effectWords, humanDuration, shockWords, toCatalog } from '../arms';
 import { changedSinceTranslation, isTraitKind, rowSpec, validateRun, type RunForm, type ShockForm } from '../validation';
 
 let nextId = 1;
@@ -27,9 +27,31 @@ function draftFor(k: ShockKind): ShockForm {
   };
 }
 
+/** A custom shock row from a translation: the model's name, sentence and effects, editable before it runs. */
+function customRow(res: TranslateResponse, text: string): ShockForm | null {
+  const spec = res.spec;
+  if (!spec || res.status === 'unsupported') return null;
+  const row: ShockForm = {
+    id: nextId++,
+    kind: 'custom',
+    target: spec.target === 'all' ? 'all' : 'treatment',
+    member: spec.member === 'a' || spec.member === 'b' ? spec.member : 'random',
+    start_day: typeof spec.start_day === 'number' ? spec.start_day : 0,
+    end_day: typeof spec.end_day === 'number' ? spec.end_day : null,
+    magnitude: 0,
+    trait: null,
+    label: spec.label ?? '',
+    description: spec.description ?? null,
+    effects: (spec.effects ?? []).map((e) => ({ ...e })),
+  };
+  row.translation = { id: res.translation_id, text, status: res.status, rationale: res.rationale, model: res.model, errors: res.errors, asTranslated: spec, initial: rowSpec(row), confirmed: res.status !== 'invalid' };
+  return row;
+}
+
 /** A shock row filled in from a translation, keeping the kind's defaults for anything the model left out. */
 export function rowFromTranslation(res: TranslateResponse, text: string, kinds: ShockKind[]): ShockForm | null {
   const spec = res.spec;
+  if (spec?.kind === 'custom') return customRow(res, text);
   const k = spec ? kinds.find((x) => x.kind === spec.kind) : undefined;
   if (!spec || !k || res.status === 'unsupported') return null;
   const row: ShockForm = {
@@ -49,9 +71,13 @@ export function rowFromTranslation(res: TranslateResponse, text: string, kinds: 
 
 /** The request body: the trait rides along only for a trait kind; the target decides treatment versus world. */
 export function buildRequest(form: RunForm, kinds: ShockKind[]): RunRequest {
-  const strip = (s: ShockForm): Omit<ShockSpec, 'target'> => {
+  const strip = (s: ShockForm): RunShock => {
+    if (s.kind === 'custom') {
+      const out: RunShock = { kind: 'custom', member: s.member, start_day: s.start_day, end_day: s.end_day, label: (s.label ?? '').trim(), effects: (s.effects ?? []).map((e) => ({ ...e })) };
+      return s.description ? { ...out, description: s.description } : out;
+    }
     const k = kinds.find((x) => x.kind === s.kind);
-    const base: Omit<ShockSpec, 'target'> = { kind: s.kind, member: s.member, start_day: s.start_day, end_day: s.end_day, magnitude: s.magnitude };
+    const base: RunShock = { kind: s.kind, member: s.member, start_day: s.start_day, end_day: s.end_day, magnitude: s.magnitude };
     return isTraitKind(k) ? { ...base, trait: s.trait } : base;
   };
   const treatmentShocks = form.shocks.filter((s) => s.target === 'treatment').map(strip);
@@ -99,7 +125,8 @@ export default function NewExperiment() {
   const catalogMap = useMemo(() => toCatalog(kinds), [kinds]);
   const halfLife = treatmentHalfLife ?? controlHalfLife;
   const form = useMemo<RunForm>(() => ({ name, nCouples, days, treatmentHalfLife: halfLife, shocks, overwrite }), [name, nCouples, days, halfLife, shocks, overwrite]);
-  const errors = useMemo(() => validateRun(form, kinds), [form, kinds]);
+  const effectCatalog = catalog.data?.effects ?? null;
+  const errors = useMemo(() => validateRun(form, kinds, effectCatalog), [form, kinds, effectCatalog]);
 
   useEffect(() => {
     if (status.kind !== 'running') return;
@@ -112,6 +139,8 @@ export default function NewExperiment() {
     setShocks((s) => [...s, draftFor(kinds[0])]);
   };
   const update = (id: number, patch: Partial<ShockForm>) => setShocks((s) => s.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+  const updateEffect = (id: number, j: number, patch: Partial<EffectSpec>) =>
+    setShocks((s) => s.map((x) => (x.id === id ? { ...x, effects: (x.effects ?? []).map((e, i) => (i === j ? { ...e, ...patch } : e)) } : x)));
   const remove = (id: number) => setShocks((s) => s.filter((x) => x.id !== id));
   const kindOf = (k: string) => kinds.find((x) => x.kind === k);
 
@@ -142,7 +171,7 @@ export default function NewExperiment() {
 
   /** Validate, run, refresh the experiment list, then open the new experiment. Shared by the Run and Try again buttons. */
   const run = async () => {
-    const problems = validateRun(form, kinds);
+    const problems = validateRun(form, kinds, effectCatalog);
     if (problems.length) {
       setShowErrors(true);
       return;
@@ -248,7 +277,8 @@ export default function NewExperiment() {
               {t ? (
                 <div className="translation-card" data-testid="translation-card">
                   <div className="muted">From your words: "{t.text}"</div>
-                  <div data-testid="translation-words">{shockWords({ kind: s.kind, target: s.target, member: s.member, start_day: s.start_day, end_day: s.end_day, magnitude: s.magnitude, trait: s.trait }, catalogMap)}</div>
+                  <div data-testid="translation-words">{shockWords(rowSpec(s), catalogMap)}</div>
+                  {s.kind === 'custom' && s.description ? <div data-testid="translation-description">{s.description}</div> : null}
                   {t.rationale ? <div className="muted">{t.rationale}</div> : null}
                   {t.status === 'invalid' ? (
                     <div className="status error" role="alert" data-testid="translation-errors">
@@ -270,6 +300,10 @@ export default function NewExperiment() {
                   <div className="muted">Translated by {t.model}.</div>
                 </div>
               ) : null}
+              {s.kind === 'custom' ? (
+                <CustomShockFields shock={s} days={days} effects={effectCatalog} onChange={(patch) => update(s.id, patch)} onEffect={(j, patch) => updateEffect(s.id, j, patch)} onRemove={() => remove(s.id)} />
+              ) : (
+              <>
               <div className="row">
                 <label>
                   Kind
@@ -348,6 +382,8 @@ export default function NewExperiment() {
                   Remove
                 </button>
               </div>
+              </>
+              )}
             </div>
           );
         })}
@@ -388,6 +424,101 @@ export default function NewExperiment() {
         ) : null}
         {status.kind === 'done' ? <div className="status">Experiment {status.name} is ready.</div> : null}
       </form>
+    </div>
+  );
+}
+
+const CADENCE_LABELS: Record<EffectCadence, string> = { once: 'once', daily: 'every day', weekly: 'every week', yearly: 'every year' };
+const WHO_LABELS: Record<EffectWho, string> = { member: 'the chosen partner', partner: 'the other partner', both: 'both partners' };
+
+/** The fields of a custom shock: its name, whom it picks, its days and arm, and each effect with its amount, cadence and target. */
+function CustomShockFields({
+  shock,
+  days,
+  effects,
+  onChange,
+  onEffect,
+  onRemove,
+}: {
+  shock: ShockForm;
+  days: number;
+  effects: EffectCatalog | null;
+  onChange: (patch: Partial<ShockForm>) => void;
+  onEffect: (j: number, patch: Partial<EffectSpec>) => void;
+  onRemove: () => void;
+}) {
+  const spec = rowSpec(shock);
+  return (
+    <div data-testid="custom-shock">
+      <div className="row">
+        <label>
+          Custom shock
+          <input type="text" value={shock.label ?? ''} maxLength={effects?.label_max_chars ?? 40} onChange={(e) => onChange({ label: e.target.value })} aria-label="Custom shock name" />
+        </label>
+        <label>
+          Which partner
+          <select value={shock.member} onChange={(e) => onChange({ member: e.target.value as ShockMember })} aria-label="Which partner">
+            <option value="random">random</option>
+            <option value="a">partner a</option>
+            <option value="b">partner b</option>
+          </select>
+        </label>
+        <label>
+          Start day
+          <input type="number" min={0} max={days - 1} step={1} value={shock.start_day} onChange={(e) => onChange({ start_day: Number(e.target.value) })} aria-label="Start day" />
+        </label>
+        <label>
+          End day
+          <input type="number" min={0} max={days - 1} step={1} value={shock.end_day ?? ''} placeholder="to the end" onChange={(e) => onChange({ end_day: e.target.value === '' ? null : Number(e.target.value) })} aria-label="End day" />
+        </label>
+        <label>
+          Hits
+          <select value={shock.target} onChange={(e) => onChange({ target: e.target.value as ShockForm['target'] })} aria-label="Hits">
+            <option value="treatment">only the treatment arm</option>
+            <option value="all">everyone</option>
+          </select>
+        </label>
+        <button type="button" onClick={onRemove}>
+          Remove
+        </button>
+      </div>
+      <ol className="effects" data-testid="effect-list">
+        {(shock.effects ?? []).map((e, j) => {
+          const ch = effects?.channels.find((c) => c.channel === e.channel);
+          const range = ch?.cadences[e.cadence];
+          return (
+            <li key={j} data-testid="effect-row">
+              <div data-testid="effect-words">{effectWords(e, spec)}</div>
+              <div className="row">
+                <label>
+                  Amount{range ? ` (${range.min} to ${range.max})` : ''}
+                  <input type="number" step="any" min={range?.min} max={range?.max} value={e.amount} onChange={(ev) => onEffect(j, { amount: Number(ev.target.value) })} aria-label={`Effect ${j + 1} amount`} />
+                </label>
+                <label>
+                  How often
+                  <select value={e.cadence} onChange={(ev) => onEffect(j, { cadence: ev.target.value as EffectCadence })} aria-label={`Effect ${j + 1} cadence`}>
+                    {(ch ? (Object.keys(ch.cadences) as EffectCadence[]) : [e.cadence]).map((c) => (
+                      <option key={c} value={c}>
+                        {CADENCE_LABELS[c]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Hits
+                  <select value={e.who} onChange={(ev) => onEffect(j, { who: ev.target.value as EffectWho })} aria-label={`Effect ${j + 1} target`}>
+                    {(ch ? ch.who : [e.who]).map((w) => (
+                      <option key={w} value={w}>
+                        {WHO_LABELS[w]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }
