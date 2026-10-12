@@ -1,6 +1,7 @@
-// The LoveWorld time bar's density strip: one row per arm under the day scrubber, with a bar for the
-// conflicts that started each day, ticks for separations and divorces, a shaded band while each
-// shock is active, and a cursor on today. Clicking the strip jumps the replay to that day.
+// The density strip under the day scrubber of a simulated trial of married couples, split into a
+// control arm and a treatment arm. Each arm gets one row with a bar for the conflicts that started
+// each day, ticks for separations and divorces, a shaded band while each shock is active, and a
+// cursor on today. Clicking the strip jumps the replay to that day.
 import { memo, useMemo, type MouseEvent } from 'react';
 import type { Density, ShockBand } from '../town/timebar';
 
