@@ -37,7 +37,7 @@ params: `memory.treatment`.
 
 `manifest.json` (one per run): engine_version, evidence_class="simulation", name, n_couples, days,
 seeds, arm_override, config (full), policy_spec, files{name:{rows,sha256}}, determinism_hash,
-summary, generated_at_unix.
+summary, generated_at_unix, and `pairs` in a pairs-mode run only (section 13).
 
 `config.json`: the full effective config.
 
@@ -58,6 +58,7 @@ divorces_in_sim i32, marriages_in_sim i32, final_trust f64, final_memory_size i3
 ```
 couple_id i64, agent_a i64, agent_b i64,
 arm str nullable            (null for remarriage couples),
+pair_id i64 nullable        (pairs-mode runs only, section 13; null for remarriage couples),
 origin str                  {initial, remarriage},
 formed_day i32              (negative for initial couples: days before day 0),
 married_day i32 nullable, compatibility f64,
@@ -911,3 +912,50 @@ different couples and two different groups never come out exactly even, with the
 first line says both halves follow identical rules, so the gap comes only from splitting the couples in
 two. The "Same couples, both arms" view of such a run reports 0 couples whose fate differs on every day.
 
+## 13. Matched pairs (added 2026-10-12)
+
+`assignment.mode` takes `pairs` beside `couple` (the default) and `block`:
+
+```yaml
+engine:
+  assignment: {mode: pairs}
+```
+
+The engine scores every initial couple from six values the population draws before day 0: the two
+partners' mean neuroticism, conscientiousness, agreeableness, base trust and prior divorces, and the
+couple's years married. Each is standardised over the run's population (mean zero, population standard
+deviation one) and weighted by `assignment.pair_weights`, whose defaults and their fit are in
+docs/design.md under Matched pairs. Couples are sorted by score, ties by couple id, and cut into
+consecutive pairs numbered from the lowest score up. One fair coin per pair, drawn from the stream keyed
+by (assignment seed, `pair`, pair id), treats the member with the lower couple id on heads and the other
+on tails. With an odd count the highest-scoring couple is alone in the last pair, and its own coin
+decides its arm. `treatment_fraction` must be 0.5 in this mode, and the engine refuses any other value
+by name.
+
+The pairs follow the population seed and `pair_weights`, the coins follow the assignment seed alone, and
+the dynamics seed touches neither. So in pairs mode, unlike couple and block mode, a new population seed
+can move a couple's arm.
+
+Only a pairs run adds anything, so couple and block runs write the same bytes as before:
+
+- `couples.parquet` gains `pair_id i64 nullable` after `arm`, null for remarriage couples.
+- `manifest.json` gains `pairs`: `design` (one line), `covariates`, `weights`, `n_pairs`,
+  `unpaired_couple` (a couple id, or null for an even count) and `pair_id` (one entry per couple id).
+- A run with `--arm-override` (the twins) still records the pairs of its config.
+
+The analysis reads `config.assignment.mode`:
+
+- `summary.json` names the design for every mode. `analysis.design` says it in plain words,
+  `analysis.inference_unit` is `couple`, `block of N couples` or `pair of couples`, and
+  `analysis.n_clusters` counts couples, blocks or pairs.
+- A pairs run's estimate is the difference of arm means (ratio of sums for conditional outcomes), as in
+  every mode. `ci_low` and `ci_high` come from a percentile bootstrap that resamples whole pairs, and
+  `p_permutation` flips the arms within each pair, a lone couple's arm flipping on its own (Bai, Romano
+  and Shaikh). Conditional outcomes' notes say the bootstrap is over pairs. A pairs run whose couples
+  table has no `pair_id` is refused.
+- Couple and block runs are analysed exactly as before, pinned by golden values in
+  `python/tests/test_pairs.py`.
+- The twins of a pairs run resample pairs for their intervals too.
+
+`tools/fit_pair_weights.py` refits the weights from a full example run, and `tools/pairs_sweep.py`
+repeats the measurement docs/design.md reports.

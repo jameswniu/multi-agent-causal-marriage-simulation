@@ -169,11 +169,12 @@ a test greps both sources for the token `Arm`.
 ## The experiment
 
 Three seeds keep the design clean. The population seed generates agents and the network. The
-assignment seed randomises couples into arms, either per couple or in contiguous blocks (cluster
-randomisation for runs with network contagion switched on). The dynamics seed drives every
-stochastic process during the run, through one ChaCha8 stream per agent, per couple and per global
-process, keyed by (seed, domain, id). Changing one seed never changes what another controls, and
-tests pin that.
+assignment seed randomises couples into arms, either per couple, in contiguous blocks (cluster
+randomisation for runs with network contagion switched on) or in matched pairs (below). The dynamics
+seed drives every stochastic process during the run, through one ChaCha8 stream per agent, per couple
+and per global process, keyed by (seed, domain, id). Changing one seed never changes what another
+controls, and tests pin that. The one designed exception is pairs mode, whose pairs are made from the
+population.
 
 The intervention sets the memory half-lives of both members of a treated couple to the treatment
 values at day 0. It is the only arm-dependent write in the engine, and it logs every parameter it
@@ -183,7 +184,8 @@ Outcomes are computed from the tables by Python: divorce rate, separation rate, 
 and mean trust, conflicts per couple-year, escalations per conflict, reconciliation share, recovery
 days (duration of reconciled conflicts) and remarriage rate. The average treatment effect is the
 difference in arm means with a bootstrap percentile confidence interval (resampling couples within
-arm) and a permutation p-value (shuffling arm labels). Outcomes measured only on post-treatment
+arm) and a permutation p-value (shuffling arm labels). A pairs-mode run resamples whole pairs and
+flips the arms within each pair instead. Outcomes measured only on post-treatment
 events (anything per conflict or among the divorced) are flagged as conditional, because
 conditioning on a post-treatment variable can bias a causal contrast.
 
@@ -198,11 +200,85 @@ agents from both arms, so remarriage outcomes are not isolated between arms. The
 create spillovers when switched on, which is why block assignment exists; the example experiment
 runs with both network weights at zero.
 
+### Matched pairs
+
+The placebo's two halves never come out exactly even, because they are different couples. Pairs
+mode (`engine: {assignment: {mode: pairs}}`) tries to make the halves alike before the year starts.
+Every couple gets a risk score from six values drawn before day 0: the partners' mean neuroticism,
+conscientiousness, agreeableness, base trust and prior divorces, and the couple's years married, each
+standardised over the population. Couples are sorted by score and paired with their neighbour, and
+one coin per pair, from the assignment seed, sends one couple of each pair to each arm. With an odd
+count the highest-scoring couple is alone and its own coin decides its arm. The pairs follow the
+population, and the coins follow the assignment seed alone. A pairs run writes `pair_id` into
+couples.parquet and the pairing into its manifest (contracts, section 13).
+
+The weights come from the committed example run (seeds 11, 22 and 33). `tools/fit_pair_weights.py`
+fits them by ordinary least squares over its 500 control couples, predicting the average of the
+standardised divorce indicator and the standardised conflict rate. Only their ratios matter.
+
+| Covariate | Weight |
+|---|---|
+| Neuroticism | 0.170 |
+| Conscientiousness | 0.028 |
+| Agreeableness | -0.206 |
+| Base trust | -0.256 |
+| Prior divorces | -0.027 |
+| Years married | -0.038 |
+
+The six values explain 23% of that average, 29% of the conflict rate and only 5% of divorce.
+
+A pairs run is analysed as Bai, Romano and Shaikh recommend for matched pairs. The estimate is still
+the difference in arm means. The interval resamples whole pairs, and the p-value flips the two arms
+within each pair, which is how the design randomised. Resampling pairs is valid but leans wide when
+the effect differs from couple to couple, since their pairs-of-pairs correction is not applied.
+
+`tools/pairs_sweep.py` measured both designs on 100 assignment seeds, with the example's population
+and dynamics seeds. The placebo gap is treatment minus control with both arms on the same rules, so
+its spread over seeds is pure assignment luck.
+
+| Placebo gap, spread over 100 seeds | Couple mode | Pairs mode | Change |
+|---|---|---|---|
+| Divorce, points | 0.93 | 0.91 | -2% (95% interval -19% to +19%) |
+| Seeds with a divorce gap over 1 point | 30 | 27 | |
+| Final trust (0 to 1 scale) | 0.015 | 0.010 | -35% |
+| Mean trust (0 to 1 scale) | 0.013 | 0.009 | -32% |
+| Conflicts per couple-year | 0.36 | 0.31 | -15% |
+
+The exact spread over every possible assignment, which needs no seeds, agrees. Divorce goes from 0.89
+to 0.89 points, final trust shrinks by 30% and conflicts by 9%. On a population and a year the weights
+never saw (seeds 12 and 34) the cuts are 5%, 27% and 10%. Every placebo run had byte-identical
+behaviour tables, so the gaps come from the split alone.
+
+| Example on the same seeds, means | Couple mode | Pairs mode |
+|---|---|---|
+| Divorce effect, points | +14.3 | +14.4 |
+| Width of its 95% interval, points | 6.9 | 6.8 |
+| Final trust effect | -0.440 | -0.441 |
+| Width of its 95% interval | 0.056 | 0.045 |
+| Conflicts per couple-year, effect | +5.99 | +5.99 |
+| Width of its 95% interval | 1.36 | 1.32 |
+
+Couple mode, the random split, stays the default, because pairs cut the placebo's divorce-gap
+spread by only 2%. That gap comes mostly from the luck each couple meets during the year rather than
+from who the couples are, so no split made before day 0 can close it, and only the twins, the same
+couples under both settings, bring it to zero.
+
+The rule, set before measuring, was to make pairs the default only on a cut of at least 20% that
+left the effect inside its interval. The effect stayed put, but the 2% is well inside the noise, and
+the exact calculation says the spread does not fall at all. Pairs mode stays available for runs that
+care most about trust.
+
+The fit shows why. The six values explain only 5% of who divorces. The placebo has about 20 divorces
+among 1,000 couples and no pair holds two of them, so each pair's coin moves a divorce from one half
+to the other as often as a random split does. Trust is what the six values predict best, so its gap
+shrinks by about a third.
+
 ### What the engine writes
 
 Nine tables and a manifest: agents, couples, events, daily, decisions, interventions, conflicts,
 episodes (one row per memory stored or amplified, including the history seeded before day 0) and
-legacies (one row per member of a marriage that ended in divorce).
+legacies (one row per member of a marriage that ended in divorce). A pairs-mode run adds `pair_id`
+to the couples table and its pairing to the manifest.
 The episodes table is what the dashboard's "Under the hood" panel reads to show, day by day, what
 each partner remembered and how their trust and affect moved.
 
@@ -222,7 +298,7 @@ could change low bits, which the hash would catch rather than hide.
 | Interventions separate from decisions | The policy's input type has no arm field; a test greps policy, dynamics, market and memory sources for the token `Arm` |
 | Every intervention and transition logged | `interventions.parquet` has one row per agent and parameter with control and applied values; `events.parquet` carries every state change with from and to states; illegal transitions fail a test |
 | Reproducible | Keyed random streams, sorted outputs, SHA-256 per table, `replay` fails on any mismatch; a tampering test proves it |
-| Assignment is random and independent | Exact half split, driven only by the assignment seed; changing the population seed leaves the arm vector unchanged; balance table in every summary |
+| Assignment is random and independent | Exact half split, driven only by the assignment seed; in couple and block mode, changing the population seed leaves the arm vector unchanged; in pairs mode the population forms the pairs and the assignment seed alone flips each pair's coin; balance table in every summary |
 | Simulated findings stay simulated | `evidence_class: simulation` in every manifest and summary, the disclaimer on every table, and no claim in this repository about human couples |
 | No LLM agents before the baseline passes | The baseline policy is rule based; LLM and learned policies are a later phase under the same harness |
 
@@ -324,7 +400,8 @@ experiments/   example.yaml, retention-45d.yaml, contagion-block.yaml, job-loss.
                neuroticism-shift.yaml, crisis-under-retention.yaml, smoke.yaml
 results/       run outputs; results/example keeps the small tables and summary of the example run
 docs/          design.md, contracts.md (schemas, CLI, API), prior-art.md, deploy.md, figures/
-tools/         figures.py, which draws the README figures and badges from the example run
+tools/         figures.py, which draws the README figures and badges from the example run;
+               fit_pair_weights.py and pairs_sweep.py, behind the matched-pairs section
 assets/        README recordings and screenshots of the dashboard
 deploy/        the container entrypoint and the edge worker for a public deployment
 ```

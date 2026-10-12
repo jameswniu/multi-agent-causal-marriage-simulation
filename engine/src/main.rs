@@ -3,7 +3,7 @@
 use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use loveworld_engine::config::{Arm, SimConfig};
-use loveworld_engine::{assignment, policy, sim};
+use loveworld_engine::{assignment, policy, population, sim};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -158,7 +158,9 @@ fn main() -> Result<()> {
         }
         Cmd::Assign { config } => {
             let cfg = load_config(&config)?;
-            let arms: Vec<&str> = assignment::assign(&cfg)
+            let pop = population::generate(&cfg);
+            let arms: Vec<&str> = assignment::assign(&cfg, &pop)
+                .arms
                 .iter()
                 .map(|a| a.as_str())
                 .collect();

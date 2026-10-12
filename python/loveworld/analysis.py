@@ -4,9 +4,10 @@ Everything here is a pure function of the tables. Effects are differences betwee
 initial couples, with bootstrap percentile confidence intervals and randomisation-inference
 p-values. Inference respects the randomisation unit: in couple mode every couple is its own
 cluster; in block mode whole blocks (couple_id divided by block_size) are resampled within arm
-and block labels are permuted. Outcomes defined on post-treatment populations (conflicts that
-happened, agents who divorced) are ratio-of-sums per arm with the same cluster resampling, and
-are flagged.
+and block labels are permuted; in pairs mode (Bai, Romano and Shaikh) whole pairs are resampled,
+both members at once, and arms are flipped within pairs. Outcomes defined on post-treatment
+populations (conflicts that happened, agents who divorced) are ratio-of-sums per arm with the same
+resampling, and are flagged.
 """
 
 from __future__ import annotations
@@ -69,6 +70,11 @@ class Tables:
         a = self.config.get("assignment", {})
         return int(a.get("block_size", 1)) if a.get("mode") == "block" else None
 
+    @property
+    def design(self) -> str:
+        """The assignment mode that produced the run: couple, block or pairs."""
+        return str(self.config.get("assignment", {}).get("mode") or "couple")
+
 
 def load_tables(results_dir: str | Path) -> Tables:
     """Read manifest, config and every Parquet table (optional tables default to empty frames)."""
@@ -96,7 +102,12 @@ def couple_frame(t: Tables) -> pd.DataFrame:
     df = pd.DataFrame(index=init.index)
     df["arm"] = init["arm"].astype(str)
     bs = t.block_size
-    df["cluster"] = (df.index // bs) if bs else df.index
+    if t.design == "pairs":
+        if "pair_id" not in init.columns or init["pair_id"].isna().any():
+            raise ValueError("a pairs-mode run must record a pair_id for every initial couple")
+        df["cluster"] = init["pair_id"].astype("int64")
+    else:
+        df["cluster"] = (df.index // bs) if bs else df.index
     divorced = init["final_state"] == "divorced"
     df["divorce_rate"] = divorced.astype(float)
     sep_ids = set(t.events.loc[t.events["kind"] == "separated", "couple_id"].tolist())
@@ -167,6 +178,27 @@ def cluster_pairs(
         raise ValueError("a cluster spans both arms; block ids must be nested in arms")
     agg = g.agg(num=("num", "sum"), den=("den", "sum"), treated=("treated", "first"))
     return agg["num"].to_numpy(dtype=float), agg["den"].to_numpy(dtype=float), agg["treated"].to_numpy(dtype=bool)
+
+
+# ---------------------------------------------------------------------------- pairing covariates
+
+
+# The pre-treatment values a pairs-mode run sorts couples by, in the engine's order
+# (`assignment.pair_weights`). Each is the mean of the two partners; years married is shared.
+PAIR_COVARIATES = ("neuroticism", "conscientiousness", "agreeableness", "base_trust", "prior_divorces", "years_married")
+
+
+def couple_covariates(agents: pd.DataFrame) -> pd.DataFrame:
+    """Return the pairing covariates per initial couple: the mean of the two partners' values."""
+    return agents.groupby("couple_id")[list(PAIR_COVARIATES)].mean().astype(float).sort_index()
+
+
+def risk_scores(agents: pd.DataFrame, weights: dict[str, float]) -> pd.Series:
+    """Score couples as the engine pairs them: weights on covariates standardised over the population."""
+    x = couple_covariates(agents)
+    sd = x.std(ddof=0).replace(0.0, np.inf)
+    z = (x - x.mean()) / sd
+    return z.mul(pd.Series({c: float(weights[c]) for c in PAIR_COVARIATES})).sum(axis=1)
 
 
 # ---------------------------------------------------------------------------- estimators
@@ -250,6 +282,72 @@ def estimate_effect(
     return Effect(mean_c, mean_t, ate, ci_low, ci_high, p, n_units_c, n_units_t)
 
 
+def estimate_paired_effect(
+    num: np.ndarray,
+    den: np.ndarray,
+    treated: np.ndarray,
+    pair: np.ndarray,
+    rng: np.random.Generator,
+    n_boot: int,
+    n_perm: int,
+    ci_level: float = 0.95,
+) -> Effect:
+    """Difference of per-arm ratio-of-sums for a matched-pairs design (Bai, Romano and Shaikh).
+
+    The estimate is the plain difference of arm means. The interval resamples whole pairs with
+    replacement, both members at once, and the p-value flips the two arms within each pair, which is
+    exactly how the design randomised. A couple alone in its pair (odd counts) is resampled alone and
+    its own arm is flipped. Resampling pairs is valid and leans wide when the effect differs from couple
+    to couple; the pairs-of-pairs variance correction is not applied.
+    """
+    if not 0.0 < ci_level < 1.0:
+        raise ValueError(f"ci_level must be strictly between 0 and 1, got {ci_level}")
+    if n_boot < 0 or n_perm < 0:
+        raise ValueError("n_boot and n_perm must not be negative")
+    frame = pd.DataFrame(
+        {
+            "num": np.asarray(num, dtype=float),
+            "den": np.asarray(den, dtype=float),
+            "treated": np.asarray(treated, dtype=bool),
+            "pair": np.asarray(pair),
+        }
+    )
+    sizes = frame.groupby("pair")["treated"].agg(["size", "sum"])
+    if ((sizes["size"] > 2) | ((sizes["size"] == 2) & (sizes["sum"] != 1))).any():
+        raise ValueError("every pair must hold one treated and one control couple (or one couple alone)")
+    n_units_t, n_units_c = int(frame["treated"].sum()), int((~frame["treated"]).sum())
+    arm = frame.assign(
+        nt=frame["num"].where(frame["treated"], 0.0),
+        dt=frame["den"].where(frame["treated"], 0.0),
+        nc=frame["num"].where(~frame["treated"], 0.0),
+        dc=frame["den"].where(~frame["treated"], 0.0),
+    )
+    g = arm.groupby("pair", sort=True)[["nt", "dt", "nc", "dc"]].sum()
+    nt, dt, nc, dc = (g[c].to_numpy(dtype=float) for c in ("nt", "dt", "nc", "dc"))
+    mean_t, mean_c = _ratio(nt, dt), _ratio(nc, dc)
+    ate = mean_t - mean_c
+    m = len(g)
+    alpha = 1.0 - ci_level
+    ci_low = ci_high = math.nan
+    if n_boot > 0 and n_units_t > 0 and n_units_c > 0:
+        idx = rng.integers(0, m, size=(n_boot, m))
+        boots = _boot_ratio(nt, dt, idx) - _boot_ratio(nc, dc, idx)
+        boots = boots[~np.isnan(boots)]
+        if len(boots):
+            ci_low, ci_high = (float(x) for x in np.percentile(boots, [100 * alpha / 2, 100 * (1 - alpha / 2)]))
+    p = math.nan
+    if n_perm > 0 and n_units_t > 0 and n_units_c > 0 and not math.isnan(ate):
+        flip = rng.random((n_perm, m)) < 0.5
+        with np.errstate(divide="ignore", invalid="ignore"):
+            stat_t = np.where(flip, nc, nt).sum(axis=1) / np.where(flip, dc, dt).sum(axis=1)
+            stat_c = np.where(flip, nt, nc).sum(axis=1) / np.where(flip, dt, dc).sum(axis=1)
+        diffs = stat_t - stat_c
+        diffs = diffs[~np.isnan(diffs)]
+        if len(diffs):
+            p = float((1 + np.sum(np.abs(diffs) >= abs(ate) - 1e-12)) / (len(diffs) + 1))
+    return Effect(mean_c, mean_t, ate, ci_low, ci_high, p, n_units_c, n_units_t)
+
+
 def _clean(x: Any) -> float | None:
     if x is None:
         return None
@@ -276,20 +374,31 @@ def sanitize(obj: Any) -> Any:
     return obj
 
 
-def outcomes_table(df: pd.DataFrame, settings: AnalysisSettings) -> list[dict[str, Any]]:
-    """Every outcome in report order, as contract rows."""
+def outcomes_table(df: pd.DataFrame, settings: AnalysisSettings, design: str = "couple") -> list[dict[str, Any]]:
+    """Every outcome in report order, as contract rows.
+
+    `design` is the assignment mode that produced the run. Couple and block runs are estimated
+    exactly as they always were; a pairs run resamples pairs and flips arms within pairs.
+    """
     rng = np.random.default_rng(settings.seed)
     treated = (df["arm"] == "treatment").to_numpy()
     cluster = df["cluster"].to_numpy()
+    paired = design == "pairs"
     rows: list[dict[str, Any]] = []
     for name, label, unit, kind, conditional in OUTCOMES:
         num, den = outcome_pairs(df, name)
-        e = estimate_effect(
-            num, den, treated, rng, settings.n_boot, settings.n_perm, settings.ci_level, cluster=cluster
-        )
+        if paired:
+            e = estimate_paired_effect(
+                num, den, treated, cluster, rng, settings.n_boot, settings.n_perm, settings.ci_level
+            )
+        else:
+            e = estimate_effect(
+                num, den, treated, rng, settings.n_boot, settings.n_perm, settings.ci_level, cluster=cluster
+            )
         note = ""
         if conditional:
-            note = "Estimated on a post-treatment population (ratio of sums per arm, cluster bootstrap over couples)."
+            over = "pairs" if paired else "couples"
+            note = f"Estimated on a post-treatment population (ratio of sums per arm, cluster bootstrap over {over})."
         if name == "reconciliation_rate":
             note += " Conflicts still open at the end of the window are excluded."
         rows.append(
@@ -459,11 +568,31 @@ def experiment_block(t: Tables) -> dict[str, Any]:
     }
 
 
+def inference_unit(t: Tables) -> str:
+    """Name what the intervals resample and the p-values relabel."""
+    if t.design == "pairs":
+        return "pair of couples"
+    bs = t.block_size
+    return f"block of {bs} couples" if bs else "couple"
+
+
+def design_note(t: Tables) -> str:
+    """Describe the design that produced the run, in plain words."""
+    if t.design == "pairs":
+        return (
+            "Matched pairs: couples sorted by a risk score drawn before day 0 and paired with their neighbour, "
+            "one coin per pair; intervals resample pairs and p-values flip the arms within pairs."
+        )
+    bs = t.block_size
+    if bs:
+        return f"Block randomisation: blocks of {bs} neighbouring couples share an arm, half the blocks treated."
+    return "Couple randomisation: an exact half of the couples, drawn at random, is treated."
+
+
 def build_summary(t: Tables, settings: AnalysisSettings | None = None) -> dict[str, Any]:
     """Assemble the contract's summary.json content for one results directory."""
     settings = settings or AnalysisSettings()
     df = couple_frame(t)
-    bs = t.block_size
     return {
         "evidence_class": EVIDENCE_CLASS,
         "disclaimer": DISCLAIMER,
@@ -474,11 +603,12 @@ def build_summary(t: Tables, settings: AnalysisSettings | None = None) -> dict[s
             "seed": settings.seed,
             "ci_level": settings.ci_level,
             "unit": "initial couples",
-            "inference_unit": f"block of {bs} couples" if bs else "couple",
+            "design": design_note(t),
+            "inference_unit": inference_unit(t),
             "n_clusters": int(df["cluster"].nunique()),
         },
         "arms": arm_counts(t),
-        "outcomes": outcomes_table(df, settings),
+        "outcomes": outcomes_table(df, settings, t.design),
         "balance": balance_table(t.agents),
         "curves": curves(t),
         "distributions": distributions(t, df),
@@ -668,7 +798,7 @@ def twins_summary(twins_dir: str | Path, settings: AnalysisSettings | None = Non
             "seed": settings.seed,
             "ci_level": settings.ci_level,
             "unit": "couple pairs",
-            "inference_unit": f"block of {tc.block_size} couples" if tc.block_size else "couple",
+            "inference_unit": inference_unit(tc),
         },
         "paired": paired,
         "runs": hashes,

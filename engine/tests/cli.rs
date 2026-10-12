@@ -142,6 +142,162 @@ fn placebo_twins_are_byte_identical() {
     }
 }
 
+fn paired(name: &str) -> SimConfig {
+    let mut cfg = small(name);
+    cfg.assignment.mode = loveworld_engine::config::AssignmentMode::Pairs;
+    cfg
+}
+
+const BEHAVIOUR_TABLES: [&str; 6] = [
+    "events.parquet",
+    "daily.parquet",
+    "decisions.parquet",
+    "conflicts.parquet",
+    "episodes.parquet",
+    "legacies.parquet",
+];
+
+#[test]
+fn a_pairs_placebo_behaves_exactly_like_a_couple_placebo() {
+    // Pairs mode changes which couple carries which arm label and nothing else: with equal
+    // memory parameters in both arms, every behavioural table matches the couple-mode run byte
+    // for byte, and forcing every couple into either arm matches too.
+    let dir = tempfile::tempdir().unwrap();
+    let mut couple = small("placebo");
+    couple.memory.treatment = couple.memory.control.clone();
+    let mut pairs = paired("placebo");
+    pairs.memory.treatment = pairs.memory.control.clone();
+    let mut forced = pairs.clone();
+    forced.arm_override = Some(Arm::Treatment);
+    let a = sim::run_to_dir(&couple, &dir.path().join("couple"), false).unwrap();
+    let b = sim::run_to_dir(&pairs, &dir.path().join("pairs"), false).unwrap();
+    let c = sim::run_to_dir(&forced, &dir.path().join("forced"), false).unwrap();
+    for f in BEHAVIOUR_TABLES {
+        assert_eq!(
+            a["files"][f]["sha256"], b["files"][f]["sha256"],
+            "{f} moved with the pairing"
+        );
+        assert_eq!(
+            b["files"][f]["sha256"], c["files"][f]["sha256"],
+            "{f} moved with the arm label"
+        );
+    }
+}
+
+#[test]
+fn only_a_pairs_run_records_its_pairs() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = sim::run_to_dir(&small("couple"), &dir.path().join("couple"), false).unwrap();
+    assert!(
+        a.get("pairs").is_none(),
+        "a couple-mode manifest has no pairs block"
+    );
+    let b = sim::run_to_dir(&paired("pairs"), &dir.path().join("pairs"), false).unwrap();
+    let pairs = &b["pairs"];
+    assert_eq!(pairs["n_pairs"], 15);
+    assert!(pairs["unpaired_couple"].is_null());
+    let ids: Vec<u64> = serde_json::from_value(pairs["pair_id"].clone()).unwrap();
+    assert_eq!(ids.len(), 30);
+    assert_eq!(pairs["weights"]["base_trust"], -0.256);
+
+    let read = |run: &str| {
+        let file = std::fs::File::open(dir.path().join(run).join("couples.parquet")).unwrap();
+        let reader = parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder::try_new(file)
+            .unwrap()
+            .build()
+            .unwrap();
+        reader.map(|b| b.unwrap()).collect::<Vec<_>>()
+    };
+    let couple_batches = read("couple");
+    assert!(couple_batches[0]
+        .schema()
+        .column_with_name("pair_id")
+        .is_none());
+    let pair_batches = read("pairs");
+    let schema = pair_batches[0].schema();
+    let (_, field) = schema
+        .column_with_name("pair_id")
+        .expect("pairs runs write pair_id");
+    assert!(
+        field.is_nullable(),
+        "remarried couples formed during the run have no pair"
+    );
+}
+
+#[test]
+fn an_odd_pairs_run_records_the_couple_left_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = paired("odd");
+    cfg.n_couples = 31;
+    let m = sim::run_to_dir(&cfg, &dir.path().join("odd"), false).unwrap();
+    assert_eq!(m["pairs"]["n_pairs"], 16);
+    let alone = m["pairs"]["unpaired_couple"]
+        .as_u64()
+        .expect("one couple is unpaired");
+    assert_eq!(m["pairs"]["pair_id"][alone as usize], 15);
+}
+
+#[test]
+fn a_pairs_run_replays_bit_for_bit_from_its_manifest() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg_path = dir.path().join("cfg.json");
+    std::fs::write(
+        &cfg_path,
+        r#"{"name":"pairs","n_couples":21,"days":30,"assignment":{"mode":"pairs"}}"#,
+    )
+    .unwrap();
+    let out = dir.path().join("out");
+    let st = Command::new(bin())
+        .args([
+            "run",
+            "--config",
+            cfg_path.to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        st.status.success(),
+        "{}",
+        String::from_utf8_lossy(&st.stderr)
+    );
+    let replay = Command::new(bin())
+        .args([
+            "replay",
+            "--manifest",
+            out.join("manifest.json").to_str().unwrap(),
+            "--out",
+            dir.path().join("replay").to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&replay.stdout);
+    assert!(replay.status.success(), "replay failed: {text}");
+    let assign = Command::new(bin())
+        .args(["assign", "--config", cfg_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let arms: Vec<String> = serde_json::from_slice(&assign.stdout).unwrap();
+    let treated = arms.iter().filter(|a| *a == "treatment").count();
+    assert!(
+        treated == 10 || treated == 11,
+        "ten pairs split evenly plus one coin, got {treated}"
+    );
+
+    std::fs::write(
+        &cfg_path,
+        r#"{"name":"pairs","n_couples":20,"days":30,"assignment":{"mode":"pairs","treatment_fraction":0.3}}"#,
+    )
+    .unwrap();
+    let refused = Command::new(bin())
+        .args(["assign", "--config", cfg_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("treatment_fraction must be 0.5"));
+}
+
 #[test]
 fn real_twins_share_initial_conditions_and_diverge_later() {
     let mut ctrl = small("twins");

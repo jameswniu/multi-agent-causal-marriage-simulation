@@ -53,14 +53,66 @@ pub enum AssignmentMode {
     /// agent ids, so blocks are network neighbourhoods: cluster randomisation for runs that
     /// switch contagion on.
     Block,
+    /// Matched pairs. Couples are sorted by a risk score built from values the population
+    /// draws before day 0 (`pair_weights`) and cut into consecutive pairs, and a coin from the
+    /// assignment seed sends one member of each pair to each arm. The pairing reads the
+    /// population, so the population seed moves it; the coins read the assignment seed alone.
+    Pairs,
+}
+
+/// Weights of the pairs-mode risk score, one per couple covariate. Each covariate is the mean
+/// of the two partners' values (years married is shared), standardised over the run's
+/// population before weighting, so the weights are unitless and only their ratios matter.
+/// The defaults are an ordinary least squares fit over the example run's control couples of
+/// the average of their standardised divorce indicator and standardised conflict rate, from
+/// `tools/fit_pair_weights.py`, rounded to three decimals; docs/design.md records the fit.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PairWeights {
+    pub neuroticism: f64,
+    pub conscientiousness: f64,
+    pub agreeableness: f64,
+    pub base_trust: f64,
+    pub prior_divorces: f64,
+    pub years_married: f64,
+}
+
+impl Default for PairWeights {
+    fn default() -> Self {
+        Self {
+            neuroticism: 0.170,
+            conscientiousness: 0.028,
+            agreeableness: -0.206,
+            base_trust: -0.256,
+            prior_divorces: -0.027,
+            years_married: -0.038,
+        }
+    }
+}
+
+impl PairWeights {
+    /// The weights in covariate order, matching `assignment::couple_covariates`.
+    pub fn as_array(&self) -> [f64; 6] {
+        [
+            self.neuroticism,
+            self.conscientiousness,
+            self.agreeableness,
+            self.base_trust,
+            self.prior_divorces,
+            self.years_married,
+        ]
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AssignmentConfig {
     pub mode: AssignmentMode,
+    /// Share of couples treated in couple and block mode. Pairs mode treats exactly one couple
+    /// per pair, so it requires 0.5.
     pub treatment_fraction: f64,
     pub block_size: u32,
+    pub pair_weights: PairWeights,
 }
 
 impl Default for AssignmentConfig {
@@ -69,6 +121,7 @@ impl Default for AssignmentConfig {
             mode: AssignmentMode::Couple,
             treatment_fraction: 0.5,
             block_size: 10,
+            pair_weights: PairWeights::default(),
         }
     }
 }
@@ -1223,6 +1276,20 @@ impl SimConfig {
         anyhow::ensure!(
             self.assignment.block_size >= 1,
             "block_size must be at least 1"
+        );
+        if self.assignment.mode == AssignmentMode::Pairs {
+            anyhow::ensure!(
+                f == 0.5,
+                "pairs mode treats one couple of every pair, so treatment_fraction must be 0.5"
+            );
+        }
+        anyhow::ensure!(
+            self.assignment
+                .pair_weights
+                .as_array()
+                .iter()
+                .all(|w| w.is_finite()),
+            "pair_weights must be finite numbers"
         );
         for (name, p) in [
             ("control", &self.memory.control),

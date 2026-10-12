@@ -52,6 +52,8 @@ pub struct CoupleSummary {
     pub agent_a: i64,
     pub agent_b: i64,
     pub arm: Option<&'static str>,
+    /// The couple's pair in a pairs-mode run (initial couples only).
+    pub pair_id: Option<i64>,
     pub origin: &'static str,
     pub formed_day: i32,
     pub married_day: Option<i32>,
@@ -67,13 +69,16 @@ pub struct SimResult {
     pub agents: Vec<AgentSummary>,
     pub couples: Vec<CoupleSummary>,
     pub arms: Vec<Arm>,
+    /// Pair id per initial couple in a pairs-mode run, otherwise `None`.
+    pub pair_id: Option<Vec<u32>>,
     pub population: Population,
 }
 
 /// Spawn agents and couples, wire the network, randomise, and apply the intervention at day 0.
-pub fn build_world(cfg: &SimConfig) -> (World, Population, Vec<Arm>) {
+pub fn build_world(cfg: &SimConfig) -> (World, Population, assignment::Design) {
     let pop = population::generate(cfg);
-    let arms = assignment::assign(cfg);
+    let design = assignment::assign(cfg, &pop);
+    let arms = &design.arms;
     let mut world = World::new();
     world.insert_resource(Clock { day: 0 });
     world.insert_resource(Config(cfg.clone()));
@@ -200,12 +205,13 @@ pub fn build_world(cfg: &SimConfig) -> (World, Population, Vec<Arm>) {
         a.satisfaction = dynamics::satisfaction(&cfg.dynamics, a.trust, a.affect, loads);
     }
     world.insert_resource(AgentIndex(index));
-    (world, pop, arms)
+    (world, pop, design)
 }
 
 /// Run the whole simulation in memory.
 pub fn run(cfg: &SimConfig) -> SimResult {
-    let (mut world, pop, arms) = build_world(cfg);
+    let (mut world, pop, design) = build_world(cfg);
+    let assignment::Design { arms, pair_id } = design;
     let mut schedule = build_schedule();
     for _ in 0..cfg.days {
         schedule.run(&mut world);
@@ -233,11 +239,16 @@ pub fn run(cfg: &SimConfig) -> SimResult {
         } else {
             0.0
         };
+        let pair = match (&pair_id, c.origin) {
+            (Some(p), Origin::Initial) => Some(p[c.id as usize] as i64),
+            _ => None,
+        };
         couples.push(CoupleSummary {
             couple_id: c.id as i64,
             agent_a: c.a_id as i64,
             agent_b: c.b_id as i64,
             arm: c.arm.map(|a| a.as_str()),
+            pair_id: pair,
             origin: c.origin.as_str(),
             formed_day: c.formed_day,
             married_day: c.married_day,
@@ -293,6 +304,7 @@ pub fn run(cfg: &SimConfig) -> SimResult {
         agents,
         couples,
         arms,
+        pair_id,
         population: pop,
     }
 }
@@ -355,6 +367,30 @@ pub fn summary(res: &SimResult) -> serde_json::Value {
     serde_json::Value::Object(out)
 }
 
+/// The manifest's record of a pairs-mode design: how the pairs were made and the pair of every
+/// initial couple, by couple id. `None` for couple and block runs, whose manifests carry no
+/// `pairs` key.
+pub fn pairs_manifest(cfg: &SimConfig, res: &SimResult) -> Option<serde_json::Value> {
+    let ids = res.pair_id.as_ref()?;
+    let n_pairs = ids.iter().map(|&p| p as usize + 1).max().unwrap_or(0);
+    let mut size = vec![0usize; n_pairs];
+    for &p in ids {
+        size[p as usize] += 1;
+    }
+    let unpaired = ids
+        .iter()
+        .position(|&p| size[p as usize] == 1)
+        .map(|c| c as u64);
+    Some(serde_json::json!({
+        "design": "matched pairs: couples sorted by a risk score drawn before day 0, neighbours paired, one coin per pair",
+        "covariates": ["neuroticism", "conscientiousness", "agreeableness", "base_trust", "prior_divorces", "years_married"],
+        "weights": cfg.assignment.pair_weights,
+        "n_pairs": n_pairs,
+        "unpaired_couple": unpaired,
+        "pair_id": ids,
+    }))
+}
+
 /// Run and write every table plus `manifest.json` into `out_dir`.
 /// Run a config and write its results directory.
 ///
@@ -386,13 +422,22 @@ pub fn run_to_dir(cfg: &SimConfig, out_dir: &Path, overwrite: bool) -> Result<se
     }
     let staging = publish::Staging::create(&parent, &name)?;
     let res = run(cfg);
-    let files = crate::output::write_all(&staging.path, &res.logs, &res.agents, &res.couples)?;
-    let manifest = crate::output::manifest_json(
+    let files = crate::output::write_all(
+        &staging.path,
+        &res.logs,
+        &res.agents,
+        &res.couples,
+        res.pair_id.is_some(),
+    )?;
+    let mut manifest = crate::output::manifest_json(
         cfg,
         &files,
         summary(&res),
         crate::policy::spec(&cfg.policy, &cfg.association, &cfg.legacy),
     );
+    if let Some(pairs) = pairs_manifest(cfg, &res) {
+        manifest["pairs"] = pairs;
+    }
     std::fs::write(
         staging.path.join("manifest.json"),
         serde_json::to_string_pretty(&manifest)?,

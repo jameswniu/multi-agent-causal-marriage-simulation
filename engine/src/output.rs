@@ -142,12 +142,22 @@ pub fn agents_batch(rows: &[AgentSummary]) -> Result<RecordBatch> {
     ])
 }
 
-pub fn couples_batch(rows: &[CoupleSummary]) -> Result<RecordBatch> {
-    batch(vec![
+/// The couples table. `pairs` adds the `pair_id` column after `arm`; only pairs-mode runs
+/// carry it, so couple and block runs write the same bytes as before the column existed.
+pub fn couples_batch(rows: &[CoupleSummary], pairs: bool) -> Result<RecordBatch> {
+    let mut cols = vec![
         i64s("couple_id", rows.iter().map(|r| r.couple_id).collect()),
         i64s("agent_a", rows.iter().map(|r| r.agent_a).collect()),
         i64s("agent_b", rows.iter().map(|r| r.agent_b).collect()),
         opt_strs("arm", rows.iter().map(|r| r.arm).collect()),
+    ];
+    if pairs {
+        cols.push(opt_i64s(
+            "pair_id",
+            rows.iter().map(|r| r.pair_id).collect(),
+        ));
+    }
+    cols.extend([
         strs("origin", rows.iter().map(|r| r.origin).collect()),
         i32s("formed_day", rows.iter().map(|r| r.formed_day).collect()),
         opt_i32s("married_day", rows.iter().map(|r| r.married_day).collect()),
@@ -161,7 +171,8 @@ pub fn couples_batch(rows: &[CoupleSummary]) -> Result<RecordBatch> {
             "years_married_at_start",
             rows.iter().map(|r| r.years_married_at_start).collect(),
         ),
-    ])
+    ]);
+    batch(cols)
 }
 
 pub fn events_batch(logs: &Logs) -> Result<RecordBatch> {
@@ -319,17 +330,19 @@ pub struct Written {
     pub sha256: String,
 }
 
-/// Write every table into `dir` and return the file records.
+/// Write every table into `dir` and return the file records. `pairs` marks a pairs-mode run,
+/// whose couples table carries `pair_id`.
 pub fn write_all(
     dir: &Path,
     logs: &Logs,
     agents: &[AgentSummary],
     couples: &[CoupleSummary],
+    pairs: bool,
 ) -> Result<Vec<Written>> {
     std::fs::create_dir_all(dir)?;
     let tables: Vec<(&'static str, RecordBatch)> = vec![
         ("agents.parquet", agents_batch(agents)?),
-        ("couples.parquet", couples_batch(couples)?),
+        ("couples.parquet", couples_batch(couples, pairs)?),
         ("events.parquet", events_batch(logs)?),
         ("daily.parquet", daily_batch(logs)?),
         ("decisions.parquet", decisions_batch(logs)?),

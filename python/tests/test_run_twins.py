@@ -57,6 +57,27 @@ def test_a_run_with_no_intervention_brings_twins_where_no_couple_differs(tmp_pat
     assert [i["name"] for i in c.get("/api/experiments").json()["items"]] == ["same-rules"]
 
 
+def test_a_pairs_run_with_no_intervention_brings_twins_where_no_couple_differs(
+    tmp_path: Path, engine_ready: None
+) -> None:
+    c = _client(tmp_path)
+    body = {**NO_INTERVENTION, "name": "same-rules-pairs", "engine": {"assignment": {"mode": "pairs"}}}
+    r = c.post("/api/experiments/run?wait=true", json=body)
+    assert r.status_code == 200, r.text
+    w = c.get("/api/twins/world", params={"experiment": "same-rules-pairs"}).json()
+    assert w["available"] is True and w["path"] == "same-rules-pairs-twins"
+    assert len(w["couples"]) == 1000 and w["diverged"] == [0] * 60
+    assert w["states_control"] == w["states_treatment"]
+    summary = c.get("/api/experiment", params={"experiment": "same-rules-pairs"}).json()["summary"]
+    assert summary["analysis"]["inference_unit"] == "pair of couples"
+    twins = summary["governance"]["twins"]
+    assert twins["identical_parameters"] is True and twins["dynamics_hashes_equal"] is True
+    for row in twins["paired"]:
+        assert row["mean_diff"] == 0.0 and row["share_changed"] == 0.0 and row["n_pairs"] == 1000, row
+    pairs = analysis.load_tables(tmp_path / "same-rules-pairs-twins" / "control").couples
+    assert pairs["pair_id"].notna().sum() == 1000, "the twins keep the run's pairs"
+
+
 def test_a_fork_brings_its_own_twins(tmp_path: Path, defaults: dict) -> None:
     exp = load_experiment(EXPERIMENTS / "smoke.yaml", defaults)
     runner.run_experiment(exp, tmp_path / exp.name)
