@@ -345,7 +345,7 @@ describe('pulses, probabilities, requests, async', () => {
 
 
 describe('shock words', () => {
-  const catalog = toCatalog((shocksCatalog as { kinds: ShockKind[] }).kinds);
+  const catalog = toCatalog((shocksCatalog as { kinds: ShockKind[] }).kinds)!;
 
   it('names every field of a shock, so shocks that differ in any field never read the same', () => {
     const s: ShockSpec = { kind: 'job_loss', target: 'treatment', member: 'b', start_day: 60, end_day: 210, magnitude: 1.5, trait: null };
