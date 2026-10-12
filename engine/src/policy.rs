@@ -6,10 +6,15 @@
 //! softmax over those utilities. The policy never sees the treatment arm; the type of its
 //! input, `AgentView`, has no field for it.
 //!
+//! For a married couple in a conflict the leave action is on the menu only when the couple has
+//! gone without a shared warm memory long enough, or the conflict has escalated past a hard line
+//! (`AgentView::leave_available`); a divorce in the agent's own past makes leaving easier
+//! by the commitment shift its legacy carries (`AgentView::legacy_shift`).
+//!
 //! `spec()` renders the weights and formulas so the policy can be inspected without reading
 //! this file.
 
-use crate::config::PolicyConfig;
+use crate::config::{AssociationConfig, LegacyConfig, PolicyConfig};
 use crate::memory::Loads;
 use crate::population::{Personality, Preferences};
 use crate::rng::{self, Rng};
@@ -74,6 +79,10 @@ pub struct AgentView<'a> {
     pub divorced_friend_share: f64,
     /// Compatibility surplus of an outside encounter today (0 when none).
     pub outside_option: f64,
+    /// Whether leaving is on the menu today (always for dating couples).
+    pub leave_available: bool,
+    /// The commitment shift of the agent's own sealed divorce, 0 without one.
+    pub legacy_shift: f64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -136,14 +145,16 @@ pub fn utilities(view: &AgentView, w: &PolicyConfig) -> Vec<(Action, f64)> {
                 + w.wd_neuro * p.neuroticism
                 + w.wd_intensity * view.conflict_intensity
                 + w.wd_partner_escalated * partner_escalated;
-            let u_leave = leave_utility(view, w, days);
-            vec![
+            let mut out = vec![
                 (Action::Repair, u_rep),
                 (Action::Hold, u_hold),
                 (Action::Escalate, u_esc),
                 (Action::Withdraw, u_wd),
-                (Action::Leave, u_leave),
-            ]
+            ];
+            if view.leave_available {
+                out.push((Action::Leave, leave_utility(view, w, days)));
+            }
+            out
         }
         Context::Separated => {
             let days = (view.separation_days as f64).min(60.0);
@@ -155,12 +166,14 @@ pub fn utilities(view: &AgentView, w: &PolicyConfig) -> Vec<(Action, f64)> {
                 - w.rep_negmem * neg
                 + w.rep_partner_repaired * partner_repaired;
             let u_hold = w.sep_hold_base + w.hold_avoidant * avoidant;
-            let u_leave = w.sep_leave_base + leave_utility(view, w, days) - w.leave_base;
-            vec![
-                (Action::Repair, u_rep),
-                (Action::Hold, u_hold),
-                (Action::Leave, u_leave),
-            ]
+            let mut out = vec![(Action::Repair, u_rep), (Action::Hold, u_hold)];
+            if view.leave_available {
+                out.push((
+                    Action::Leave,
+                    w.sep_leave_base + leave_utility(view, w, days) - w.leave_base,
+                ));
+            }
+            out
         }
     }
 }
@@ -176,6 +189,7 @@ fn leave_utility(view: &AgentView, w: &PolicyConfig, days: f64) -> f64 {
         + w.leave_network * view.divorced_friend_share
         + w.leave_outside_option * view.outside_option
         + w.leave_dating_bonus * flag(view.dating)
+        + view.legacy_shift
 }
 
 /// Sample an action from the softmax over the context's utilities.
@@ -190,14 +204,20 @@ pub fn decide(view: &AgentView, w: &PolicyConfig, rng: &mut Rng) -> Decision {
     }
 }
 
-/// Human-readable policy specification: the weights and the formulas they enter.
-pub fn spec(w: &PolicyConfig) -> serde_json::Value {
+/// Human-readable policy specification: the weights, the formulas they enter, and the rule that
+/// puts leaving on the menu.
+pub fn spec(
+    w: &PolicyConfig,
+    rule: &AssociationConfig,
+    legacy: &LegacyConfig,
+) -> serde_json::Value {
     serde_json::json!({
         "kind": "rule_based_softmax",
         "visibility": {
             "sees": ["own personality", "own preferences", "own trust", "own affect", "own stress", "own satisfaction",
                      "own retained negative and positive memory about the partner", "shared conflict intensity and duration",
-                     "partner's last observable action", "share of divorced network neighbours", "today's outside option surplus"],
+                     "partner's last observable action", "share of divorced network neighbours", "today's outside option surplus",
+                     "whether leaving is on the menu today", "own sealed divorce, if any"],
             "never_sees": ["treatment arm", "partner's trust", "partner's memory", "partner's utilities"]
         },
         "sampling": {"rule": "softmax over utilities", "temperature": w.temperature},
@@ -211,13 +231,24 @@ pub fn spec(w: &PolicyConfig) -> serde_json::Value {
                 "hold": "hold_base + hold_avoidant*(1-conflict_engagement) + hold_consc*conscientiousness",
                 "escalate": "esc_base + esc_neuro*neuroticism + esc_engage*conflict_engagement + esc_negmem*neg_load + esc_stress*stress - esc_trust*trust + esc_partner_escalated*[partner escalated] - esc_affect*affect",
                 "withdraw": "wd_base + wd_avoidant*(1-conflict_engagement) + wd_neuro*neuroticism + wd_intensity*intensity + wd_partner_escalated*[partner escalated]",
-                "leave": "leave_base - leave_commit*commitment - leave_trust*trust + leave_negmem*neg_load - leave_posmem*pos_load + leave_intensity*intensity + leave_days*min(days,30) - leave_satisfaction*satisfaction + leave_network*divorced_friend_share + leave_outside_option*outside_option + leave_dating_bonus*[dating]"
+                "leave (when on the menu)": "leave_base - leave_commit*commitment - leave_trust*trust + leave_negmem*neg_load - leave_posmem*pos_load + leave_intensity*intensity + leave_days*min(days,30) - leave_satisfaction*satisfaction + leave_network*divorced_friend_share + leave_outside_option*outside_option + leave_dating_bonus*[dating] + legacy_shift"
             },
             "separated": {
                 "repair (reunite)": "sep_reunite_base + rep_agree*agreeableness + rep_forgive*forgiveness + rep_trust*trust + rep_posmem*pos_load - rep_negmem*neg_load + rep_partner_repaired*[partner repaired]",
                 "hold": "sep_hold_base + hold_avoidant*(1-conflict_engagement)",
-                "leave (finalise)": "sep_leave_base + (conflict leave formula with min(days,60) and without leave_base)"
+                "leave (finalise, when on the menu)": "sep_leave_base + (conflict leave formula with min(days,60) and without leave_base)"
             }
+        },
+        "leave_rule": {
+            "applies_to": ["married couples in a conflict"],
+            "association_window_days": rule.window_days,
+            "orphan_days_to_leave": rule.orphan_days_to_leave,
+            "unlock_intensity": rule.unlock_intensity,
+            "rule": "a couple is associated when both members stored a warm memory (positive or reconciliation) about each other within the window; a married couple in a conflict is offered leave once it has been orphaned for orphan_days_to_leave consecutive days, or when the conflict's intensity reaches unlock_intensity; dating couples and separated couples are not gated; 0 days turns the gate off"
+        },
+        "legacy": {
+            "legacy_shift": legacy.commitment_shift,
+            "rule": "an agent whose marriage ended in divorce during the run adds legacy_shift to its leave utility in every later relationship"
         },
         "weights": w
     })
@@ -248,6 +279,8 @@ mod tests {
             partner_last: None,
             divorced_friend_share: 0.0,
             outside_option: 0.0,
+            leave_available: true,
+            legacy_shift: 0.0,
         }
     }
 
@@ -300,6 +333,33 @@ mod tests {
     }
 
     #[test]
+    fn leave_is_off_the_menu_until_available_and_a_legacy_makes_it_easier() {
+        let (p, q) = mid();
+        let w = PolicyConfig::default();
+        for ctx in [Context::Conflict, Context::Separated] {
+            let mut v = view(&p, &q, ctx);
+            v.leave_available = false;
+            let acts: Vec<Action> = utilities(&v, &w).into_iter().map(|(a, _)| a).collect();
+            assert!(!acts.contains(&Action::Leave), "{ctx:?}");
+            let mut r = rng::stream(5, "t", 3);
+            for _ in 0..200 {
+                assert_ne!(decide(&v, &w, &mut r).action, Action::Leave);
+            }
+        }
+        let base = view(&p, &q, Context::Conflict);
+        let mut sealed = base;
+        sealed.legacy_shift = 0.3;
+        let u = |v: &AgentView| {
+            utilities(v, &w)
+                .into_iter()
+                .find(|(a, _)| *a == Action::Leave)
+                .unwrap()
+                .1
+        };
+        assert!((u(&sealed) - u(&base) - 0.3).abs() < 1e-12);
+    }
+
+    #[test]
     fn more_grudge_lowers_repair_and_raises_leave() {
         let (p, q) = mid();
         let w = PolicyConfig::default();
@@ -346,7 +406,9 @@ mod tests {
     #[test]
     fn spec_lists_every_weight() {
         let w = PolicyConfig::default();
-        let s = spec(&w);
+        let s = spec(&w, &AssociationConfig::default(), &LegacyConfig::default());
+        assert_eq!(s["leave_rule"]["orphan_days_to_leave"], 21);
+        assert_eq!(s["legacy"]["legacy_shift"], 0.3);
         let weights = s["weights"].as_object().unwrap();
         assert!(weights.contains_key("rep_negmem"));
         assert!(weights.contains_key("leave_network"));

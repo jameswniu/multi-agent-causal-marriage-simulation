@@ -5,6 +5,7 @@ use crate::components::*;
 use crate::config::{Arm, SimConfig};
 use crate::dynamics;
 use crate::intervention;
+use crate::legacy::Legacy;
 use crate::log::{ConflictRow, Logs};
 use crate::memory::Memory;
 use crate::population::{self, Population};
@@ -107,9 +108,11 @@ pub fn build_world(cfg: &SimConfig) -> (World, Population, Vec<Arm>) {
                 },
                 AgentRng(rng::stream(cfg.seeds.dynamics, "agent", a.id)),
                 LastAction::default(),
-                Memory::new(cfg.memory.control.clone(), a.initial_episodes.clone()),
+                Memory::new(cfg.memory.control.clone(), a.initial_episodes.clone())
+                    .with_plateau(cfg.memory_rules.plateau_days),
                 Social::default(),
                 Modifiers::default(),
+                Legacy::default(),
             ))
             .id();
         index.push(e);
@@ -138,14 +141,7 @@ pub fn build_world(cfg: &SimConfig) -> (World, Population, Vec<Arm>) {
                     married_day: Some(formed),
                     compatibility: c.compatibility,
                 },
-                Rel {
-                    state: RelState::Married,
-                    conflict: None,
-                    separated_since: None,
-                    ended_day: None,
-                    outside_option: [0.0; 2],
-                    positive_today: false,
-                },
+                Rel::new(RelState::Married),
                 CoupleRng(rng::stream(cfg.seeds.dynamics, "couple", c.id)),
                 ShockState {
                     member: vec![None; cfg.shocks.len()],
@@ -253,6 +249,8 @@ pub fn run(cfg: &SimConfig) -> SimResult {
     }
     logs.conflicts.sort_by_key(|r| (r.couple_id, r.started_day));
     logs.episodes
+        .sort_by_key(|x| (x.day, x.couple_id, x.agent_id));
+    logs.legacies
         .sort_by_key(|x| (x.day, x.couple_id, x.agent_id));
     let _ = last_day;
     let mut agents = Vec::new();
@@ -389,8 +387,12 @@ pub fn run_to_dir(cfg: &SimConfig, out_dir: &Path, overwrite: bool) -> Result<se
     let staging = publish::Staging::create(&parent, &name)?;
     let res = run(cfg);
     let files = crate::output::write_all(&staging.path, &res.logs, &res.agents, &res.couples)?;
-    let manifest =
-        crate::output::manifest_json(cfg, &files, summary(&res), crate::policy::spec(&cfg.policy));
+    let manifest = crate::output::manifest_json(
+        cfg,
+        &files,
+        summary(&res),
+        crate::policy::spec(&cfg.policy, &cfg.association, &cfg.legacy),
+    );
     std::fs::write(
         staging.path.join("manifest.json"),
         serde_json::to_string_pretty(&manifest)?,
@@ -413,6 +415,160 @@ mod tests {
             days: 60,
             ..SimConfig::default()
         }
+    }
+
+    /// A year of 200 couples, all under the long memory, so divorces and separations occur.
+    fn year() -> SimConfig {
+        SimConfig {
+            n_couples: 200,
+            days: 365,
+            arm_override: Some(Arm::Treatment),
+            ..SimConfig::default()
+        }
+    }
+
+    #[test]
+    fn every_divorce_is_sealed_once_per_member() {
+        let res = run(&year());
+        let divorces: Vec<i64> = res
+            .logs
+            .events
+            .iter()
+            .filter(|e| e.kind == "divorced")
+            .map(|e| e.couple_id)
+            .collect();
+        assert!(!divorces.is_empty(), "the test world must contain divorces");
+        assert_eq!(res.logs.legacies.len(), 2 * divorces.len());
+        let sealed = res
+            .logs
+            .events
+            .iter()
+            .filter(|e| e.kind == "sealed")
+            .count();
+        assert_eq!(sealed, 2 * divorces.len());
+        for c in &divorces {
+            let rows: Vec<_> = res
+                .logs
+                .legacies
+                .iter()
+                .filter(|l| l.couple_id == *c)
+                .collect();
+            assert_eq!(rows.len(), 2);
+            assert_eq!(rows[0].agent_id, rows[1].partner_id);
+            assert_eq!(rows[1].agent_id, rows[0].partner_id);
+            assert!(rows.iter().filter(|r| r.ended_by == "self").count() <= 1);
+            for r in rows {
+                assert!(r.reconciled <= r.conflicts);
+                assert!((0.05..=0.95).contains(&r.trust_prior));
+                assert_eq!(r.commitment_shift, year().legacy.commitment_shift);
+            }
+        }
+    }
+
+    #[test]
+    fn separated_memories_neither_fade_nor_drop() {
+        let res = run(&year());
+        let mut rows: Vec<&crate::log::DailyRow> = res.logs.daily.iter().collect();
+        rows.sort_by_key(|r| (r.couple_id, r.day));
+        let mut stretches = 0;
+        for w in rows.windows(2) {
+            let (p, c) = (w[0], w[1]);
+            if p.couple_id != c.couple_id || p.state != "separated" || c.state != "separated" {
+                continue;
+            }
+            stretches += 1;
+            for (before, after) in [
+                (p.neg_a, c.neg_a),
+                (p.neg_b, c.neg_b),
+                (p.pos_a, c.pos_a),
+                (p.pos_b, c.pos_b),
+            ] {
+                assert!(
+                    after >= before - 1e-12,
+                    "couple {} day {}: {before} then {after}",
+                    c.couple_id,
+                    c.day
+                );
+            }
+        }
+        assert!(stretches > 0, "the test world must contain separations");
+    }
+
+    #[test]
+    fn married_couples_are_offered_leave_only_past_the_gate() {
+        let cfg = year();
+        let res = run(&cfg);
+        let state: std::collections::HashMap<(i64, i32), (&str, i32)> = res
+            .logs
+            .daily
+            .iter()
+            .map(|d| ((d.couple_id, d.day), (d.state, d.orphan_days)))
+            .collect();
+        let gate = &cfg.association;
+        let (mut offered, mut withheld) = (0, 0);
+        for d in res
+            .logs
+            .decisions
+            .iter()
+            .filter(|d| d.context == "conflict")
+        {
+            let (st, orphan) = state[&(d.couple_id, d.day)];
+            if st != "married" && st != "separated" {
+                continue; // a dating couple: never gated
+            }
+            let open =
+                orphan >= gate.orphan_days_to_leave as i32 || d.intensity >= gate.unlock_intensity;
+            assert_eq!(
+                d.u_leave.is_some(),
+                open,
+                "couple {} day {}",
+                d.couple_id,
+                d.day
+            );
+            if open {
+                offered += 1;
+            } else {
+                withheld += 1;
+                assert_ne!(d.action, "leave");
+            }
+        }
+        assert!(offered > 0 && withheld > 0);
+        // With the gate off every married couple's conflict offers leave.
+        let mut off = cfg.clone();
+        off.association.orphan_days_to_leave = 0;
+        let res = run(&off);
+        assert!(res
+            .logs
+            .decisions
+            .iter()
+            .filter(|d| d.context == "conflict")
+            .all(|d| d.u_leave.is_some()));
+    }
+
+    #[test]
+    fn every_consolidation_is_logged_once() {
+        let res = run(&year());
+        let rows = res
+            .logs
+            .episodes
+            .iter()
+            .filter(|e| e.source == "consolidated")
+            .count();
+        let events = res
+            .logs
+            .events
+            .iter()
+            .filter(|e| e.kind == "memory_consolidated")
+            .count();
+        assert!(rows > 0);
+        assert_eq!(rows, events);
+        let mut off = year();
+        off.memory_rules.consolidate_after = 0;
+        assert!(run(&off)
+            .logs
+            .episodes
+            .iter()
+            .all(|e| e.source != "consolidated"));
     }
 
     #[test]

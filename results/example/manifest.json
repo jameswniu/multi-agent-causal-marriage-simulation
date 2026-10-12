@@ -7,6 +7,11 @@
       "mode": "couple",
       "treatment_fraction": 0.5
     },
+    "association": {
+      "orphan_days_to_leave": 21,
+      "unlock_intensity": 0.95,
+      "window_days": 42
+    },
     "days": 365,
     "dynamics": {
       "accept_forgive": 1.5,
@@ -64,6 +69,10 @@
       "trust_rate": 0.04,
       "withdraw_episode_intensity": 0.25
     },
+    "legacy": {
+      "commitment_shift": 0.3,
+      "trust_prior_weight": 0.5
+    },
     "market": {
       "anchor_discount": 0.05,
       "cooldown_days": 90,
@@ -94,6 +103,11 @@
         "positive_half_life_days": 20.0,
         "repair_half_life_days": 30.0
       }
+    },
+    "memory_rules": {
+      "consolidate_after": 8,
+      "freeze_during_separation": true,
+      "plateau_days": 2.0
     },
     "n_couples": 1000,
     "name": "retention-90d",
@@ -209,45 +223,49 @@
     "shocks": []
   },
   "days": 365,
-  "determinism_hash": "edd6134bd4967ed62790df46815648e0e3d523265aa9456f00db95bc34a20a93",
+  "determinism_hash": "674eee5aea999b52518f779b648866d0d408086357eda2d9c5d20550bdb5a8dc",
   "engine": "loveworld-engine",
-  "engine_version": "0.1.0",
+  "engine_version": "0.2.0",
   "evidence_class": "simulation",
   "files": {
     "agents.parquet": {
       "rows": 2000,
-      "sha256": "ad55f304561e1c090f9b7516184f3aebaa72cb8afc0f80cf7bb2c0e878eb06ec"
+      "sha256": "c493c2e09116f59dd62c94795acd19fc4db888e49ed0d5aab171124ad94e9009"
     },
     "conflicts.parquet": {
-      "rows": 11005,
-      "sha256": "c06b946acd1b79acd4b47e448b2e219e8c77a1e754b5c0ee0cd4d4129a5727fa"
+      "rows": 9710,
+      "sha256": "559fe274bdc4a4beebca2a010edc295d56b8122d6c0898d369662b1c100922cc"
     },
     "couples.parquet": {
-      "rows": 1142,
-      "sha256": "e06f2be28541ac6d998e382cf7a46457991f5f681c50c174f4d8700f55838c9c"
+      "rows": 1124,
+      "sha256": "b3e0ce3acf381398d169d4ab972daad1cb4831dd060ef555889b6da2e0004845"
     },
     "daily.parquet": {
-      "rows": 348586,
-      "sha256": "8bb65b3a18b85d27ed04be3dff44554cfc2a7c04d64cbf171264e40f722073bc"
+      "rows": 351322,
+      "sha256": "5a5530de83521ef24dac01cd45f6d3b2bfd1ca8a79567c4361cd0feecdacd3c8"
     },
     "decisions.parquet": {
-      "rows": 230620,
-      "sha256": "f9a392bb8dae7665ed9abe953f533a02d6233e2cc09f400304a90b862a907536"
+      "rows": 242168,
+      "sha256": "b6c876c53fbd94adfa33c1e2347532a3adcb68f279a9d5a0ecddf0a840220a51"
     },
     "episodes.parquet": {
-      "rows": 555979,
-      "sha256": "d69224987fbbf941698b7daeff86c53f5edd1e3d3126074848fa70bc2b4ea464"
+      "rows": 596429,
+      "sha256": "d1dc87b3d1fe29520ee2bf654cf2a54005a58034c3a9d2e0158384db92fdcad6"
     },
     "events.parquet": {
-      "rows": 177359,
-      "sha256": "3a0bd60c2b0d47d1df3c9873e94da002bfe710fb9eea07f76a6798028d7ca5e3"
+      "rows": 223187,
+      "sha256": "1cf5d36d4a71f241e247056d3f6e42a9ee31ea144067e6935daccc7d688f3120"
     },
     "interventions.parquet": {
       "rows": 8000,
       "sha256": "ae15d158455ea38d3598722d3b4373e212db89fcc2048c3f6472c80d1a9c2eef"
+    },
+    "legacies.parquet": {
+      "rows": 180,
+      "sha256": "6a299b4cb490dbbbc9dd24115ec19385febffcab62a973f0a113fbac499459e2"
     }
   },
-  "generated_at_unix": 1791701686,
+  "generated_at_unix": 1791767786,
   "n_couples": 1000,
   "name": "retention-90d",
   "policy_spec": {
@@ -259,17 +277,30 @@
       "conflict": {
         "escalate": "esc_base + esc_neuro*neuroticism + esc_engage*conflict_engagement + esc_negmem*neg_load + esc_stress*stress - esc_trust*trust + esc_partner_escalated*[partner escalated] - esc_affect*affect",
         "hold": "hold_base + hold_avoidant*(1-conflict_engagement) + hold_consc*conscientiousness",
-        "leave": "leave_base - leave_commit*commitment - leave_trust*trust + leave_negmem*neg_load - leave_posmem*pos_load + leave_intensity*intensity + leave_days*min(days,30) - leave_satisfaction*satisfaction + leave_network*divorced_friend_share + leave_outside_option*outside_option + leave_dating_bonus*[dating]",
+        "leave (when on the menu)": "leave_base - leave_commit*commitment - leave_trust*trust + leave_negmem*neg_load - leave_posmem*pos_load + leave_intensity*intensity + leave_days*min(days,30) - leave_satisfaction*satisfaction + leave_network*divorced_friend_share + leave_outside_option*outside_option + leave_dating_bonus*[dating] + legacy_shift",
         "repair": "rep_base + rep_agree*agreeableness + rep_forgive*forgiveness + rep_trust*trust + rep_posmem*pos_load - rep_negmem*neg_load + rep_partner_repaired*[partner repaired] - rep_intensity*intensity + rep_days*min(days,30)",
         "withdraw": "wd_base + wd_avoidant*(1-conflict_engagement) + wd_neuro*neuroticism + wd_intensity*intensity + wd_partner_escalated*[partner escalated]"
       },
       "separated": {
         "hold": "sep_hold_base + hold_avoidant*(1-conflict_engagement)",
-        "leave (finalise)": "sep_leave_base + (conflict leave formula with min(days,60) and without leave_base)",
+        "leave (finalise, when on the menu)": "sep_leave_base + (conflict leave formula with min(days,60) and without leave_base)",
         "repair (reunite)": "sep_reunite_base + rep_agree*agreeableness + rep_forgive*forgiveness + rep_trust*trust + rep_posmem*pos_load - rep_negmem*neg_load + rep_partner_repaired*[partner repaired]"
       }
     },
     "kind": "rule_based_softmax",
+    "leave_rule": {
+      "applies_to": [
+        "married couples in a conflict"
+      ],
+      "association_window_days": 42,
+      "orphan_days_to_leave": 21,
+      "rule": "a couple is associated when both members stored a warm memory (positive or reconciliation) about each other within the window; a married couple in a conflict is offered leave once it has been orphaned for orphan_days_to_leave consecutive days, or when the conflict's intensity reaches unlock_intensity; dating couples and separated couples are not gated; 0 days turns the gate off",
+      "unlock_intensity": 0.95
+    },
+    "legacy": {
+      "legacy_shift": 0.3,
+      "rule": "an agent whose marriage ended in divorce during the run adds legacy_shift to its leave utility in every later relationship"
+    },
     "sampling": {
       "rule": "softmax over utilities",
       "temperature": 0.7
@@ -292,7 +323,9 @@
         "shared conflict intensity and duration",
         "partner's last observable action",
         "share of divorced network neighbours",
-        "today's outside option surplus"
+        "today's outside option surplus",
+        "whether leaving is on the menu today",
+        "own sealed divorce, if any"
       ]
     },
     "weights": {
@@ -351,20 +384,20 @@
   },
   "summary": {
     "control": {
-      "conflicts": 3863,
+      "conflicts": 3619,
       "couples": 500,
-      "divorced": 8,
-      "separated": 4
+      "divorced": 13,
+      "separated": 1
     },
-    "decisions": 230620,
-    "events": 177359,
-    "remarriage_couples_formed": 142,
-    "remarriages": 9,
+    "decisions": 242168,
+    "events": 223187,
+    "remarriage_couples_formed": 124,
+    "remarriages": 10,
     "treatment": {
-      "conflicts": 6999,
+      "conflicts": 5950,
       "couples": 500,
-      "divorced": 107,
-      "separated": 54
+      "divorced": 77,
+      "separated": 34
     }
   }
 }

@@ -5,8 +5,9 @@ use crate::components::*;
 use crate::config::{ShockKind, ShockMember, SimConfig};
 use crate::dynamics::{self, AffectInputs, OnsetInputs};
 use crate::intervention;
+use crate::legacy::{self, EndedBy, Ending, Legacy};
 use crate::log::EpisodeRow;
-use crate::log::{ConflictRow, DecisionRow, Logs};
+use crate::log::{ConflictRow, DecisionRow, LegacyRow, Logs};
 use crate::memory::{Amplified, Episode, EpisodeKind, Loads, Memory};
 use crate::policy::{self, Action, AgentView, Context, Decision};
 use crate::rng;
@@ -150,19 +151,80 @@ fn trust_system(world: &mut World) {
     }
 }
 
+/// Weekly memory housekeeping: merge long runs of old episodes about the current partner into
+/// standing episodes (same load), then forget what has faded and cap the store.
 fn prune_system(world: &mut World) {
     let cfg = world.resource::<Config>().0.clone();
     let day = world.resource::<Clock>().day;
     if cfg.memory.prune_every_days == 0 || day % cfg.memory.prune_every_days as i32 != 0 {
         return;
     }
+    let mut logs = std::mem::take(&mut world.resource_mut::<LogStore>().0);
     for (_, e) in agents_by_id(world) {
+        if cfg.memory_rules.consolidate_after > 0 {
+            consolidate_for(world, &cfg, &mut logs, e, day);
+        }
         if let Some(mut m) = world.get_mut::<Memory>(e) {
             m.prune(day, cfg.memory.prune_threshold, cfg.memory.capacity);
         }
         if let Some(mut x) = world.get_mut::<Modifiers>(e) {
             x.expire(day);
         }
+    }
+    world.resource_mut::<LogStore>().0 = logs;
+}
+
+/// Consolidate one agent's memories of its current partner and log each merge: an episode row
+/// (source `consolidated`, dated today, carrying the merged load) and a `memory_consolidated`
+/// event whose value is the number of episodes merged.
+fn consolidate_for(world: &mut World, cfg: &SimConfig, logs: &mut Logs, e: Entity, day: i32) {
+    let bond = world.get::<Bond>(e).copied().unwrap_or_default();
+    let (Some(partner), Some(ce)) = (bond.partner_id, bond.couple) else {
+        return;
+    };
+    let couple_id = world.get::<Couple>(ce).map(|c| c.id).unwrap_or(0);
+    // The open conflict's episode may still be raised by escalation, so it stays separate.
+    let keep = world
+        .get::<Rel>(ce)
+        .and_then(|r| r.conflict)
+        .map(|c| (c.started, EpisodeKind::Conflict));
+    let after = cfg.memory_rules.consolidate_after;
+    let merges: Vec<(crate::memory::Consolidation, f64)> = world
+        .get_mut::<Memory>(e)
+        .map(|mut m| {
+            let done = m.consolidate(day, partner, after, keep);
+            done.into_iter()
+                .map(|c| {
+                    let load = m.strength(&c.episode, day);
+                    (c, load)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if merges.is_empty() {
+        return;
+    }
+    let me = agent_id_of(world, e);
+    for (c, load) in merges {
+        logs.episodes.push(EpisodeRow {
+            day,
+            couple_id: couple_id as i64,
+            agent_id: me as i64,
+            partner_id: partner as i64,
+            kind: c.episode.kind.as_str(),
+            intensity: load,
+            source: "consolidated",
+            amplified: false,
+        });
+        logs.event(
+            day,
+            couple_id,
+            Some(me),
+            "memory_consolidated",
+            None,
+            None,
+            Some(c.merged as f64),
+        );
     }
 }
 
@@ -221,6 +283,8 @@ struct MemberSnapshot {
     loads: Loads,
     last: Option<Action>,
     divorced_share: f64,
+    /// The commitment shift of this member's own sealed divorce, 0 without one.
+    legacy_shift: f64,
 }
 
 fn snapshot_member(
@@ -242,6 +306,10 @@ fn snapshot_member(
         } else {
             0.0
         },
+        legacy_shift: world
+            .get::<Legacy>(e)
+            .and_then(|l| l.0.map(|s| s.commitment_shift))
+            .unwrap_or(0.0),
     }
 }
 
@@ -256,6 +324,7 @@ fn decide_for(
     dating: bool,
     outside: f64,
     day: i32,
+    leave_available: bool,
 ) -> Decision {
     let (intensity, conflict_days) = rel
         .conflict
@@ -281,6 +350,8 @@ fn decide_for(
         partner_last,
         divorced_friend_share: m.divorced_share,
         outside_option: outside,
+        leave_available,
+        legacy_shift: m.legacy_shift,
     };
     let mut rng = world.get_mut::<AgentRng>(m.entity).expect("rng");
     policy::decide(&view, &cfg.policy, &mut rng.0)
@@ -417,6 +488,10 @@ fn close_conflict(
     outcome: &'static str,
 ) -> Option<i32> {
     let c = rel.conflict.take()?;
+    rel.conflicts_closed += 1;
+    if outcome == "reconciled" {
+        rel.conflicts_reconciled += 1;
+    }
     let duration = day - c.started + 1;
     logs.conflicts.push(ConflictRow {
         couple_id: couple_id as i64,
@@ -453,6 +528,80 @@ fn release_members(world: &mut World, cfg: &SimConfig, couple: &Couple, day: i32
     }
 }
 
+fn freeze_memory(world: &mut World, agent: Entity, partner: u64, day: i32) {
+    if let Some(mut m) = world.get_mut::<Memory>(agent) {
+        m.freeze(partner, day);
+    }
+}
+
+fn unfreeze_memory(world: &mut World, agent: Entity, day: i32) {
+    if let Some(mut m) = world.get_mut::<Memory>(agent) {
+        m.unfreeze(day);
+    }
+}
+
+/// Seal one member's side of a marriage that ends in divorce today, from its live state, and log
+/// it (a legacies row and a `sealed` event whose value is the next relationship's trust prior).
+#[allow(clippy::too_many_arguments)]
+fn seal_marriage(
+    world: &mut World,
+    cfg: &SimConfig,
+    logs: &mut Logs,
+    couple: &Couple,
+    rel: &Rel,
+    agent: Entity,
+    partner_id: u64,
+    ended_by: EndedBy,
+    day: i32,
+) {
+    let me = agent_id_of(world, agent);
+    let ending = Ending {
+        couple_id: couple.id,
+        partner_id,
+        day,
+        ended_by,
+        conflicts: rel.conflicts_closed,
+        reconciled: rel.conflicts_reconciled,
+        final_trust: world.get::<Affect>(agent).map(|a| a.trust).unwrap_or(0.5),
+        final_loads: world
+            .get::<Memory>(agent)
+            .map(|m| m.loads(day, partner_id))
+            .unwrap_or_default(),
+        base_trust: world
+            .get::<Traits>(agent)
+            .map(|t| t.base_trust)
+            .unwrap_or(0.5),
+    };
+    let seal = legacy::mint(&cfg.legacy, &ending);
+    if let Some(mut l) = world.get_mut::<Legacy>(agent) {
+        l.0 = Some(seal);
+    }
+    logs.legacies.push(LegacyRow {
+        day,
+        couple_id: couple.id as i64,
+        agent_id: me as i64,
+        partner_id: partner_id as i64,
+        ended_by: ended_by.as_str(),
+        conflicts: seal.conflicts as i32,
+        reconciled: seal.reconciled as i32,
+        final_trust: seal.final_trust,
+        final_neg_load: seal.final_loads.negative,
+        final_pos_load: seal.final_loads.positive,
+        match_quality: couple.compatibility,
+        commitment_shift: seal.commitment_shift,
+        trust_prior: seal.trust_prior,
+    });
+    logs.event(
+        day,
+        couple.id,
+        Some(me),
+        "sealed",
+        None,
+        None,
+        Some(seal.trust_prior),
+    );
+}
+
 fn couple_system(world: &mut World) {
     let cfg = world.resource::<Config>().0.clone();
     let day = world.resource::<Clock>().day;
@@ -478,6 +627,24 @@ fn couple_system(world: &mut World) {
             cfg.policy.leave_network != 0.0,
         );
         let mut logs = std::mem::take(&mut world.resource_mut::<LogStore>().0);
+
+        // Association: both members stored a warm memory about each other within the window.
+        let since = day - cfg.association.window_days as i32 + 1;
+        let warm = |e: Entity, partner: u64| {
+            world
+                .get::<Memory>(e)
+                .map(|m| m.warm_since(partner, since))
+                .unwrap_or(false)
+        };
+        let associated = warm(couple.a, b.id) && warm(couple.b, a.id);
+        rel.orphan_days = if associated {
+            0
+        } else {
+            rel.orphan_days.saturating_add(1)
+        };
+        let gate = &cfg.association;
+        let leave_unlocked =
+            gate.orphan_days_to_leave == 0 || rel.orphan_days >= gate.orphan_days_to_leave;
 
         match rel.state {
             RelState::Dating | RelState::Married => {
@@ -601,6 +768,7 @@ fn couple_system(world: &mut World) {
                             dating,
                             outside[0],
                             day,
+                            true,
                         );
                         let db = decide_for(
                             world,
@@ -612,6 +780,7 @@ fn couple_system(world: &mut World) {
                             dating,
                             outside[1],
                             day,
+                            true,
                         );
                         let n_aff = [da.action, db.action]
                             .iter()
@@ -697,6 +866,9 @@ fn couple_system(world: &mut World) {
                 if let Some(mut c) = rel.conflict {
                     c.days += 1;
                     rel.conflict = Some(c);
+                    // Married couples may leave only after sustained distance or past the hard line.
+                    let leave_available =
+                        dating || leave_unlocked || c.intensity >= gate.unlock_intensity;
                     let da = decide_for(
                         world,
                         &cfg,
@@ -707,6 +879,7 @@ fn couple_system(world: &mut World) {
                         dating,
                         rel.outside_option[0],
                         day,
+                        leave_available,
                     );
                     let db = decide_for(
                         world,
@@ -718,6 +891,7 @@ fn couple_system(world: &mut World) {
                         dating,
                         rel.outside_option[1],
                         day,
+                        leave_available,
                     );
                     {
                         log_decision(
@@ -844,6 +1018,10 @@ fn couple_system(world: &mut World) {
                             );
                             bump_trust(world, fe, -d.trust_hit_separate);
                             bump_trust(world, le, -d.trust_hit_separate / 2.0);
+                            if cfg.memory_rules.freeze_during_separation {
+                                freeze_memory(world, le, fid, day);
+                                freeze_memory(world, fe, lid, day);
+                            }
                         }
                     } else if acts.contains(&Action::Escalate) {
                         let mut c = rel.conflict.expect("conflict");
@@ -1042,6 +1220,7 @@ fn couple_system(world: &mut World) {
                     false,
                     0.0,
                     day,
+                    true,
                 );
                 let db = decide_for(
                     world,
@@ -1053,6 +1232,7 @@ fn couple_system(world: &mut World) {
                     false,
                     0.0,
                     day,
+                    true,
                 );
                 {
                     log_decision(
@@ -1148,6 +1328,8 @@ fn couple_system(world: &mut World) {
                     );
                     rel.state = RelState::Married;
                     rel.separated_since = None;
+                    unfreeze_memory(world, couple.a, day);
+                    unfreeze_memory(world, couple.b, day);
                     record(
                         world,
                         &mut logs,
@@ -1195,6 +1377,33 @@ fn couple_system(world: &mut World) {
                     );
                     rel.state = RelState::Divorced;
                     rel.ended_day = Some(day);
+                    let side = |me: u64| match who {
+                        Some(w) if w == me => EndedBy::SelfLeft,
+                        Some(_) => EndedBy::PartnerLeft,
+                        None => EndedBy::Time,
+                    };
+                    seal_marriage(
+                        world,
+                        &cfg,
+                        &mut logs,
+                        &couple,
+                        &rel,
+                        couple.a,
+                        b.id,
+                        side(a.id),
+                        day,
+                    );
+                    seal_marriage(
+                        world,
+                        &cfg,
+                        &mut logs,
+                        &couple,
+                        &rel,
+                        couple.b,
+                        a.id,
+                        side(b.id),
+                        day,
+                    );
                     record(
                         world,
                         &mut logs,
@@ -1219,6 +1428,8 @@ fn couple_system(world: &mut World) {
                             partner: a.id,
                         },
                     );
+                    unfreeze_memory(world, couple.a, day);
+                    unfreeze_memory(world, couple.b, day);
                     release_members(world, &cfg, &couple, day, true);
                 }
                 set_last(world, couple.a, da.action);
@@ -1510,6 +1721,7 @@ fn daily_log_system(world: &mut World) {
                     pos_b: lb.positive,
                     stress_a: aa.stress,
                     stress_b: ab.stress,
+                    orphan_days: rel.orphan_days as i32,
                 });
         }
         let mut r = world.get_mut::<Rel>(ce).expect("rel");

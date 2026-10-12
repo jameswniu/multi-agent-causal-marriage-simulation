@@ -122,6 +122,78 @@ impl Default for MemoryConfig {
     }
 }
 
+/// Rules every memory follows whatever the arm: they never differ between arms and the
+/// intervention never writes them.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MemoryRules {
+    /// Days an episode keeps its full intensity before its half-life decay starts (0 = none).
+    pub plateau_days: f64,
+    /// When more than this many episodes of one class about the current partner are older than
+    /// the plateau, they merge into one standing episode carrying the same load (0 = never).
+    pub consolidate_after: usize,
+    /// While a couple is separated their shared episodes neither decay nor prune; reunion or
+    /// divorce restarts the clock.
+    pub freeze_during_separation: bool,
+}
+
+impl Default for MemoryRules {
+    fn default() -> Self {
+        Self {
+            plateau_days: 2.0,
+            consolidate_after: 8,
+            freeze_during_separation: true,
+        }
+    }
+}
+
+/// Leaving needs sustained distance, not one bad day. A couple is associated on a day when both
+/// members stored a warm memory (positive or reconciliation) about each other within the window,
+/// and orphaned otherwise. A married couple in a conflict may walk out (separate) only after
+/// `orphan_days_to_leave` consecutive orphaned days, or once the conflict reaches
+/// `unlock_intensity`. Dating couples are not gated, and neither is finalising a separation:
+/// separating already is the sustained distance, and the separation cap still ends it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AssociationConfig {
+    pub window_days: u32,
+    /// 0 turns the gate off: leaving is always on the menu, as before.
+    pub orphan_days_to_leave: u32,
+    pub unlock_intensity: f64,
+}
+
+impl Default for AssociationConfig {
+    fn default() -> Self {
+        Self {
+            window_days: 42,
+            orphan_days_to_leave: 21,
+            unlock_intensity: 0.95,
+        }
+    }
+}
+
+/// What a divorce leaves behind. Each member seals the marriage into a legacy minted from that
+/// marriage alone, never from an earlier legacy. The legacy makes leaving easier in later
+/// relationships (weaker commitment to marriage, after Amato and DeBoer 2001) and pulls the next
+/// relationship's starting trust toward the trust the marriage ended with.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LegacyConfig {
+    /// Added to the leave utility in every later relationship (0 = no commitment effect).
+    pub commitment_shift: f64,
+    /// Weight of the sealed final trust in the next relationship's starting trust (0 = none).
+    pub trust_prior_weight: f64,
+}
+
+impl Default for LegacyConfig {
+    fn default() -> Self {
+        Self {
+            commitment_shift: 0.3,
+            trust_prior_weight: 0.5,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct TraitDist {
     pub mean: f64,
@@ -621,6 +693,9 @@ pub struct SimConfig {
     pub seeds: Seeds,
     pub assignment: AssignmentConfig,
     pub memory: MemoryConfig,
+    pub memory_rules: MemoryRules,
+    pub association: AssociationConfig,
+    pub legacy: LegacyConfig,
     pub population: PopulationConfig,
     pub dynamics: DynamicsConfig,
     pub policy: PolicyConfig,
@@ -640,6 +715,9 @@ impl Default for SimConfig {
             seeds: Seeds::default(),
             assignment: AssignmentConfig::default(),
             memory: MemoryConfig::default(),
+            memory_rules: MemoryRules::default(),
+            association: AssociationConfig::default(),
+            legacy: LegacyConfig::default(),
             population: PopulationConfig::default(),
             dynamics: DynamicsConfig::default(),
             policy: PolicyConfig::default(),
@@ -774,6 +852,37 @@ impl SimConfig {
                 );
             }
         }
+        let r = &self.memory_rules;
+        anyhow::ensure!(
+            r.plateau_days.is_finite() && (0.0..=3650.0).contains(&r.plateau_days),
+            "memory_rules.plateau_days must be within [0, 3650]"
+        );
+        anyhow::ensure!(
+            r.consolidate_after <= 10_000,
+            "memory_rules.consolidate_after must be at most 10000 (0 turns consolidation off)"
+        );
+        let a = &self.association;
+        anyhow::ensure!(
+            (1..=3650).contains(&a.window_days),
+            "association.window_days must be within [1, 3650]"
+        );
+        anyhow::ensure!(
+            a.orphan_days_to_leave <= MAX_DAYS,
+            "association.orphan_days_to_leave must be at most {MAX_DAYS} (0 turns the gate off)"
+        );
+        anyhow::ensure!(
+            a.unlock_intensity.is_finite() && (0.0..=10.0).contains(&a.unlock_intensity),
+            "association.unlock_intensity must be within [0, 10]"
+        );
+        let l = &self.legacy;
+        anyhow::ensure!(
+            l.commitment_shift.is_finite() && l.commitment_shift.abs() <= 10.0,
+            "legacy.commitment_shift must be within [-10, 10]"
+        );
+        anyhow::ensure!(
+            l.trust_prior_weight.is_finite() && (0.0..=1.0).contains(&l.trust_prior_weight),
+            "legacy.trust_prior_weight must be within [0, 1]"
+        );
         check_bounded("policy", &serde_json::to_value(&self.policy)?)?;
         check_bounded("dynamics", &serde_json::to_value(&self.dynamics)?)?;
         check_bounded("market", &serde_json::to_value(&self.market)?)?;
@@ -815,6 +924,38 @@ mod tests {
         assert_eq!(cfg.days, 5);
         assert_eq!(cfg.memory.treatment.conflict_half_life_days, 90.0);
         assert_eq!(cfg.seeds.dynamics, 33);
+    }
+
+    #[test]
+    fn new_memory_governance_sections_default_and_validate() {
+        let cfg = SimConfig::from_json(r#"{"n_couples": 4, "days": 5}"#).unwrap();
+        assert_eq!(cfg.memory_rules.plateau_days, 2.0);
+        assert_eq!(cfg.association.unlock_intensity, 0.95);
+        assert_eq!(cfg.memory_rules.consolidate_after, 8);
+        assert!(cfg.memory_rules.freeze_during_separation);
+        assert_eq!(cfg.association.window_days, 42);
+        assert_eq!(cfg.association.orphan_days_to_leave, 21);
+        assert_eq!(cfg.legacy.commitment_shift, 0.3);
+        for bad in [
+            r#"{"memory_rules": {"plateau_days": -1}}"#,
+            r#"{"memory_rules": {"plateau_days": 4000}}"#,
+            r#"{"association": {"window_days": 0}}"#,
+            r#"{"association": {"unlock_intensity": -0.1}}"#,
+            r#"{"legacy": {"trust_prior_weight": 1.5}}"#,
+            r#"{"legacy": {"commitment_shift": 11}}"#,
+        ] {
+            assert!(
+                SimConfig::from_json(bad).is_err(),
+                "{bad} should be rejected"
+            );
+        }
+        // Each mechanism can be switched off.
+        let off = SimConfig::from_json(
+            r#"{"memory_rules": {"plateau_days": 0, "consolidate_after": 0, "freeze_during_separation": false},
+                "association": {"orphan_days_to_leave": 0}, "legacy": {"commitment_shift": 0, "trust_prior_weight": 0}}"#,
+        )
+        .unwrap();
+        assert_eq!(off.memory_rules.consolidate_after, 0);
     }
 
     #[test]

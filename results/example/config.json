@@ -29,6 +29,20 @@
     "capacity": 200,
     "prune_every_days": 7
   },
+  "memory_rules": {
+    "plateau_days": 2.0,
+    "consolidate_after": 8,
+    "freeze_during_separation": true
+  },
+  "association": {
+    "window_days": 42,
+    "orphan_days_to_leave": 21,
+    "unlock_intensity": 0.95
+  },
+  "legacy": {
+    "commitment_shift": 0.3,
+    "trust_prior_weight": 0.5
+  },
   "population": {
     "neuroticism": {
       "mean": 0.45,

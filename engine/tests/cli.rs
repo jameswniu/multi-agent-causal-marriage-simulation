@@ -32,6 +32,7 @@ fn run_to_dir_writes_every_table_and_manifest() {
         "interventions.parquet",
         "conflicts.parquet",
         "episodes.parquet",
+        "legacies.parquet",
         "manifest.json",
         "config.json",
     ] {
@@ -131,6 +132,8 @@ fn placebo_twins_are_byte_identical() {
         "daily.parquet",
         "decisions.parquet",
         "conflicts.parquet",
+        "episodes.parquet",
+        "legacies.parquet",
     ] {
         assert_eq!(
             a["files"][f]["sha256"], b["files"][f]["sha256"],

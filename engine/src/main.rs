@@ -147,7 +147,11 @@ fn main() -> Result<()> {
             };
             println!(
                 "{}",
-                serde_json::to_string_pretty(&policy::spec(&cfg.policy))?
+                serde_json::to_string_pretty(&policy::spec(
+                    &cfg.policy,
+                    &cfg.association,
+                    &cfg.legacy
+                ))?
             );
         }
         Cmd::Assign { config } => {

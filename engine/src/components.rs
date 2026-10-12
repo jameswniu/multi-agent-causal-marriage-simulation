@@ -192,6 +192,28 @@ pub struct Rel {
     /// Compatibility surplus from an outside encounter today, per member (a, b).
     pub outside_option: [f64; 2],
     pub positive_today: bool,
+    /// Consecutive days without a warm memory on both sides (0 while associated).
+    pub orphan_days: u32,
+    /// Conflicts closed in this relationship, and how many of them ended in reconciliation.
+    pub conflicts_closed: u32,
+    pub conflicts_reconciled: u32,
+}
+
+impl Rel {
+    /// A relationship that starts today in `state`.
+    pub fn new(state: RelState) -> Self {
+        Self {
+            state,
+            conflict: None,
+            separated_since: None,
+            ended_day: None,
+            outside_option: [0.0; 2],
+            positive_today: false,
+            orphan_days: 0,
+            conflicts_closed: 0,
+            conflicts_reconciled: 0,
+        }
+    }
 }
 
 #[derive(Component)]

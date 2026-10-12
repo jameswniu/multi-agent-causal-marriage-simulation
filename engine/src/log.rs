@@ -35,6 +35,8 @@ pub struct DailyRow {
     pub pos_b: f64,
     pub stress_a: f64,
     pub stress_b: f64,
+    /// Consecutive days without a warm memory on both sides (0 while associated).
+    pub orphan_days: i32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -94,6 +96,25 @@ pub struct EpisodeRow {
     pub amplified: bool,
 }
 
+/// One member's sealed record of a marriage that ended in divorce.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LegacyRow {
+    pub day: i32,
+    pub couple_id: i64,
+    pub agent_id: i64,
+    pub partner_id: i64,
+    pub ended_by: &'static str,
+    pub conflicts: i32,
+    pub reconciled: i32,
+    pub final_trust: f64,
+    pub final_neg_load: f64,
+    pub final_pos_load: f64,
+    /// The ended marriage's compatibility, as the marriage market's anchor holds it.
+    pub match_quality: f64,
+    pub commitment_shift: f64,
+    pub trust_prior: f64,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Logs {
     pub events: Vec<EventRow>,
@@ -102,6 +123,7 @@ pub struct Logs {
     pub interventions: Vec<InterventionRow>,
     pub conflicts: Vec<ConflictRow>,
     pub episodes: Vec<EpisodeRow>,
+    pub legacies: Vec<LegacyRow>,
     seq: u32,
     seq_day: i32,
 }

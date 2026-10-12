@@ -68,7 +68,9 @@ kind str, from_state str nullable, to_state str nullable, value f64 nullable
 
 Event kinds: intervention_applied, outside_encounter, conflict_started, escalated, withdrew,
 repair_attempted, repair_rejected, reconciled, conflict_faded, separated, reunited, divorced,
-broke_up, matched, married. State transitions carry from_state and to_state.
+broke_up, matched, married, disappointed, sealed (one per member on the day of a divorce; value is
+the next relationship's trust prior), memory_consolidated (one per merge; value is the number of
+episodes merged), and shock_<kind>. State transitions carry from_state and to_state.
 
 `daily.parquet`, one row per couple-day while the couple is active, plus the day it ends:
 
@@ -76,7 +78,9 @@ broke_up, matched, married. State transitions carry from_state and to_state.
 day i32, couple_id i64, state str, in_conflict bool, conflict_days i32, intensity f64,
 positive_episode bool,
 trust_a, trust_b, affect_a, affect_b, satisfaction_a, satisfaction_b,
-neg_a, neg_b, pos_a, pos_b, stress_a, stress_b f64
+neg_a, neg_b, pos_a, pos_b, stress_a, stress_b f64,
+orphan_days i32   (consecutive days without a warm memory on both sides; 0 while associated;
+                   absent in runs from older engines, read as 0)
 ```
 
 `decisions.parquet`, one row per agent decision in conflict or separation:
@@ -93,7 +97,16 @@ trust, affect, neg_load, pos_load, intensity f64, conflict_days i32, partner_las
 day i32, couple_id i64, agent_id i64, arm str, parameter str, control_value f64, applied_value f64
 ```
 
-`episodes.parquet`, one row per memory episode stored or amplified (columns in section 6).
+`episodes.parquet`, one row per memory episode stored, amplified or consolidated (columns in
+section 6).
+
+`legacies.parquet`, one row per member of a marriage that ended in divorce (section 7):
+
+```
+day i32, couple_id i64, agent_id i64, partner_id i64,
+ended_by str {self, partner, time}, conflicts i32, reconciled i32,
+final_trust, final_neg_load, final_pos_load, match_quality, commitment_shift, trust_prior f64
+```
 
 `conflicts.parquet`, one row per conflict episode:
 
@@ -354,9 +367,14 @@ during the run (history episodes seeded before day 0 are included with their neg
 ```
 day i32, couple_id i64, agent_id i64, partner_id i64, kind str, intensity f64,
 source str   {history, conflict, escalation, withdrawal, rejection, reconciliation, separation,
-              divorce, affiliation, shock:<kind>, disappointment},
+              divorce, affiliation, shock:<kind>, disappointment, consolidated},
 amplified bool   (true when an existing episode was raised rather than a new one stored)
 ```
+
+A `consolidated` row records a weekly merge (section 7). It is dated on the day of the merge, its
+kind is grievance, reconciliation or positive, and its intensity is the merged load on that day.
+Inside the engine the merged episode keeps the latest merged day and an intensity that reproduces
+the same strength, so the row is the readable view of the merge, not a new fresh memory.
 
 `/api/couples/{id}` and `/api/agents/{id}` gain an `"episodes"` list (rows for that couple, or for
 that agent). The dashboard shows a collapsed "Under the hood" panel on the couple and agent pages
@@ -373,3 +391,60 @@ clamped to [0, 1]); its intervention row's parameter reads `trait_shift:<trait>`
 carries `"traits": [...]` so the picker can offer them. Any correlation the dashboard shows between a
 baseline trait and an outcome within one arm is descriptive and must be labelled as such; the causal
 version is this shock.
+
+## 7. Memory governance (added 2026-10-11)
+
+Four rules borrowed from how a long-lived memory store retires, seals and consolidates what it
+holds. None of them differs between arms, and the intervention never writes them.
+
+Config keys (all overridable under `engine:` in an experiment file, unlike `memory`):
+
+```
+memory_rules.plateau_days f64 = 2        days at full intensity before decay starts (0 = none)
+memory_rules.consolidate_after usize = 8  merge when more episodes than this of one class about the
+                                          current partner are older than the plateau (0 = never)
+memory_rules.freeze_during_separation bool = true
+association.window_days u32 = 42          a warm memory on both sides within the window = associated
+association.orphan_days_to_leave u32 = 21 consecutive orphaned days before a married couple in a
+                                          conflict is offered leave (0 = no gate)
+association.unlock_intensity f64 = 0.95   an open conflict at or above this offers leave regardless
+legacy.commitment_shift f64 = 0.3         added to the leave utility in every later relationship
+legacy.trust_prior_weight f64 = 0.5       weight of the sealed final trust in the next starting trust
+```
+
+Rules:
+
+1. Plateau. An episode's strength is `intensity * 0.5 ^ (max(0, age - plateau_days) / half_life)`.
+2. Consolidation (weekly, before pruning). For the current partner only, and never for a frozen one,
+   when more than `consolidate_after` episodes of one class are older than the plateau they become
+   one standing episode (grievance, reconciliation or positive) dated at the latest of them, whose
+   strength today equals their summed valence-weighted strength; it matches their sum on every
+   later day too. The episode of a conflict that is still open is never merged. Each merge logs an
+   episodes row (`source = consolidated`) and a `memory_consolidated` event.
+3. Freeze. On separation both members' episodes about each other hold their strength and are
+   exempt from pruning; on reunion or divorce each episode's day moves forward by the time it spent
+   frozen.
+4. Leave gate. Every day a couple is associated when both members stored a warm memory (positive or
+   reconciliation) about each other on or after `day - window_days + 1`, and `orphan_days` counts
+   the consecutive days it was not. A married couple in a conflict is offered leave only when
+   `orphan_days >= orphan_days_to_leave` or the conflict's intensity is at least
+   `unlock_intensity`; otherwise the leave utility is absent from the decision (`u_leave` null).
+   Dating couples and separated couples are not gated.
+5. Legacy. On the day a marriage ends in divorce, before the divorce episodes are stored, each
+   member seals it from live state: who ended it, conflicts closed and reconciled in that marriage,
+   final trust and the loads about the partner. `trust_prior = clamp((1 - w) * base_trust + w *
+   final_trust, 0.05, 0.95)` sets the starting trust of the agent's next relationship (this replaces
+   the earlier per-divorce trust penalty), and `commitment_shift` is added to its leave utility in
+   every later relationship. A seal is minted from that marriage alone, and a second divorce
+   replaces it. Divorces before day 0 (the population's prior divorces) carry no seal.
+
+`policy_spec` gains `leave_rule` (`applies_to`, `association_window_days`, `orphan_days_to_leave`,
+`unlock_intensity`, `rule`) and `legacy` (`legacy_shift`, `rule`).
+
+API: `/api/couples/{id}` and `/api/agents/{id}` (and both twins variants) gain a `"legacies"` list,
+and agent `daily` rows gain `orphan_days`. A run from an older engine serves an empty list and zeros.
+
+Dashboard: the Under the hood panel lists sealed marriages in plain sentences above the days and,
+on any day the couple is orphaned, a line with the orphan count and whether leaving is open. The
+World page's day ticker leaves `memory_consolidated` events out of its list and states how many it
+left out.

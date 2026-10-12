@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/figures/hero.svg" alt="What does a grudge do to a marriage? LoveWorld runs 1,000 agent couples for one year, with one memory setting changed between the arms. Blue is the arm that forgets fights in 2 weeks, orange the arm that holds onto fights for 3 months. Divorced in a year, 1.6% against 21.4%, up 19.8 points, 95% CI 16.2 to 23.6. Trust at year end, 0.65 against 0.20, down 0.45, 95% CI -0.48 to -0.42. Conflicts per couple, 7.8 against 15.7, up 7.8 a year, 95% CI 7.0 to 8.6. Redrawn from the example run by python3 tools/figures.py --write." width="100%">
+  <img src="docs/figures/hero.svg" alt="What does a grudge do to a marriage? LoveWorld runs 1,000 agent couples for one year, with one memory setting changed between the arms. Blue is the arm that forgets fights in 2 weeks, orange the arm that holds onto fights for 3 months. Divorced in a year, 2.6% against 15.4%, up 12.8 points, 95% CI 9.6 to 16.4. Trust at year end, 0.65 against 0.21, down 0.44, 95% CI -0.46 to -0.41. Conflicts per couple, 7.4 against 12.9, up 5.5 a year, 95% CI 4.8 to 6.2. Redrawn from the example run by python3 tools/figures.py --write." width="100%">
 </p>
 
 <div align="center">
@@ -36,27 +36,27 @@ Example run (`experiments/example.yaml`, 1,000 couples, 365 days, seeds 11/22/33
 
 | Outcome | Control | Treatment | Effect | 95% CI |
 |---|---|---|---|---|
-| Divorced within the year | 1.6% | 21.4% | +19.8 points | 16.2 to 23.6 |
-| Ever separated | 19.4% | 88.6% | +69.2 points | 64.8 to 73.8 |
-| Trust at the end (0 to 1) | 0.65 | 0.20 | -0.45 | -0.48 to -0.42 |
-| Conflicts per couple-year | 7.8 | 15.7 | +7.8 | 7.0 to 8.6 |
-| Conflicts reconciled (conditional) | 78% | 35% | -43 points | -47 to -39 |
-| Days to reconcile (conditional) | 4.6 | 7.4 | +2.8 | 2.3 to 3.3 |
+| Divorced within the year | 2.6% | 15.4% | +12.8 points | 9.6 to 16.4 |
+| Ever separated | 19.2% | 83.0% | +63.8 points | 59.2 to 68.4 |
+| Trust at the end (0 to 1) | 0.65 | 0.21 | -0.44 | -0.46 to -0.41 |
+| Conflicts per couple-year | 7.4 | 12.9 | +5.5 | 4.8 to 6.2 |
+| Conflicts reconciled (conditional) | 86% | 53% | -34 points | -37 to -30 |
+| Days to reconcile (conditional) | 5.7 | 10.9 | +5.3 | 4.5 to 6.0 |
 
 <p align="center">
-  <img src="docs/figures/results.svg" alt="Example run, control against treatment. 1,000 couples over 365 days, seeds 11, 22, 33. Bars are arm means, row by row. The right column is treatment minus control with its 95% bootstrap interval. Measured on every couple: divorced within the year 1.6% against 21.4%, effect +19.8 points, 95% CI 16.2 to 23.6; separated at least once 19.4% against 88.6%, effect +69.2 points, 95% CI 64.8 to 73.8; days married until divorce or end 362.3 against 328.1, effect -34.3, 95% CI -41.8 to -26.8; trust on the last day 0.65 against 0.20, effect -0.45, 95% CI -0.48 to -0.42; mean trust over the year 0.64 against 0.33, effect -0.31, 95% CI -0.34 to -0.29; conflicts per couple-year 7.8 against 15.7, effect +7.8, 95% CI 7.0 to 8.6. Conditional on events after assignment: escalations per conflict 2.0 against 4.2, effect +2.3, 95% CI 1.9 to 2.6; conflicts ending reconciled 78.0% against 35.1%, effect -42.9 points, 95% CI -47.2 to -38.8; days from conflict to repair 4.6 against 7.4, effect +2.8, 95% CI 2.3 to 3.3; divorced agents who remarried 25.0% against 6.5%, effect -18.5 points, 95% CI -45.8 to 6.3, an interval that crosses zero. Blue bars are control with a 14-day conflict memory, orange bars treatment with a 90-day one." width="100%">
+  <img src="docs/figures/results.svg" alt="Example run, control against treatment. 1,000 couples over 365 days, seeds 11, 22, 33. Bars are arm means, row by row. The right column is treatment minus control with its 95% bootstrap interval. Measured on every couple: divorced within the year 2.6% against 15.4%, effect +12.8 points, 95% CI 9.6 to 16.4; separated at least once 19.2% against 83.0%, effect +63.8 points, 95% CI 59.2 to 68.4; days married until divorce or end 359.6 against 337.2, effect -22.5, 95% CI -30.1 to -15.4; trust on the last day 0.65 against 0.21, effect -0.44, 95% CI -0.46 to -0.41; mean trust over the year 0.64 against 0.33, effect -0.31, 95% CI -0.33 to -0.28; conflicts per couple-year 7.4 against 12.9, effect +5.5, 95% CI 4.8 to 6.2. Conditional on events after assignment: escalations per conflict 2.4 against 5.8, effect +3.4, 95% CI 3.0 to 3.8; conflicts ending reconciled 86.2% against 52.6%, effect -33.6 points, 95% CI -37.4 to -30.1; days from conflict to repair 5.7 against 10.9, effect +5.3, 95% CI 4.5 to 6.0; divorced agents who remarried 34.6% against 7.1%, effect -27.5 points, 95% CI -52.4 to -4.4. Blue bars are control with a 14-day conflict memory, orange bars treatment with a 90-day one." width="100%">
 </p>
 
 Two checks ship with every experiment. The placebo run gives both arms the same parameters, and its
-divorce effect is -0.2 points with a confidence interval of -1.8 to +1.4, with behavioural tables
+divorce effect is -1.2 points with a confidence interval of -3.0 to +0.4, with behavioural tables
 that are byte-identical whichever arm label is applied. The twin run puts every couple through both
-arms on the same random streams, and the paired divorce effect is +20.0 points (17.4 to 22.7 by
-bootstrap over couples), with 20.6% of couples ending the year differently because of the intervention.
+arms on the same random streams, and the paired divorce effect is +14.4 points (12.0 to 16.7 by
+bootstrap over couples), with 16.0% of couples ending the year differently because of the intervention.
 
 The effect is large because retained grudges feed a loop in this world. More retained negative
 memory means more frequent conflicts, less repair, lower trust, and so on. That loop is a property
 of the rules, all of which are inspectable and editable, and the sensitivity to the half-life is
-one line away (`experiments/retention-45d.yaml` roughly halves the effect).
+one line away (`experiments/retention-45d.yaml` cuts the divorce effect from 12.8 to 5.2 points).
 
 ## Pick your own stressor
 
@@ -123,7 +123,7 @@ target/release/loveworld-engine policy-spec
 ## The dashboard
 
 <p align="center">
-  <img src="assets/world-randomized.png" alt="The World page on day 200 of 364. Two grids of 500 couples, one per arm. On the left, forgets fights in two weeks, 3 of 500 divorced, 57 in conflict, mean trust 0.65. On the right, holds onto fights for three months, 62 of 500 divorced, 208 in conflict, mean trust 0.30. Tiles are blue for married, outlined for a couple in conflict, orange for separated, dark for divorced, green for dating." width="100%">
+  <img src="assets/world-randomized.png" alt="The World page on day 200 of 364. Two grids of 500 couples, one per arm. On the left, forgets fights in two weeks, 9 of 500 divorced, 58 in conflict, mean trust 0.66. On the right, holds onto fights for three months, 42 of 500 divorced, 229 in conflict, mean trust 0.30. Tiles are blue for married, outlined for a couple in conflict, orange for separated, dark for divorced, green for dating." width="100%">
 </p>
 
 <p align="center">

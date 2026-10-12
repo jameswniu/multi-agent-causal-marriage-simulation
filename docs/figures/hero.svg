@@ -14,33 +14,33 @@
 <text x="623" y="178" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="23" fill="#c9cdd6" text-anchor="start">Holds onto fights for 3 months</text>
 <rect x="40" y="204" width="360" height="248" rx="10" fill="#161a24" stroke="#2b3242" stroke-width="1.5"/>
 <text x="64" y="250" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#d4627c" font-weight="700" text-anchor="start">Divorced in a year</text>
-<text x="64" y="308" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="34" fill="#6ea8fe" font-weight="700" text-anchor="start">1.6%</text>
+<text x="64" y="308" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="34" fill="#6ea8fe" font-weight="700" text-anchor="start">2.6%</text>
 <rect x="187" y="286" width="189" height="22" rx="4" fill="#232a3a"/>
-<rect x="187" y="286" width="14" height="22" rx="4" fill="#6ea8fe"/>
-<text x="64" y="360" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="34" fill="#f5a05e" font-weight="700" text-anchor="start">21.4%</text>
+<rect x="187" y="286" width="32" height="22" rx="4" fill="#6ea8fe"/>
+<text x="64" y="360" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="34" fill="#f5a05e" font-weight="700" text-anchor="start">15.4%</text>
 <rect x="187" y="338" width="189" height="22" rx="4" fill="#232a3a"/>
 <rect x="187" y="338" width="189" height="22" rx="4" fill="#f5a05e"/>
-<text x="64" y="406" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#eef0f4" font-weight="700" text-anchor="start">Up 19.8 points</text>
-<text x="64" y="436" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="23" fill="#9aa1ae" text-anchor="start">95% CI 16.2 to 23.6</text>
+<text x="64" y="406" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#eef0f4" font-weight="700" text-anchor="start">Up 12.8 points</text>
+<text x="64" y="436" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="23" fill="#9aa1ae" text-anchor="start">95% CI 9.6 to 16.4</text>
 <rect x="420" y="204" width="360" height="248" rx="10" fill="#161a24" stroke="#2b3242" stroke-width="1.5"/>
 <text x="444" y="250" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#d4627c" font-weight="700" text-anchor="start">Trust at year end</text>
 <text x="444" y="308" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="34" fill="#6ea8fe" font-weight="700" text-anchor="start">0.65</text>
 <rect x="546" y="286" width="210" height="22" rx="4" fill="#232a3a"/>
 <rect x="546" y="286" width="210" height="22" rx="4" fill="#6ea8fe"/>
-<text x="444" y="360" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="34" fill="#f5a05e" font-weight="700" text-anchor="start">0.20</text>
+<text x="444" y="360" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="34" fill="#f5a05e" font-weight="700" text-anchor="start">0.21</text>
 <rect x="546" y="338" width="210" height="22" rx="4" fill="#232a3a"/>
-<rect x="546" y="338" width="65" height="22" rx="4" fill="#f5a05e"/>
-<text x="444" y="406" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#eef0f4" font-weight="700" text-anchor="start">Down 0.45</text>
-<text x="444" y="436" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="23" fill="#9aa1ae" text-anchor="start">95% CI -0.48 to -0.42</text>
+<rect x="546" y="338" width="69" height="22" rx="4" fill="#f5a05e"/>
+<text x="444" y="406" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#eef0f4" font-weight="700" text-anchor="start">Down 0.44</text>
+<text x="444" y="436" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="23" fill="#9aa1ae" text-anchor="start">95% CI -0.46 to -0.41</text>
 <rect x="800" y="204" width="360" height="248" rx="10" fill="#161a24" stroke="#2b3242" stroke-width="1.5"/>
 <text x="824" y="250" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#d4627c" font-weight="700" text-anchor="start">Conflicts per couple</text>
-<text x="824" y="308" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="34" fill="#6ea8fe" font-weight="700" text-anchor="start">7.8</text>
+<text x="824" y="308" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="34" fill="#6ea8fe" font-weight="700" text-anchor="start">7.4</text>
 <rect x="926" y="286" width="210" height="22" rx="4" fill="#232a3a"/>
-<rect x="926" y="286" width="105" height="22" rx="4" fill="#6ea8fe"/>
-<text x="824" y="360" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="34" fill="#f5a05e" font-weight="700" text-anchor="start">15.7</text>
+<rect x="926" y="286" width="121" height="22" rx="4" fill="#6ea8fe"/>
+<text x="824" y="360" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="34" fill="#f5a05e" font-weight="700" text-anchor="start">12.9</text>
 <rect x="926" y="338" width="210" height="22" rx="4" fill="#232a3a"/>
 <rect x="926" y="338" width="210" height="22" rx="4" fill="#f5a05e"/>
-<text x="824" y="406" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#eef0f4" font-weight="700" text-anchor="start">Up 7.8 a year</text>
-<text x="824" y="436" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="23" fill="#9aa1ae" text-anchor="start">95% CI 7.0 to 8.6</text>
+<text x="824" y="406" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="24" fill="#eef0f4" font-weight="700" text-anchor="start">Up 5.5 a year</text>
+<text x="824" y="436" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="23" fill="#9aa1ae" text-anchor="start">95% CI 4.8 to 6.2</text>
 <text x="600" y="490" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="23" fill="#9aa1ae" text-anchor="middle">Redrawn from the example run by <tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">python3 tools/figures.py --write</tspan></text>
 </svg>

@@ -209,6 +209,7 @@ pub fn daily_batch(logs: &Logs) -> Result<RecordBatch> {
         f64s("pos_b", r.iter().map(|x| x.pos_b).collect()),
         f64s("stress_a", r.iter().map(|x| x.stress_a).collect()),
         f64s("stress_b", r.iter().map(|x| x.stress_b).collect()),
+        i32s("orphan_days", r.iter().map(|x| x.orphan_days).collect()),
     ])
 }
 
@@ -283,6 +284,34 @@ pub fn episodes_batch(logs: &Logs) -> Result<RecordBatch> {
     ])
 }
 
+pub fn legacies_batch(logs: &Logs) -> Result<RecordBatch> {
+    let r = &logs.legacies;
+    batch(vec![
+        i32s("day", r.iter().map(|x| x.day).collect()),
+        i64s("couple_id", r.iter().map(|x| x.couple_id).collect()),
+        i64s("agent_id", r.iter().map(|x| x.agent_id).collect()),
+        i64s("partner_id", r.iter().map(|x| x.partner_id).collect()),
+        strs("ended_by", r.iter().map(|x| x.ended_by).collect()),
+        i32s("conflicts", r.iter().map(|x| x.conflicts).collect()),
+        i32s("reconciled", r.iter().map(|x| x.reconciled).collect()),
+        f64s("final_trust", r.iter().map(|x| x.final_trust).collect()),
+        f64s(
+            "final_neg_load",
+            r.iter().map(|x| x.final_neg_load).collect(),
+        ),
+        f64s(
+            "final_pos_load",
+            r.iter().map(|x| x.final_pos_load).collect(),
+        ),
+        f64s("match_quality", r.iter().map(|x| x.match_quality).collect()),
+        f64s(
+            "commitment_shift",
+            r.iter().map(|x| x.commitment_shift).collect(),
+        ),
+        f64s("trust_prior", r.iter().map(|x| x.trust_prior).collect()),
+    ])
+}
+
 pub struct Written {
     pub name: &'static str,
     pub path: PathBuf,
@@ -307,6 +336,7 @@ pub fn write_all(
         ("interventions.parquet", interventions_batch(logs)?),
         ("conflicts.parquet", conflicts_batch(logs)?),
         ("episodes.parquet", episodes_batch(logs)?),
+        ("legacies.parquet", legacies_batch(logs)?),
     ];
     let mut out = Vec::new();
     for (name, b) in tables {

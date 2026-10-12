@@ -5,6 +5,7 @@
 //! pairing. Dating couples marry on a daily hazard after a minimum courtship.
 
 use crate::components::*;
+use crate::legacy::Legacy;
 use crate::population::{compatibility, trait_vector};
 use crate::rng;
 use crate::systems::{agents_by_id, couples_by_id, currently_married, neighbour_share};
@@ -107,14 +108,7 @@ pub fn market_system(world: &mut World) {
                         married_day: None,
                         compatibility: compat,
                     },
-                    Rel {
-                        state: RelState::Dating,
-                        conflict: None,
-                        separated_since: None,
-                        ended_day: None,
-                        outside_option: [0.0; 2],
-                        positive_today: false,
-                    },
+                    Rel::new(RelState::Dating),
                     CoupleRng(rng::stream(cfg.seeds.dynamics, "couple", couple_id)),
                     ShockState {
                         member: vec![None; cfg.shocks.len()],
@@ -123,10 +117,10 @@ pub fn market_system(world: &mut World) {
                 .id();
             for (e, partner, partner_id) in [(e_a, e_b, id_b), (e_b, e_a, id_a)] {
                 let base = world.get::<Traits>(e).map(|t| t.base_trust).unwrap_or(0.5);
-                let divorces = world
-                    .get::<Market>(e)
-                    .map(|k| k.divorces_in_sim)
-                    .unwrap_or(0);
+                // A sealed divorce sets the starting trust; otherwise the agent's base trust.
+                let prior = world
+                    .get::<Legacy>(e)
+                    .and_then(|l| l.0.map(|s| s.trust_prior));
                 if let Some(mut b) = world.get_mut::<Bond>(e) {
                     *b = Bond {
                         couple: Some(ce),
@@ -139,7 +133,7 @@ pub fn market_system(world: &mut World) {
                     k.threshold = compat;
                 }
                 if let Some(mut a) = world.get_mut::<Affect>(e) {
-                    a.trust = (base - 0.03 * divorces as f64).clamp(0.05, 0.95);
+                    a.trust = prior.unwrap_or(base).clamp(0.05, 0.95);
                     a.affect = 0.1;
                 }
                 if let Some(mut l) = world.get_mut::<LastAction>(e) {
@@ -199,8 +193,12 @@ pub fn market_system(world: &mut World) {
                 c.married_day = Some(day);
             }
             {
+                // The marriage's own history starts today: courtship conflicts are not sealed as
+                // conflicts of the marriage.
                 let mut r = world.get_mut::<Rel>(ce).expect("rel");
                 r.state = RelState::Married;
+                r.conflicts_closed = 0;
+                r.conflicts_reconciled = 0;
             }
             for e in [couple.a, couple.b] {
                 if let Some(mut k) = world.get_mut::<Market>(e) {
@@ -217,5 +215,52 @@ pub fn market_system(world: &mut World) {
                 Some(couple.compatibility),
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::SimConfig;
+    use crate::log::Logs;
+
+    #[test]
+    fn marrying_starts_the_marriage_conflict_counts_from_zero() {
+        let mut cfg = SimConfig::default();
+        cfg.market.marry_hazard_base = 1.0;
+        cfg.market.marry_network_weight = 0.0;
+        let mut world = World::new();
+        world.insert_resource(Clock { day: 100 });
+        world.insert_resource(Config(cfg.clone()));
+        world.insert_resource(NextCoupleId(1));
+        world.insert_resource(MarketRng(rng::stream(1, "market", 0)));
+        world.insert_resource(LogStore(Logs::default()));
+        let a = world.spawn(AgentId(0)).id();
+        let b = world.spawn(AgentId(1)).id();
+        let mut rel = Rel::new(RelState::Dating);
+        rel.conflicts_closed = 3;
+        rel.conflicts_reconciled = 1;
+        let ce = world
+            .spawn((
+                Couple {
+                    id: 0,
+                    a,
+                    b,
+                    a_id: 0,
+                    b_id: 1,
+                    origin: Origin::Remarriage,
+                    arm: None,
+                    formed_day: 0,
+                    married_day: None,
+                    compatibility: 0.8,
+                },
+                rel,
+                CoupleRng(rng::stream(1, "couple", 0)),
+            ))
+            .id();
+        market_system(&mut world);
+        let r = world.get::<Rel>(ce).unwrap();
+        assert_eq!(r.state, RelState::Married);
+        assert_eq!((r.conflicts_closed, r.conflicts_reconciled), (0, 0));
     }
 }

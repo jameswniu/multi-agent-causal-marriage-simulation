@@ -7,6 +7,7 @@ pub mod components;
 pub mod config;
 pub mod dynamics;
 pub mod intervention;
+pub mod legacy;
 pub mod log;
 pub mod market;
 pub mod memory;

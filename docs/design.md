@@ -48,15 +48,31 @@ neighbours.
 ### Episodic memory
 
 Memory is a list of episodes: day, kind (conflict, escalation, withdrawal, rejection, separation,
-divorce, reconciliation, positive), intensity and partner. An episode's strength on day `t` is
-`intensity * 0.5 ^ ((t - day) / half_life)`, with one half-life per class (conflict, repair,
-positive). The retained negative and positive loads about the current partner are sums of those
-strengths passed through a saturating transform `s * (1 - exp(-raw / s))`, so a long grudge list
-has diminishing marginal weight. Episodes below a threshold are forgotten weekly, and at most 200
-are kept. A conflict is one episode whose intensity rises as the fight escalates, rather than a
-new episode per escalation day. This design follows the memory-stream idea in Park and
-colleagues' Generative Agents (recency decay and importance weighting), with a half-life instead of
-a per-hour decay factor.
+divorce, disappointment, reconciliation, positive, and grievance for merged ones), intensity and
+partner. An episode keeps its full intensity for a short plateau, two days by default, and then
+fades: its strength on day `t` is `intensity * 0.5 ^ (max(0, t - day - plateau) / half_life)`,
+with one half-life per class (conflict, repair, positive). The retained negative and positive loads
+about the current partner are sums of those strengths passed through a saturating transform
+`s * (1 - exp(-raw / s))`, so a long grudge list has diminishing marginal weight. Episodes below a
+threshold are forgotten weekly, and at most 200 are kept. A conflict is one episode whose
+intensity rises as the fight escalates, rather than a new episode per escalation day. This design
+follows the memory-stream idea in Park and colleagues' Generative Agents (recency decay and
+importance weighting), with a half-life instead of a per-hour decay factor.
+
+Two housekeeping rules shape what is kept without changing what it weighs, and neither one ever
+differs between arms.
+
+- Consolidation. Once a week, when more than eight episodes of one class about the current partner
+  are older than the plateau, they merge into one standing episode: a grievance for the conflict
+  class, a reconciliation or a positive memory for the other two. The merged episode is dated at
+  the latest of them and its intensity is set so that its strength today equals their summed
+  strength. Because they share one half-life and are all past the plateau, it also matches their
+  sum on every later day, so a repeated grievance becomes one standing grievance with exactly the
+  weight the list had. The episode of a conflict that is still open is never merged, since an
+  escalation may still raise it.
+- The separation freeze. While a couple is separated, every episode either member holds about the
+  other stops fading and cannot be pruned; reunion or divorce restarts the clock where it stopped.
+  The separation is a pause, not a time to forget.
 
 ### Relationship states and the daily tick
 
@@ -80,15 +96,32 @@ Every day, in this order:
    forgiveness, grudge and the conflict's intensity. Escalation raises the intensity and the
    memory of the fight. Withdrawal wounds the partner. Leaving a marriage opens a separation, which
    ends in reunion (both repair) or divorce (a leave, or sixty days apart).
+   A married couple cannot walk out on one bad day. Each day the couple is associated when both
+   members stored a warm memory (positive or reconciliation) about each other in the last 42 days,
+   and orphaned otherwise. Leaving is on the menu in a conflict only after 21 consecutive orphaned
+   days, or once the fight reaches an intensity of 0.95; until then the leave action is not offered
+   at all. Dating couples are not gated, and neither is finalising a separation: separating already
+   is the sustained distance. The orphan count is logged every day.
 4. Trust: a slow integrator toward a target set by base trust, retained loads and affect, plus
    discrete hits for escalation, withdrawal, rejected repairs and separation and a gain for
    reconciliation. Satisfaction is a logistic function of trust, affect and memory balance.
-5. Memory pruning (weekly).
+5. Memory housekeeping (weekly): consolidation, then pruning.
 6. The remarriage market, after Hills and Todd's MADAM: singles past a cooldown meet two other
    singles a day and pair when compatibility (one minus mean trait distance) clears both personal
    thresholds; thresholds start anchored to the match quality of the marriage that just ended and
    relax at a personal rate. Dating couples marry on a daily hazard after a minimum courtship.
    A Wedding Ring style term (share of married neighbours) is available and off by default.
+   An agent coming out of a divorce carries a legacy into the market. On the day of the divorce
+   each member seals the marriage: how it ended (who left, or the separation ran out), how many
+   conflicts it had and how many were reconciled, and the trust and memory loads it ended with.
+   The legacy has two consequences. Leaving is easier in every later relationship by a commitment
+   shift (0.3 on the leave utility), the channel Amato and DeBoer (2001) find for the
+   intergenerational transmission of divorce, which runs through weaker commitment to marriage
+   rather than through conflict skills. And the next relationship starts from a trust prior halfway
+   between the agent's base trust and the trust the marriage ended with. A legacy is minted from
+   the marriage that just ended and nothing else: a second divorce replaces the first legacy rather
+   than compounding it, so a lossy summary is never summarised again. The match quality of the
+   ended marriage stays where the market already keeps it, as the anchor of the next threshold.
 7. The daily log row per couple.
 
 ### Shocks: stressors and kindnesses
@@ -118,8 +151,9 @@ question "what does X do to this world" has one honest answer.
 Every action has a named linear utility over the agent's own private state and observable partner
 behaviour, and the action is sampled from a softmax at a fixed temperature. The policy's input type
 has no field for the treatment arm, the partner's trust or the partner's memory; it sees the
-partner's last visible action and the shared conflict intensity. `policy-spec` prints every weight
-and formula. A separate module, dynamics, holds the world's hazards; it also never sees the arm, and
+partner's last visible action, the shared conflict intensity, whether leaving is on the menu today
+and its own sealed divorce, if any. `policy-spec` prints every weight and formula, the leave rule
+and the legacy shift. A separate module, dynamics, holds the world's hazards; it also never sees the arm, and
 a test greps both sources for the token `Arm`.
 
 ## The experiment
@@ -172,10 +206,29 @@ could change low bits, which the hash would catch rather than hide.
 ## Calibration
 
 The default parameters were set by hand through a few sweeps so that the control world is plausible
-rather than fitted: about one conflict every ten weeks, nine in ten conflicts reconciled within a
-few days, trust drifting near 0.7, and one to two divorces per hundred couples per year. The
-treatment value in the example (a 90-day conflict half-life against 14 days) produces a large
-effect in this world. That size is a property of these rules, chiefly the loop from retained grudge
+rather than fitted: about seven conflicts per couple a year, close to nine in ten of them reconciled
+in about six days, trust near 0.65, and about two divorces per hundred couples per year (2.6 in the
+example run, between 1.2 and 2.6 across three dynamics seeds). The treatment value in the example (a
+90-day conflict half-life against 14 days) produces a large effect in this world.
+
+The memory housekeeping rules and the leave gate were calibrated the same way, by switching each off
+in turn on the example's seeds, and they were tuned without touching the treatment.
+
+- With all of them off the engine reproduces the earlier world exactly: 1.6 against 21.4 percent
+  divorced.
+- The plateau weighs most. At seven days it pushed control divorces to 3.0 percent and control
+  trust to 0.63, so the default is two days.
+- The freeze cuts both ways. The control arm loses the forgetting it used to do while apart, and the
+  treatment arm stops losing its warm memories while apart, so it lowers treatment divorces.
+- The gate almost never opens through distance. Couples share a warm memory on about four days in
+  ten, and a married couple is orphaned on fewer than one day in two hundred, so in this world a
+  walk-out in practice needs a fight at the 0.95 line. The orphan route matters for runs that cut
+  warmth, such as a long financial crisis.
+- Consolidation changes no load, only how long a merged memory stays above the forgetting
+  threshold, and moves the results within seed noise.
+
+Together they shrink the example's divorce effect from about 20 points to about 13, mostly through
+the freeze and the gate, while the separation, trust and conflict effects stay large. That size is a property of these rules, chiefly the loop from retained grudge
 to more frequent and less repairable conflicts, and not a claim about people. The sensitivity to
 the half-life is visible by editing one line of the experiment file. No human study in the reviewed
 record (see [prior-art.md](prior-art.md)) measures how long people retain a conflict or manipulates
@@ -221,4 +274,7 @@ baseline stays as the control for what a learned policy adds, and the governance
 unchanged.
 
 Later: multi-year and multi-generation runs, children and household economics, calibration of
-rates against demographic schedules, and legal dissolution with asset division.
+rates against demographic schedules, and legal dissolution with asset division. The legacy is the
+hook for multi-generation runs: a child's starting commitment and trust could be drawn from the
+parents' seals, so whether a divorce is passed down becomes something the world can test rather
+than assume.
