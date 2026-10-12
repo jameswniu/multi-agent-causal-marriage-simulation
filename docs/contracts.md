@@ -463,3 +463,66 @@ Dashboard: the Under the hood panel lists sealed marriages in plain sentences ab
 on any day the couple is orphaned, a line with the orphan count and whether leaving is open. The
 World page's day ticker leaves `memory_consolidated` events out of its list and states how many it
 left out.
+
+## 8. Shocks described in plain words (added 2026-10-11)
+
+A visitor can describe an event in their own words ("he loses his job in month three for four
+months") instead of filling in the shock fields. One model call translates the description into a
+shock of the eight catalog kinds, the visitor reads and edits the result on a card, and the run goes
+through the ordinary run endpoint. The model's only job is translation: it never runs the engine, it
+sees the shock catalog and the run length and nothing else (no memory, policy, arm or seed
+settings), and nothing it writes reaches the engine config, so replay never calls it.
+
+```
+POST /api/shocks/translate -> body {"text" (1 to 400 characters), "days"? (1 to 730, default 365)}
+                             -> {"translation_id", "status": "ok" | "unsupported" | "invalid",
+                                 "spec": {"kind", "target": "treatment" | "all", "member", "start_day", "end_day",
+                                          "magnitude", "trait"} | null,
+                                 "words", "rationale", "model", "errors": [...], "message"}
+                             400 on a bad body; 503 when the server has no key or the model service is down
+```
+
+- The call: the Anthropic Messages API, model `LOVEWORLD_TRANSLATE_MODEL` (default `claude-haiku-5-5`),
+  a 20 second timeout (`LOVEWORLD_TRANSLATE_TIMEOUT`), the description wrapped in `<description>` tags as
+  data, and the answer forced through one tool, `submit_shock`, whose input is the shock spec plus a
+  one-sentence rationale or `supported: false`. There is no temperature: current Claude models reject the
+  parameter, and the recorded spec, not the model, is what a replay uses.
+- The key is read on the server only: `ANTHROPIC_API_KEY`, else the first macOS Keychain service in
+  `LOVEWORLD_KEYCHAIN_SERVICES` (default `loveworld-anthropic,claims-qa-anthropic`) that holds one. It is
+  looked up again on the next request when missing, so adding a key needs no restart.
+- The guard is validation, not the prompt. Every answer goes through `parse_shock`, the same parser an
+  experiment file uses. `ok` returns the validated spec with a finite kind's end day resolved from its
+  catalog length; `invalid` returns the spec as the model proposed it with the parser's error, never
+  clamped; `unsupported` returns a message naming the kinds. Identical descriptions (lower-cased, spaces
+  collapsed) for the same run length and model are answered from an in-process cache.
+- Every translation is also written to `<results root>/.translations/<translation_id>.json` (the hash of
+  the description, never the text, plus the spec, status, rationale and model), a hidden directory the
+  experiment list never shows. A run can therefore be traced to its translation after the cache has
+  moved on and across server restarts.
+- `words` follows the dashboard's `shockWords` exactly, for example "One partner loses their job (a random
+  partner, treatment arm), days 60 to 180, magnitude 1.5 (stress)".
+
+The run body may add `"translations": [{"translation_id", "shock_index"}]` (at most 32), where
+`shock_index` counts the experiment's shocks in parse order, treatment shocks first and then world
+shocks. The client only points; the server writes `translation.json` beside `summary.json` in the same
+publication as the run, from its own record:
+
+```
+{"translations": [{"shock_index", "translation_id", "verified": true, "text_sha256", "model",
+                   "status_when_translated", "spec_as_translated", "spec_as_run", "edited"}]}
+```
+
+`text_sha256` hashes the normalised description (the text itself is not stored), and `edited` is
+computed on the server by comparing the shock as run with the shock as translated. A translation id
+the server has no record of, in memory or in `.translations/`, is recorded as `"verified": false`
+with the shock as run, and the run still goes ahead. An entry with any other key, or a `shock_index`
+past the experiment's shocks, is a 400. The engine config, the table hashes and replay are unchanged.
+
+Dashboard: the New experiment page has a "Describe what happens" box above Add shock. Translate adds
+a shock row prefilled from the spec, with a card above its fields showing the visitor's words, the
+plain-words reading of the row as it stands (it follows every edit), the model's rationale, the model
+name, any validation error, and a note once the row has been changed. When the answer was invalid,
+fields the model got wrong fall back to the kind's defaults, and the run stays blocked until the
+visitor changes a field or presses "These fields are right", so a wrong answer never runs unseen. An
+unsupported description shows its message and adds no row. The World page header links here with `?describe=1`,
+which puts the cursor in the box.

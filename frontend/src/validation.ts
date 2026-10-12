@@ -1,5 +1,21 @@
 // Validation for the new-experiment panel, shared by the Run button and the retry button.
-import type { ShockKind, ShockMember, ShockTarget } from './types';
+import type { ShockKind, ShockMember, ShockSpec, ShockTarget } from './types';
+
+/** Where a shock row came from when a model translated it from the visitor's words. */
+export interface ShockTranslation {
+  id: string;
+  text: string;
+  status: 'ok' | 'invalid';
+  rationale: string;
+  model: string;
+  errors: string[];
+  /** What the model proposed, exactly as the server returned it. */
+  asTranslated: ShockSpec | null;
+  /** The row as it was first filled in (fields the model got wrong fall back to defaults here). */
+  initial: ShockSpec;
+  /** An invalid translation blocks the run until its fields change or the visitor confirms them. */
+  confirmed: boolean;
+}
 
 export interface ShockForm {
   id: number;
@@ -10,6 +26,8 @@ export interface ShockForm {
   end_day: number | null;
   magnitude: number;
   trait: string | null;
+  /** Set for a row filled in from a plain-words description; the server keeps the record of it. */
+  translation?: ShockTranslation;
 }
 
 export interface RunForm {
@@ -33,6 +51,21 @@ export function isTraitKind(k: ShockKind | undefined): boolean {
   return !!k?.traits && k.traits.length > 0;
 }
 
+/** A form row as a shock spec. */
+export function rowSpec(s: ShockForm): ShockSpec {
+  return { kind: s.kind, target: s.target, member: s.member, start_day: s.start_day, end_day: s.end_day, magnitude: s.magnitude, trait: s.trait ?? null };
+}
+
+/** True when two shocks would run the same way. */
+export function sameShock(a: ShockSpec, b: ShockSpec): boolean {
+  return a.kind === b.kind && a.target === b.target && a.member === b.member && a.start_day === b.start_day && (a.end_day ?? null) === (b.end_day ?? null) && a.magnitude === b.magnitude && (a.trait ?? null) === (b.trait ?? null);
+}
+
+/** True when a translated row has been changed since it was filled in. */
+export function changedSinceTranslation(s: ShockForm): boolean {
+  return !!s.translation && !sameShock(rowSpec(s), s.translation.initial);
+}
+
 /** Every problem with the form, in plain words; an empty list means it can run. */
 export function validateRun(form: RunForm, kinds: ShockKind[]): string[] {
   const errors: string[] = [];
@@ -48,6 +81,9 @@ export function validateRun(form: RunForm, kinds: ShockKind[]): string[] {
     if (!k) {
       errors.push(`${label}: unknown kind.`);
       return;
+    }
+    if (s.translation?.status === 'invalid' && !s.translation.confirmed && !changedSinceTranslation(s)) {
+      errors.push(`${label}: the model's answer did not fit the simulation; change these fields or confirm them on the card before running.`);
     }
     if (!isInt(s.start_day) || s.start_day < 0) errors.push(`${label}: start day must be a whole number from 0.`);
     else if (lastDay !== null && s.start_day > lastDay) errors.push(`${label}: start day must be inside the run (0 to ${lastDay}).`);

@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
-import { getExperiment, getShocksCatalog, runExperiment } from '../api';
-import type { RunRequest, ShockKind, ShockMember, ShockSpec } from '../types';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { getExperiment, getShocksCatalog, runExperiment, translateShock } from '../api';
+import type { RunRequest, RunTranslation, ShockKind, ShockMember, ShockSpec, TranslateResponse } from '../types';
 import { useAsync } from '../useAsync';
 import { useExperiment } from '../experiment';
 import { useExpNavigate } from '../nav';
 import { ErrorBox, Loading } from '../components/Status';
-import { humanDuration } from '../arms';
-import { isTraitKind, validateRun, type RunForm, type ShockForm } from '../validation';
+import { humanDuration, shockWords, toCatalog } from '../arms';
+import { changedSinceTranslation, isTraitKind, rowSpec, validateRun, type RunForm, type ShockForm } from '../validation';
 
 let nextId = 1;
 
@@ -21,6 +22,26 @@ function draftFor(k: ShockKind): ShockForm {
     magnitude: k.magnitude.default,
     trait: isTraitKind(k) ? k.traits![0] : null,
   };
+}
+
+/** A shock row filled in from a translation, keeping the kind's defaults for anything the model left out. */
+export function rowFromTranslation(res: TranslateResponse, text: string, kinds: ShockKind[]): ShockForm | null {
+  const spec = res.spec;
+  const k = spec ? kinds.find((x) => x.kind === spec.kind) : undefined;
+  if (!spec || !k || res.status === 'unsupported') return null;
+  const row: ShockForm = {
+    ...draftFor(k),
+    target: spec.target === 'all' ? 'all' : 'treatment',
+    member: spec.member === 'a' || spec.member === 'b' ? spec.member : 'random',
+    start_day: typeof spec.start_day === 'number' ? spec.start_day : k.default_start_day,
+    end_day: typeof spec.end_day === 'number' ? spec.end_day : null,
+    magnitude: typeof spec.magnitude === 'number' ? spec.magnitude : k.magnitude.default,
+    trait: isTraitKind(k) ? (spec.trait ?? null) : null,
+  };
+  // Fields the model got wrong fall back to defaults above; the row remembers how it started, so an
+  // invalid answer cannot run until something changes or the visitor confirms it on the card.
+  row.translation = { id: res.translation_id, text, status: res.status, rationale: res.rationale, model: res.model, errors: res.errors, asTranslated: spec, initial: rowSpec(row), confirmed: res.status !== 'invalid' };
+  return row;
 }
 
 /** The request body: the trait rides along only for a trait kind; the target decides treatment versus world. */
@@ -41,8 +62,14 @@ export function buildRequest(form: RunForm, kinds: ShockKind[]): RunRequest {
     overwrite: form.overwrite,
   };
   if (worldShocks.length) req.world = { shocks: worldShocks };
+  // The server parses treatment shocks first and world shocks second; shock_index counts in that order.
+  const ordered = [...form.shocks.filter((s) => s.target === 'treatment'), ...form.shocks.filter((s) => s.target === 'all')];
+  const translations: RunTranslation[] = ordered.flatMap((s, i) => (s.translation ? [{ translation_id: s.translation.id, shock_index: i }] : []));
+  if (translations.length) req.translations = translations;
   return req;
 }
+
+type TranslateState = { kind: 'idle' } | { kind: 'working' } | { kind: 'unsupported'; message: string } | { kind: 'error'; message: string };
 
 type Status = { kind: 'idle' } | { kind: 'running'; started: number } | { kind: 'error'; message: string } | { kind: 'done'; name: string };
 
@@ -61,7 +88,12 @@ export default function NewExperiment() {
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const [elapsed, setElapsed] = useState(0);
   const [showErrors, setShowErrors] = useState(false);
+  const [describeText, setDescribeText] = useState('');
+  const [translateState, setTranslateState] = useState<TranslateState>({ kind: 'idle' });
+  const [params] = useSearchParams();
+  const describeRef = useRef<HTMLTextAreaElement>(null);
   const kinds = useMemo(() => catalog.data?.kinds ?? [], [catalog.data]);
+  const catalogMap = useMemo(() => toCatalog(kinds), [kinds]);
   const halfLife = treatmentHalfLife ?? controlHalfLife;
   const form = useMemo<RunForm>(() => ({ name, nCouples, days, treatmentHalfLife: halfLife, shocks, overwrite }), [name, nCouples, days, halfLife, shocks, overwrite]);
   const errors = useMemo(() => validateRun(form, kinds), [form, kinds]);
@@ -79,6 +111,31 @@ export default function NewExperiment() {
   const update = (id: number, patch: Partial<ShockForm>) => setShocks((s) => s.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   const remove = (id: number) => setShocks((s) => s.filter((x) => x.id !== id));
   const kindOf = (k: string) => kinds.find((x) => x.kind === k);
+
+  // The World page's "What if" link lands here with ?describe=1: put the cursor in the box.
+  useEffect(() => {
+    if (catalog.data && params.get('describe') === '1') describeRef.current?.focus();
+  }, [catalog.data, params]);
+
+  /** Send the description to the server's translator and add the shock it maps to as an editable row. */
+  const translate = async () => {
+    const text = describeText.trim();
+    if (!text || translateState.kind === 'working') return;
+    setTranslateState({ kind: 'working' });
+    try {
+      const res = await translateShock(text, days);
+      const row = rowFromTranslation(res, text, kinds);
+      if (!row) {
+        setTranslateState({ kind: 'unsupported', message: res.message ?? res.rationale ?? 'That description is not one of the shock kinds.' });
+        return;
+      }
+      setShocks((s) => [...s, row]);
+      setDescribeText('');
+      setTranslateState({ kind: 'idle' });
+    } catch (err) {
+      setTranslateState({ kind: 'error', message: err instanceof Error ? err.message : String(err) });
+    }
+  };
 
   /** Validate, run, refresh the experiment list, then open the new experiment. Shared by the Run and Try again buttons. */
   const run = async () => {
@@ -142,10 +199,74 @@ export default function NewExperiment() {
         </div>
         <h2>Shocks</h2>
         <p className="muted">A shock is a scheduled stressor. "Only the treatment arm" makes it part of the intervention; "everyone" tests the memory treatment under the same stress on both sides.</p>
+        <div className="describe" data-testid="describe">
+          <label>
+            Describe what happens
+            <textarea
+              ref={describeRef}
+              value={describeText}
+              maxLength={400}
+              rows={2}
+              placeholder="He loses his job in month three for four months"
+              onChange={(e) => setDescribeText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  void translate();
+                }
+              }}
+              aria-label="Describe what happens"
+            />
+          </label>
+          <div className="filters">
+            <button type="button" onClick={() => void translate()} disabled={!describeText.trim() || translateState.kind === 'working'} data-testid="translate">
+              {translateState.kind === 'working' ? 'Translating...' : 'Translate'}
+            </button>
+            <span className="muted">
+              {describeText.length}/400. A model turns the words into one shock below, which you check and can change before it runs. The model never runs the simulation.
+            </span>
+          </div>
+          {translateState.kind === 'unsupported' ? (
+            <div className="status" role="status" data-testid="translate-unsupported">
+              {translateState.message}
+            </div>
+          ) : null}
+          {translateState.kind === 'error' ? (
+            <div className="status error" role="alert" data-testid="translate-error">
+              Could not translate: {translateState.message}
+            </div>
+          ) : null}
+        </div>
         {shocks.map((s) => {
           const k = kindOf(s.kind);
+          const t = s.translation;
           return (
             <div className="shock" key={s.id} data-testid="shock-row">
+              {t ? (
+                <div className="translation-card" data-testid="translation-card">
+                  <div className="muted">From your words: "{t.text}"</div>
+                  <div data-testid="translation-words">{shockWords({ kind: s.kind, target: s.target, member: s.member, start_day: s.start_day, end_day: s.end_day, magnitude: s.magnitude, trait: s.trait }, catalogMap)}</div>
+                  {t.rationale ? <div className="muted">{t.rationale}</div> : null}
+                  {t.status === 'invalid' ? (
+                    <div className="status error" role="alert" data-testid="translation-errors">
+                      The model's answer does not fit the simulation: {t.errors.join(' ')} Fields it got wrong were reset to defaults; change them below, or confirm them if they are right.
+                      {!t.confirmed && !changedSinceTranslation(s) ? (
+                        <div>
+                          <button type="button" data-testid="translation-confirm" onClick={() => update(s.id, { translation: { ...t, confirmed: true } })}>
+                            These fields are right
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {changedSinceTranslation(s) ? (
+                    <div className="muted" data-testid="translation-edited">
+                      You changed this after translation, and the run records that.
+                    </div>
+                  ) : null}
+                  <div className="muted">Translated by {t.model}.</div>
+                </div>
+              ) : null}
               <div className="row">
                 <label>
                   Kind

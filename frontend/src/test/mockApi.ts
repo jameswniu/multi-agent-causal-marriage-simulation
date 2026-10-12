@@ -10,7 +10,7 @@ import twinsWorld from '../fixtures/twinsWorld.json';
 import experiments from '../fixtures/experiments.json';
 import experimentShockOnly from '../fixtures/experimentShockOnly.json';
 import shocksCatalog from '../fixtures/shocksCatalog.json';
-import type { AgentDetailResponse, CoupleDetailResponse, CouplesQuery, EventRow, ExperimentResponse, ExperimentsResponse, PolicySpec, RunRequest, RunResponse, ShocksCatalog, Summary, TwinsWorldResponse, WorldResponse } from '../types';
+import type { AgentDetailResponse, CoupleDetailResponse, CouplesQuery, EventRow, ExperimentResponse, ExperimentsResponse, PolicySpec, RunRequest, RunResponse, ShocksCatalog, Summary, TranslateResponse, TwinsWorldResponse, WorldResponse } from '../types';
 
 const exp = experiment as unknown as ExperimentResponse;
 const summary = exp.summary as Summary;
@@ -59,6 +59,26 @@ export const listExperiments = async () => {
   return { default: baseExperiments.default, items: [...baseExperiments.items, ...extraExperiments] };
 };
 export const getShocksCatalog = async () => shocksCatalog as unknown as ShocksCatalog;
+const KINDS_SENTENCE = 'LoveWorld can run these kinds of shock: job loss, financial crisis, temptation, intimacy mismatch, daily texts, anniversary, date nights and trait shift.';
+/** A stand-in for the model: a dog is unsupported, "1000" comes back out of bounds, anything else is a job loss. */
+export const translateShock = async (text: string, days: number): Promise<TranslateResponse> => {
+  await new Promise((r) => setTimeout(r, 20));
+  const t = text.toLowerCase();
+  const base = { rationale: 'Month three starts on day 60 and four months last 120 days.', model: 'fixture-model', errors: [] as string[], message: null as string | null };
+  if (t.includes('dog')) {
+    return { ...base, translation_id: 'tr-dog', status: 'unsupported', spec: null, words: null, rationale: 'A pet dying is none of the kinds.', message: `A pet dying is not one of the kinds. ${KINDS_SENTENCE}` };
+  }
+  const spec = { kind: 'job_loss', target: 'treatment' as const, member: 'random' as const, start_day: 60, end_day: Math.min(180, days - 1), magnitude: 1.5, trait: null };
+  if (t.includes('control group')) {
+    const err = "target must be one of ['treatment', 'all'], got 'control'";
+    return { ...base, translation_id: 'tr-ctl', status: 'invalid', spec: { ...spec, target: 'control' }, words: null, errors: [err], message: `The translation does not fit the simulation: ${err}` };
+  }
+  if (t.includes('1000')) {
+    const err = 'treatment.shocks[0].magnitude must lie in [0.0, 5.0], got 1000.0';
+    return { ...base, translation_id: 'tr-big', status: 'invalid', spec: { ...spec, magnitude: 1000 }, words: null, errors: [err], message: `The translation does not fit the simulation: ${err}` };
+  }
+  return { ...base, translation_id: 'tr-job', status: 'ok', spec, words: `One partner loses their job (a random partner, treatment arm), days 60 to ${spec.end_day}, magnitude 1.5 (stress)` };
+};
 export const runExperiment = async (body: RunRequest): Promise<RunResponse> => {
   await new Promise((r) => setTimeout(r, 30));
   if (!body.name) throw new Error('400 name is required (/experiments/run)');

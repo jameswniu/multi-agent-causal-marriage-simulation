@@ -14,6 +14,7 @@ import type {
   RunRequest,
   RunResponse,
   ShocksCatalog,
+  TranslateResponse,
   TwinsWorldResponse,
   WorldResponse,
 } from './types';
@@ -56,6 +57,10 @@ async function fromFixtures<T>(path: string, init?: RequestInit): Promise<T> {
   if (p === '/experiments') return m.listExperiments() as Promise<T>;
   if (p === '/experiments/run') return m.runExperiment(JSON.parse(String(init?.body ?? '{}')) as RunRequest) as Promise<T>;
   if (p === '/shocks/catalog') return m.getShocksCatalog() as Promise<T>;
+  if (p === '/shocks/translate') {
+    const b = JSON.parse(String(init?.body ?? '{}')) as { text: string; days: number };
+    return m.translateShock(b.text, b.days) as Promise<T>;
+  }
   if (p === '/ate') return m.getAte() as Promise<T>;
   if (p === '/curves') return m.getCurves() as Promise<T>;
   if (p === '/distributions') return m.getDistributions() as Promise<T>;
@@ -118,6 +123,11 @@ export function listExperiments(): Promise<ExperimentsResponse> {
 
 export function getShocksCatalog(): Promise<ShocksCatalog> {
   return fetchJson<ShocksCatalog>('/shocks/catalog');
+}
+
+/** Turn a plain-words description into one shock for a run of `days` days (the model runs on the server). */
+export function translateShock(text: string, days: number): Promise<TranslateResponse> {
+  return fetchJson<TranslateResponse>('/shocks/translate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, days }) });
 }
 
 export function runExperiment(body: RunRequest): Promise<RunResponse> {

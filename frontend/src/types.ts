@@ -417,6 +417,25 @@ export interface ShocksCatalog {
   kinds: ShockKind[];
 }
 
+/** One translated description: the shock it maps to, or why it maps to none (section 6). */
+export interface TranslateResponse {
+  translation_id: string;
+  status: 'ok' | 'unsupported' | 'invalid';
+  /** The validated shock (ok), or the shock as the model proposed it (invalid); null when unsupported. */
+  spec: ShockSpec | null;
+  words: string | null;
+  rationale: string;
+  model: string;
+  errors: string[];
+  message: string | null;
+}
+
+/** Points the server at the translation a shock came from; shock_index counts treatment shocks, then world shocks. */
+export interface RunTranslation {
+  translation_id: string;
+  shock_index: number;
+}
+
 export interface RunRequest {
   name?: string;
   n_couples?: number;
@@ -428,6 +447,7 @@ export interface RunRequest {
   engine?: Record<string, unknown>;
   analysis?: { n_boot: number; n_perm: number };
   overwrite?: boolean;
+  translations?: RunTranslation[];
 }
 
 export interface RunResponse {

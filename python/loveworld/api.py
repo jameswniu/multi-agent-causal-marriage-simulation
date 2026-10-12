@@ -21,10 +21,10 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from loveworld import runner
+from loveworld import runner, translate
 from loveworld.analysis import Tables, load_tables, sanitize, sibling_dir
 from loveworld.engine import REPO_ROOT, EngineError
-from loveworld.experiment import ExperimentError, parse_experiment
+from loveworld.experiment import ExperimentError, Shock, parse_experiment
 from loveworld.schema import (
     EXPERIMENT_KEYS,
     MAX_COUPLES,
@@ -573,6 +573,43 @@ def parse_run_body(raw: Any) -> tuple[dict[str, Any], bool]:
     return body, overwrite
 
 
+def parse_translations(raw: Any) -> list[tuple[str, int]]:
+    """Validate the optional `translations` list of a run body: which shocks came from translated text.
+
+    Each entry is {"translation_id": str, "shock_index": int}, where shock_index counts the
+    experiment's shocks in parse order, treatment shocks first and then world shocks. The client
+    only points at a translation; everything recorded about it comes from the server's own record.
+    """
+    if raw is None:
+        return []
+    if not isinstance(raw, list) or len(raw) > 32:
+        raise ExperimentError("translations must be a list of at most 32 entries")
+    out: list[tuple[str, int]] = []
+    for i, entry in enumerate(raw):
+        if not isinstance(entry, dict) or set(entry) != {"translation_id", "shock_index"}:
+            raise ExperimentError(f"translations[{i}] must have exactly translation_id and shock_index")
+        tid, idx = entry["translation_id"], entry["shock_index"]
+        if not isinstance(tid, str) or not 1 <= len(tid) <= 64:
+            raise ExperimentError(f"translations[{i}].translation_id must be a short string")
+        if isinstance(idx, bool) or not isinstance(idx, int) or idx < 0:
+            raise ExperimentError(f"translations[{i}].shock_index must be a non-negative integer")
+        out.append((tid, idx))
+    return out
+
+
+def shock_record(shock: Shock) -> dict[str, Any]:
+    """Return a parsed shock as plain fields, the shape a translation's spec has."""
+    return {
+        "kind": shock.kind,
+        "target": shock.target,
+        "member": shock.member,
+        "start_day": shock.start_day,
+        "end_day": shock.end_day,
+        "magnitude": shock.magnitude,
+        "trait": shock.trait,
+    }
+
+
 def _default_run_name() -> str:
     return "run-" + time.strftime("%Y%m%d-%H%M%S")
 
@@ -580,9 +617,15 @@ def _default_run_name() -> str:
 # ---------------------------------------------------------------------------- app
 
 
-def create_app(results_dir: str | Path, frontend_dist: Path | None = None) -> FastAPI:
+def create_app(
+    results_dir: str | Path, frontend_dist: Path | None = None, translator: translate.Translator | None = None
+) -> FastAPI:
     """Build the API for a results directory or a results root."""
     store = ExperimentStore(Path(results_dir))
+    # Translation records live beside the experiments, in a hidden directory the store never lists.
+    shock_translator = (
+        translator if translator is not None else translate.Translator(record_dir=store.results_root / ".translations")
+    )
     if not store.single:
         # A run interrupted between its two publication renames leaves its results hidden
         # next to the root; put them back before anything is listed.
@@ -605,19 +648,44 @@ def create_app(results_dir: str | Path, frontend_dist: Path | None = None) -> Fa
     def shocks_catalog() -> dict[str, Any]:
         return {"kinds": [dict(k) for k in SHOCK_CATALOG]}
 
+    @app.post("/api/shocks/translate")
+    def translate_shock(body: dict[str, Any]) -> dict[str, Any]:
+        unknown = sorted(set(body) - {"text", "days"}) if isinstance(body, dict) else []
+        if unknown:
+            raise HTTPException(status_code=400, detail=f"unknown key {unknown[0]} (known: text, days)")
+        try:
+            result = shock_translator.translate(body.get("text"), body.get("days", 365))
+        except translate.TranslationRequestError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except translate.TranslatorUnavailable as e:
+            raise HTTPException(status_code=503, detail=str(e)) from e
+        return result.public()
+
     @app.post("/api/experiments/run")
     def run_experiment(body: dict[str, Any]) -> dict[str, Any]:
         try:
+            body = dict(body) if isinstance(body, dict) else body
+            pointers = parse_translations(body.pop("translations", None) if isinstance(body, dict) else None)
             raw, overwrite = parse_run_body(body)
             exp = parse_experiment(raw)
+            for _, idx in pointers:
+                if idx >= len(exp.shocks):
+                    raise ExperimentError(f"shock_index {idx} is past the experiment's {len(exp.shocks)} shocks")
         except ExperimentError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
+        extra: dict[str, Any] = {}
+        if pointers:
+            records = [
+                {"shock_index": idx, **translate.provenance(shock_translator, tid, shock_record(exp.shocks[idx]))}
+                for tid, idx in pointers
+            ]
+            extra["translation.json"] = {"translations": records}
         name = exp.name
         target = store.results_root / name
         if target.exists() and any(target.iterdir()) and not overwrite:
             raise HTTPException(status_code=409, detail=f"experiment {name!r} exists; set overwrite to replace it")
         try:
-            summary = runner.run_experiment(exp, target, overwrite=overwrite)
+            summary = runner.run_experiment(exp, target, overwrite=overwrite, extra_files=extra or None)
         except runner.TargetError as e:
             raise HTTPException(status_code=409, detail=str(e)) from e
         except (ExperimentError, EngineError, ValueError) as e:

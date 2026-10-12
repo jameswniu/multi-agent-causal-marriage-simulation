@@ -202,6 +202,11 @@ details.tableview summary { cursor: pointer; color: var(--ink-2); font-size: 0.9
 .shock { border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 0.9rem; margin: 0.6rem 0; display: grid; gap: 0.5rem; }
 .shock .row { display: flex; flex-wrap: wrap; gap: 0.6rem 1rem; align-items: center; }
 .shock .blurb { color: var(--ink-2); font-size: 0.95rem; }
+.describe { display: grid; gap: 0.5rem; margin: 0.6rem 0 0.9rem; }
+.describe label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.95rem; color: var(--ink-2); }
+.describe textarea { font: inherit; padding: 0.5rem 0.6rem; border: 1px solid var(--border); border-radius: 6px; resize: vertical; }
+.translation-card { display: grid; gap: 0.3rem; padding: 0.5rem 0.7rem; border-left: 3px solid var(--accent); background: var(--surface-raised); color: var(--ink); font-size: 0.95rem; }
+.describe textarea { background: var(--surface-raised); color: var(--ink); }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 0.75rem 1rem; }
 .form-grid label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.95rem; color: var(--ink-2); }
 .hood table.data td, .hood table.data th { font-size: 0.875rem; padding: 0.25rem 0.4rem; }

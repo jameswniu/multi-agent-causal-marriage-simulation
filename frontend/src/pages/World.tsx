@@ -2,7 +2,7 @@
 // setting does to 1,000 couples, with playback controls, side-by-side control and treatment grids
 // (or each couple under both settings), counters and the day's events.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useExpNavigate } from '../nav';
+import { ExpLink, useExpNavigate } from '../nav';
 import { getCurves, getEventsForDay, getExperiment, getTwinsWorld, getWorld } from '../api';
 import type { ArmCounts, Curves, EventRow, ExperimentResponse, TwinsWorldResponse, WorldResponse } from '../types';
 import { useAsync } from '../useAsync';
@@ -297,6 +297,11 @@ export default function World() {
     <div className={loading ? 'stale' : ''}>
       <Banner />
       <h1>World replay</h1>
+      <p>
+        <ExpLink to="/new?describe=1" data-testid="what-if">
+          What if? Describe a shock in your own words
+        </ExpLink>
+      </p>
       <p className="framing" data-testid="framing">
         {framingSentence(nInitial, arms.intervention, arms.catalog, mode)}
       </p>

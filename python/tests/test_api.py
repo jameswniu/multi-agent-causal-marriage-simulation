@@ -544,3 +544,102 @@ def test_a_rerun_during_a_load_is_not_hidden_behind_the_old_copy(
     monkeypatch.setattr(api, "Loaded", loaded_then_rerun)
     store.get("alpha")
     assert "alpha" not in store.loaded, "the stale copy is served once and not cached"
+
+
+def _translating_client(tmp_path: Path, answers: dict[str, dict[str, Any]]) -> tuple[TestClient, Any]:
+    from loveworld import translate
+
+    from .test_translate import FakeClient
+
+    fake = FakeClient(answers)
+    app = create_app(tmp_path, frontend_dist=tmp_path / "no-dist", translator=translate.Translator(lambda: fake))
+    return TestClient(app), fake
+
+
+def test_translate_endpoint_answers_200_400_and_503_and_caches(tmp_path: Path) -> None:
+    from loveworld import translate
+
+    from .test_translate import JOB_ANSWER, JOB_TEXT
+
+    client, fake = _translating_client(tmp_path, {"loses his job": JOB_ANSWER})
+    ok = client.post("/api/shocks/translate", json={"text": JOB_TEXT, "days": 365})
+    assert ok.status_code == 200, ok.text
+    body = ok.json()
+    assert body["status"] == "ok" and body["spec"]["kind"] == "job_loss"
+    assert (body["spec"]["start_day"], body["spec"]["end_day"]) == (60, 180)
+    assert "days 60 to 180" in body["words"] and body["rationale"] and body["model"] == "fake-model"
+    again = client.post("/api/shocks/translate", json={"text": JOB_TEXT.upper(), "days": 365}).json()
+    assert again["translation_id"] == body["translation_id"] and len(fake.payloads) == 1
+    for bad in ({"text": ""}, {"text": "x" * 401}, {"text": "ok", "days": 9999}, {"text": "ok", "extra": 1}, {}):
+        r = client.post("/api/shocks/translate", json=bad)
+        assert r.status_code == 400, (bad, r.text)
+    no_key = TestClient(
+        create_app(tmp_path, frontend_dist=tmp_path / "no-dist", translator=translate.Translator(lambda: None))
+    )
+    r = no_key.post("/api/shocks/translate", json={"text": JOB_TEXT})
+    assert r.status_code == 503 and "Anthropic API key" in r.json()["detail"]
+
+
+def test_a_run_records_where_its_translated_shock_came_from(tmp_path: Path) -> None:
+    from loveworld import translate
+
+    from .test_translate import JOB_ANSWER
+
+    text = "She loses her job on day ten for twenty days"
+    client, _ = _translating_client(tmp_path, {"loses her job": dict(JOB_ANSWER, start_day=10, end_day=30)})
+    t = client.post("/api/shocks/translate", json={"text": text, "days": 40}).json()
+    assert t["status"] == "ok", t
+
+    def body(name: str, magnitude: float, translations: Any = None) -> dict[str, Any]:
+        out: dict[str, Any] = {
+            "name": name,
+            "n_couples": 20,
+            "days": 40,
+            "seeds": {"population": 1, "assignment": 2, "dynamics": 3},
+            "treatment": {
+                "shocks": [
+                    {"kind": "job_loss", "member": "random", "start_day": 10, "end_day": 30, "magnitude": magnitude}
+                ]
+            },
+            "analysis": {"n_boot": 20, "n_perm": 20},
+        }
+        if translations is not None:
+            out["translations"] = translations
+        return out
+
+    pointer = [{"translation_id": t["translation_id"], "shock_index": 0}]
+    r = client.post("/api/experiments/run", json=body("as-translated", 1.5, pointer))
+    assert r.status_code == 200, r.text
+    record = json.loads((tmp_path / "as-translated" / "translation.json").read_text())["translations"][0]
+    assert record["verified"] is True and record["edited"] is False and record["shock_index"] == 0
+    assert record["text_sha256"] == translate.text_sha256(text) and record["model"] == "fake-model"
+    assert record["spec_as_run"]["magnitude"] == 1.5 and record["spec_as_translated"] == t["spec"]
+
+    r = client.post("/api/experiments/run", json=body("edited", 2.0, pointer))
+    assert r.status_code == 200, r.text
+    edited = json.loads((tmp_path / "edited" / "translation.json").read_text())["translations"][0]
+    assert edited["edited"] is True and edited["spec_as_run"]["magnitude"] == 2.0
+
+    r = client.post("/api/experiments/run", json=body("unknown-id", 1.5, [{"translation_id": "abc", "shock_index": 0}]))
+    assert r.status_code == 200, r.text
+    unknown = json.loads((tmp_path / "unknown-id" / "translation.json").read_text())["translations"][0]
+    assert unknown["verified"] is False and "edited" not in unknown
+
+    # The client points at a translation; it cannot assert anything about it, or point past the shocks.
+    for bad in (
+        [{"translation_id": t["translation_id"], "shock_index": 3}],
+        [{"translation_id": t["translation_id"], "shock_index": 0, "edited": False}],
+        "not-a-list",
+        [{"translation_id": t["translation_id"], "shock_index": -1}],
+    ):
+        r = client.post("/api/experiments/run", json=body("bad", 1.5, bad))
+        assert r.status_code == 400, (bad, r.text)
+    assert not (tmp_path / "bad").exists()
+
+    # Provenance stays beside the run: the engine config and the table hashes match a run without it.
+    plain = client.post("/api/experiments/run", json=body("plain", 1.5))
+    assert plain.status_code == 200 and not (tmp_path / "plain" / "translation.json").exists()
+    m_plain = json.loads((tmp_path / "plain" / "manifest.json").read_text())
+    m_tr = json.loads((tmp_path / "as-translated" / "manifest.json").read_text())
+    assert m_plain["determinism_hash"] == m_tr["determinism_hash"]
+    assert "translation" not in (tmp_path / "as-translated" / "config.json").read_text()

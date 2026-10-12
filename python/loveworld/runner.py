@@ -174,8 +174,18 @@ def _staging_dir(target: Path) -> Path:
     return Path(tempfile.mkdtemp(prefix=f".{target.name}.tmp-", dir=target.parent))
 
 
-def run_experiment(exp: Experiment, target: Path, overwrite: bool = False, placebo: bool = False) -> dict[str, Any]:
-    """Run the engine and the analysis for an experiment into `target`; return the summary."""
+def run_experiment(
+    exp: Experiment,
+    target: Path,
+    overwrite: bool = False,
+    placebo: bool = False,
+    extra_files: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run the engine and the analysis for an experiment into `target`; return the summary.
+
+    `extra_files` maps a file name to a JSON value written beside summary.json before publication,
+    so a record such as translation.json appears with the run or not at all.
+    """
     eng.require_engine()
     cfg = build_engine_config(exp, placebo=placebo)
     recover_swaps(target.parent)
@@ -187,6 +197,11 @@ def run_experiment(exp: Experiment, target: Path, overwrite: bool = False, place
             run_dir = staging / "run"
             eng.run_engine(cfg, run_dir, overwrite=True)
             summary = analysis.write_summary(run_dir, exp.analysis, link_from=target)
+            for file_name, value in (extra_files or {}).items():
+                reserved = ("manifest.json", "config.json", "summary.json")
+                if "/" in file_name or file_name.startswith(".") or file_name in reserved:
+                    raise ValueError(f"extra file name {file_name!r} is not allowed")
+                (run_dir / file_name).write_text(json.dumps(value, indent=2, sort_keys=True))
             _swap_in(run_dir, target)
         finally:
             shutil.rmtree(staging, ignore_errors=True)
