@@ -1,4 +1,6 @@
-// Fixture-backed implementation of the api module for tests.
+// Fixture-backed implementation of the api module for tests. LoveWorld is the simulation of
+// married agent couples this dashboard reads, and these functions answer every dashboard request from
+// saved fixtures, including a stand-in for the model that translates a shock described in plain words.
 import experiment from '../fixtures/experiment.json';
 import couples from '../fixtures/couples.json';
 import coupleDetails from '../fixtures/coupleDetails.json';

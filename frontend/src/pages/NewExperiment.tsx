@@ -1,3 +1,6 @@
+// The New experiment page. A visitor sets up a run of the couples simulation (how many couples, how
+// many days, how long the treatment arm remembers a fight, and any shocks), can describe a shock in
+// plain words for the server to translate into an editable row, then runs it and opens the result.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getExperiment, getShocksCatalog, runExperiment, translateShock } from '../api';
