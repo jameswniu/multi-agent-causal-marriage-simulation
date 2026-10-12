@@ -1,10 +1,15 @@
 # Deploying LoveWorld publicly
 
-This is how I put the LoveWorld dashboard on the internet: one Docker image on a single Fly.io machine,
-behind a Cloudflare Worker that stops bots before they reach the plain-words translator or the run
-queue. It costs about $48 a month to keep up, and at most about $91 in a month when every visitor cap
-is hit. Nothing in this repository creates an account, a secret or a paid resource; the steps below
-are done by hand.
+LoveWorld simulates 1,000 married AI-agent couples for a year to measure what one change in how
+they remember fights does to divorce, trust and repair. Its dashboard replays that year as a town and
+lets a visitor describe an event in plain words, such as a job loss, and run the same couples again
+with it added. The translator behind that box asks Claude Haiku to turn the description into a shock
+card the simulator can run, and the simulator itself makes no model calls.
+
+This is how I put that dashboard on the internet: one Docker image on a single Fly.io machine, behind
+a Cloudflare Worker that stops bots before they reach the translator or the run queue. It costs about
+$48 a month to keep up, and at most about $91 in a month when every visitor cap is hit. Nothing in
+this repository creates an account, a secret or a paid resource, so the steps below are done by hand.
 
 ## What runs where
 
@@ -30,10 +35,10 @@ are done by hand.
 |---|---|---|
 | Fly performance-1x machine with 4 GB | $45.00 | $33 for 2 GB plus $6 per extra GB, Fly's price list on 2026-10-11 |
 | Fly volume, 20 GB | $3.00 | $0.15 per GB |
-| Claude Haiku translations | $0 to $43 | 3,000 a day at most; an ordinary month is about $0.33 per 1,000 |
+| Claude Haiku translations | $0 to $43 | 3,000 a day at most, and an ordinary month is about $0.33 per 1,000 |
 | Cloudflare Worker and Turnstile | $0 | Free plans, within their daily request limits |
 
-Check the providers' current prices before creating anything; these are the figures the plan in
+Check the providers' current prices before creating anything. These are the figures the plan in
 `docs/interactive-world-plan.md` was built on. I set a $50 monthly spend limit on the Anthropic key in
 the Anthropic Console as a hard stop behind the app's own counters.
 
@@ -45,9 +50,9 @@ https://github.com/jameswniu/multi-agent-causal-marriage-simulation.
 
 1. In the Cloudflare dashboard, add a Turnstile widget for the site's hostname and keep its site key
    and secret key.
-2. Create the Fly app and its volume. The app is named after the repository; if `multi-agent-causal-marriage-simulation`
-   is taken, pick another and change `app` in `fly.toml` and `ORIGIN` in
-   `deploy/cloudflare-worker/wrangler.toml` to match.
+2. Create the Fly app and its volume. The app is named after the repository. If
+   `multi-agent-causal-marriage-simulation` is taken, pick another name and change `app` in `fly.toml`
+   and `ORIGIN` in `deploy/cloudflare-worker/wrangler.toml` to match.
 
    ```bash
    fly apps create multi-agent-causal-marriage-simulation
