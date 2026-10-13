@@ -3,6 +3,7 @@ import type { Histogram as HistogramData } from '../types';
 import { armColor, gridColor, axisColor } from '../palette';
 import { useArmLabels } from '../arms';
 import Legend from './Legend';
+import { CHART_TEXT_PX } from '../chartText';
 
 interface Props {
   data: HistogramData;
@@ -39,8 +40,8 @@ export default function Histogram({ data, width, height, xLabel }: Props) {
       <p className="muted" style={{ margin: '0 0 0.4rem' }}>{labels.control.small}; {labels.treatment.small}</p>
       <BarChart width={width} height={height} data={rows} margin={{ top: 8, right: 16, bottom: 28, left: 8 }} barGap={2} barCategoryGap="25%">
         <CartesianGrid stroke={gridColor()} vertical={false} />
-        <XAxis dataKey="bin" stroke={axisColor()} tick={{ fontSize: 14 }} label={{ value: xLabel, position: 'insideBottom', offset: -18, fontSize: 14 }} />
-        <YAxis stroke={axisColor()} tick={{ fontSize: 14 }} tickFormatter={(v: number) => `${Math.round(v * 100)}%`} width={56} label={{ value: 'Share', angle: -90, position: 'insideLeft', fontSize: 14 }} />
+        <XAxis dataKey="bin" stroke={axisColor()} tick={{ fontSize: CHART_TEXT_PX }} label={{ value: xLabel, position: 'insideBottom', offset: -18, fontSize: CHART_TEXT_PX }} />
+        <YAxis stroke={axisColor()} tick={{ fontSize: CHART_TEXT_PX }} tickFormatter={(v: number) => `${Math.round(v * 100)}%`} width={56} label={{ value: 'Share', angle: -90, position: 'insideLeft', fontSize: CHART_TEXT_PX }} />
         <Tooltip content={<HistTooltip />} cursor={{ fill: 'var(--grid)', opacity: 0.4 }} />
         <Bar dataKey="control" name={labels.control.plain} fill={armColor('control')} maxBarSize={24} radius={[4, 4, 0, 0]} isAnimationActive={false} />
         <Bar dataKey="treatment" name={labels.treatment.plain} fill={armColor('treatment')} maxBarSize={24} radius={[4, 4, 0, 0]} isAnimationActive={false} />

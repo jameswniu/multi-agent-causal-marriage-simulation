@@ -310,3 +310,40 @@ details.tableview summary { cursor: pointer; color: var(--ink-2); font-size: 0.9
   .timestrip-labels { display: none; }
   .town-hint { display: none; }
 }
+
+/* The read-only demo (static build): its banner, its notes and the Try a shock panel. Body text stays at 16px. */
+.static-banner {
+  background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--accent);
+  border-radius: 6px; padding: 0.45rem 0.8rem; margin: 0 0 0.75rem; font-size: 1rem; color: var(--ink);
+}
+.static-note { font-size: 1rem; margin: 1rem 0; }
+/* The demo's world names are long, so on a phone the experiment picker shrinks to the screen instead of widening the page. */
+.topbar-static label { min-width: 0; max-width: 100%; }
+.topbar-static select { min-width: 0; max-width: 100%; }
+.world-hint { font-size: 1rem; color: var(--ink-2); }
+button.button-link.try-button, .try-card button.button-link, .try-shock button { font-size: 1rem; }
+.try-lead { font-size: 1rem; color: var(--ink-2); margin: 0.5rem 0 0.75rem; }
+.try-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 0.75rem; margin-bottom: 0.75rem; }
+.try-card {
+  display: flex; flex-direction: column; gap: 0.45rem; min-width: 0; font-size: 1rem;
+  background: var(--surface-raised); border: 1px solid var(--border); border-radius: 8px; padding: 0.8rem 0.9rem;
+}
+.try-card.here { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.try-card h3 { margin: 0; font-size: 1.1rem; color: var(--ink); }
+.try-card p { margin: 0; }
+.try-card .try-typed { font-size: 1.05rem; font-weight: 600; }
+.try-card .try-source { color: var(--ink-2); }
+.try-card button { margin-top: auto; align-self: flex-start; }
+.try-card .try-here { color: var(--ink-2); }
+
+/* The demo is read at 75% zoom, where 16px shows as 12px, the least any text it shows may be. So under the
+   shell's static-demo class, which only the static build sets, every text the live app sets smaller is 16px. */
+.static-demo small, .static-demo .muted, .static-demo code, .static-demo .tag, .static-demo .delta,
+.static-demo .tile .label, .static-demo .tile .sub, .static-demo .score .label, .static-demo .score .sub,
+.static-demo table.data, .static-demo .hood table.data td, .static-demo .hood table.data th,
+.static-demo select, .static-demo input, .static-demo button, .static-demo a.button-link, .static-demo button.button-link,
+.static-demo .topbar label, .static-demo .filters label, .static-demo .legend, .static-demo .tile-legend,
+.static-demo .chart-sub, .static-demo .tooltip, .static-demo .formula, .static-demo details.tableview summary,
+.static-demo .town-hint, .static-demo .town-legend, .static-demo .lens-key, .static-demo .timestrip-labels, .static-demo .timestrip-key,
+.static-demo .inspector h4, .static-demo .spark figcaption, .static-demo .load, .static-demo .legacies { font-size: 1rem; }
+.static-demo .town-label span, .static-demo .chart svg text { font-size: 16px; }

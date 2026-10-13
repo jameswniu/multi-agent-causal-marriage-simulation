@@ -1,6 +1,7 @@
 import type { DailyRow, RelState } from '../types';
 import { stateColor, inkColor } from '../palette';
 import Legend from './Legend';
+import { CHART_TEXT_PX } from '../chartText';
 
 export interface Segment {
   state: RelState;
@@ -61,7 +62,7 @@ export default function StateGantt({ daily, width, lastDay }: { daily: DailyRow[
           </rect>
         ))}
         {[0, Math.floor(lastDay / 2), lastDay].map((d) => (
-          <text key={d} x={d === lastDay ? x(d + 1) : x(d)} y={h + 26} fontSize={14} fill={ink} textAnchor={d === 0 ? 'start' : d === lastDay ? 'end' : 'middle'} data-testid="gantt-label">
+          <text key={d} x={d === lastDay ? x(d + 1) : x(d)} y={h + 26} fontSize={CHART_TEXT_PX} fill={ink} textAnchor={d === 0 ? 'start' : d === lastDay ? 'end' : 'middle'} data-testid="gantt-label">
             {`Day ${d}`}
           </text>
         ))}

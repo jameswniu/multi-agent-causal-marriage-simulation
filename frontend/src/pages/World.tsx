@@ -7,7 +7,7 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useLocation } from 'react-router-dom';
 import { ExpLink, useExpNavigate, type ReplayState } from '../nav';
 import { getCouple, getCurves, getDayDigest, getEventsForDay, getExperiment, getLens, getTwinsWorld, getWorld, listLenses } from '../api';
-import type { ArmCounts, CoupleDetailResponse, Curves, DayDigest, EventRow, ExperimentResponse, LensData, LensMeta, ShockSpec, TwinsWorldResponse, WorldResponse } from '../types';
+import type { ArmCounts, CoupleDetailResponse, Curves, DayDigest, EventRow, ExperimentResponse, LensData, LensMeta, ParentRecord, ShockSpec, TwinsWorldResponse, WorldResponse } from '../types';
 import { useAsync } from '../useAsync';
 import { useExperiment } from '../experiment';
 import { ErrorBox, Loading } from '../components/Status';
@@ -26,6 +26,12 @@ import { checkParent, differCounter, differingOnDay, matchCouples, parentNotComp
 import { chanceWords, noIntervention } from '../nullRun';
 
 const TownView = lazy(() => import('../town/TownView'));
+/** The read-only demo (VITE_STATIC=1) offers shocks run in advance in place of running one. */
+const STATIC = import.meta.env.VITE_STATIC === '1';
+// The read-only demo's "Try a shock" panel, built only into the static build.
+const TryShock = STATIC ? lazy(() => import('../components/TryShock')) : null;
+/** What "Try a shock" does, beside its button on the read-only demo. */
+const TRY_SHOCK_HINT = 'Pick a shock that was run in advance on the example town. The town switches to that world right here and rings every house that differs.';
 
 const SPEEDS = [1, 10, 50] as const;
 type Mode = 'randomized' | 'twins';
@@ -106,22 +112,25 @@ function useDayEvents(day: number, enabled: boolean) {
   return { ...state, retry };
 }
 
-/** The one-sentence framing of the experiment, filled from the intervention. */
-export function framingSentence(n: number, iv: Intervention, catalog: Catalog | null, mode: Mode, picture: 'grids' | 'districts' = 'grids'): string {
+/**
+ * The one-sentence framing of the experiment, filled from the intervention. `everyone`, given only on the
+ * read-only demo, is the plain sentence for what everyone lives through (arms.tsx, whatDiffers).
+ */
+export function framingSentence(n: number, iv: Intervention, catalog: Catalog | null, mode: Mode, picture: 'grids' | 'districts' = 'grids', everyone: string | null = null): string {
   if (mode === 'twins') {
     const lead = 'Each tile is one couple shown twice, the same people and the same random events';
     if (!iv.memory && !iv.treatmentShocks.length) {
-      const shared = sharedClause(iv, catalog);
+      const shared = sharedClause(iv, catalog, everyone);
       return shared ? `${lead}, and nothing differs between the two runs; ${shared}.` : `${lead}, and nothing differs between the two runs.`;
     }
-    const diff = whatDiffers(iv, catalog).replace(/^Only this, /, '').replace(/^Only /, '').replace(/\.$/, '');
+    const diff = whatDiffers(iv, catalog, everyone).replace(/^Only this, /, '').replace(/^Only /, '').replace(/\.$/, '');
     return `${lead}, and the only difference is ${diff[0].toLowerCase()}${diff.slice(1)}.`;
   }
   const couples = n.toLocaleString();
   const mem = iv.memory;
   const lead = `Both ${picture} start from the same ${couples} couples on the same day.`;
   if (mem && mem.parameter === 'conflict_half_life_days' && iv.treatmentShocks.length === 0) {
-    const shared = sharedClause(iv, catalog);
+    const shared = sharedClause(iv, catalog, everyone);
     const tail = shared ? ` ${shared[0].toUpperCase()}${shared.slice(1)}.` : '';
     const c = fmtNum(mem.control_value);
     const t = fmtNum(mem.treatment_value);
@@ -133,11 +142,21 @@ export function framingSentence(n: number, iv: Intervention, catalog: Catalog | 
           : `On both sides a fight's memory half-life is ${c} days.`;
     return `${lead} ${middle} Nothing else differs.${tail}`;
   }
-  return `${lead} ${whatDiffers(iv, catalog)}`;
+  return `${lead} ${whatDiffers(iv, catalog, everyone)}`;
 }
 
 export function gridTitles(labels: ArmLabels): [string, string] {
   return [labels.control.plain, labels.treatment.plain];
+}
+
+/**
+ * The district a phone opens the town on in the read-only demo: treatment when every shock a fork added
+ * reaches only that arm, since all its rings are there whichever of the two worlds the town draws, and
+ * control otherwise.
+ */
+export function phoneDistrictFor(parent: ParentRecord | null | undefined): 'control' | 'treatment' {
+  const added = parent?.appended_shocks ?? [];
+  return added.length > 0 && added.every((s) => s.target === 'treatment') ? 'treatment' : 'control';
 }
 
 export function gridSubtitles(labels: ArmLabels, mode: Mode): [string, string] {
@@ -541,14 +560,33 @@ export default function World() {
       <Banner />
       <h1>World replay</h1>
       <p className="world-actions">
-        <button type="button" className="button-link" onClick={() => setShockOpen((o) => !o)} aria-expanded={shockOpen} disabled={!worldName} data-testid="shock-this-world">
-          Shock this world
+        <button type="button" className={STATIC ? 'button-link try-button' : 'button-link'} onClick={() => setShockOpen((o) => !o)} aria-expanded={shockOpen} disabled={!worldName} data-testid={STATIC ? 'try-a-shock' : 'shock-this-world'}>
+          {STATIC ? 'Try a shock' : 'Shock this world'}
         </button>
-        <span className="muted">Describe what happens in your own words. The same couples run again with only that added, and the town switches to the new world right here.</span>
+        {STATIC ? (
+          <span className="world-hint">{TRY_SHOCK_HINT}</span>
+        ) : (
+          <span className="muted">Describe what happens in your own words. The same couples run again with only that added, and the town switches to the new world right here.</span>
+        )}
       </p>
-      {shockOpen && worldName ? <ShockInPlace world={worldName} onClose={() => setShockOpen(false)} /> : null}
+      {shockOpen && worldName ? (
+        TryShock ? (
+          <Suspense fallback={<Loading what="the shocks run in advance" />}>
+            <TryShock
+              world={worldName}
+              onClose={() => setShockOpen(false)}
+              onReplayHere={(from) => {
+                setShockOpen(false);
+                setPendingReplay(from);
+              }}
+            />
+          </Suspense>
+        ) : (
+          <ShockInPlace world={worldName} onClose={() => setShockOpen(false)} />
+        )
+      ) : null}
       <p className="framing" data-testid="framing">
-        {framingSentence(nInitial, arms.intervention, arms.catalog, mode, showTown ? 'districts' : 'grids')}
+        {framingSentence(nInitial, arms.intervention, arms.catalog, mode, showTown ? 'districts' : 'grids', arms.everyone)}
       </p>
       <div className="card">
         <div className="filters" role="group" aria-label="Playback">
@@ -741,6 +779,7 @@ export default function World() {
                 rings={rings}
                 experiment={flipped ? parentName : null}
                 onReady={onTownReady}
+                phoneDistrict={STATIC ? phoneDistrictFor(parentRecord) : null}
               />
             </Suspense>
           ) : (

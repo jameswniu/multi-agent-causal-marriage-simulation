@@ -4,6 +4,7 @@ import { armColor, gridColor, axisColor } from '../palette';
 import { useArmLabels } from '../arms';
 import ArmTooltip from './ArmTooltip';
 import Legend from './Legend';
+import { CHART_TEXT_PX } from '../chartText';
 
 export function toRows(series: BandSeries) {
   return series.day.map((d, i) => ({
@@ -24,8 +25,8 @@ export default function TrustBandChart({ series, width, height }: { series: Band
       <p className="muted" style={{ margin: '0 0 0.4rem' }}>{labels.control.small}; {labels.treatment.small}</p>
       <ComposedChart width={width} height={height} data={rows} margin={{ top: 12, right: 16, bottom: 28, left: 8 }}>
         <CartesianGrid stroke={gridColor()} vertical={false} />
-        <XAxis dataKey="day" stroke={axisColor()} tick={{ fontSize: 14 }} label={{ value: 'Day', position: 'insideBottom', offset: -18, fontSize: 14 }} />
-        <YAxis stroke={axisColor()} tick={{ fontSize: 14 }} domain={[0, 1]} width={56} label={{ value: 'Trust (0 to 1)', angle: -90, position: 'insideLeft', fontSize: 14 }} />
+        <XAxis dataKey="day" stroke={axisColor()} tick={{ fontSize: CHART_TEXT_PX }} label={{ value: 'Day', position: 'insideBottom', offset: -18, fontSize: CHART_TEXT_PX }} />
+        <YAxis stroke={axisColor()} tick={{ fontSize: CHART_TEXT_PX }} domain={[0, 1]} width={56} label={{ value: 'Trust (0 to 1)', angle: -90, position: 'insideLeft', fontSize: CHART_TEXT_PX }} />
         <Tooltip content={<ArmTooltip unit="trust" />} />
         <Area dataKey="controlBand" name="Control band" stroke="none" fill={armColor('control')} fillOpacity={0.12} isAnimationActive={false} />
         <Area dataKey="treatmentBand" name="Treatment band" stroke="none" fill={armColor('treatment')} fillOpacity={0.12} isAnimationActive={false} />

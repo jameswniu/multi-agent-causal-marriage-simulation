@@ -3,6 +3,7 @@
 // context so every page and chart reads the same words.
 import { createContext, useContext, type ReactNode } from 'react';
 import { getExperiment, getShocksCatalog } from './api';
+import { useExperiment } from './experiment';
 import { useAsync } from './useAsync';
 import type { Arm, ExperimentListItem, ShockKind, ShockSpec, TreatmentSpec, EffectSpec } from './types';
 
@@ -266,8 +267,17 @@ export function armLabels(spec: TreatmentSpec | null | undefined, shocks?: Shock
   return armLabelsFor(interventionOf(spec, shocks), catalog);
 }
 
-/** The sentence for the Overview "What differs" tile and the World framing. */
-export function whatDiffers(iv: Intervention, catalog: Catalog | null | undefined): string {
+/** "every couple in town starts ..." as a sentence of its own: capitalised and closed with a full stop. */
+function asSentence(s: string): string {
+  const t = s.trim();
+  return upperFirst(t.endsWith('.') ? t : `${t}.`);
+}
+
+/**
+ * The sentence for the Overview "What differs" tile and the World framing. `everyone`, given only on the
+ * read-only demo, is a plain sentence for what everyone lives through, said in place of the shocks' own words.
+ */
+export function whatDiffers(iv: Intervention, catalog: Catalog | null | undefined, everyone: string | null = null): string {
   const mem = iv.memory;
   const memWords =
     mem && mem.parameter === 'conflict_half_life_days'
@@ -282,8 +292,9 @@ export function whatDiffers(iv: Intervention, catalog: Catalog | null | undefine
   else if (shockWordsAll.length) text = `Only this, ${joinWords(shockWordsAll)}. Memory is identical in both arms.`;
   else text = 'Nothing differs between the arms (a placebo run).';
   const world = iv.worldShocks.map((s) => lowerFirst(shockWords(s, catalog)));
-  if (!mem && !shockWordsAll.length && world.length) return `Nothing differs between the arms. Everyone lives through ${joinWords(world)}.`;
-  if (world.length) text += `${text.endsWith('.') ? '' : '.'} Everyone also lives through ${joinWords(world)}.`;
+  const shared = world.length && everyone ? asSentence(everyone) : null;
+  if (!mem && !shockWordsAll.length && world.length) return `Nothing differs between the arms. ${shared ?? `Everyone lives through ${joinWords(world)}.`}`;
+  if (world.length) text += `${text.endsWith('.') ? '' : '.'} ${shared ?? `Everyone also lives through ${joinWords(world)}.`}`;
   return text;
 }
 
@@ -297,9 +308,13 @@ export function differenceClause(iv: Intervention, catalog: Catalog | null | und
   return null;
 }
 
-/** "everyone lived through every seventh day ..." for a run whose only intervention is a world shock; null otherwise. */
-export function sharedClause(iv: Intervention, catalog: Catalog | null | undefined): string | null {
+/**
+ * "everyone lived through every seventh day ..." for a run whose only intervention is a world shock; null
+ * otherwise. `everyone`, given only on the read-only demo, is said in its place, without its full stop.
+ */
+export function sharedClause(iv: Intervention, catalog: Catalog | null | undefined, everyone: string | null = null): string | null {
   if (!iv.worldShocks.length) return null;
+  if (everyone) return lowerFirst(everyone.trim().replace(/\.$/, ''));
   return `everyone lived through ${joinWords(iv.worldShocks.map((s) => lowerFirst(shockWords(s, catalog))))}`;
 }
 
@@ -325,9 +340,28 @@ export interface ArmContext {
   intervention: Intervention;
   catalog: Catalog | null;
   nCouples: number | null;
+  /**
+   * On the read-only demo, a world whose shocks were run in advance on everyone says what everyone lives
+   * through in its card's plain sentence (whatDiffers, sharedClause). Null everywhere else.
+   */
+  everyone: string | null;
 }
 
-const EMPTY: ArmContext = { labels: DEFAULT_LABELS, intervention: { memory: null, treatmentShocks: [], worldShocks: [] }, catalog: null, nCouples: null };
+const EMPTY: ArmContext = { labels: DEFAULT_LABELS, intervention: { memory: null, treatmentShocks: [], worldShocks: [] }, catalog: null, nCouples: null, everyone: null };
+
+/** The read-only demo (VITE_STATIC=1), whose shocks run in advance each come with a plain sentence. */
+const STATIC = import.meta.env.VITE_STATIC === '1';
+
+/**
+ * The read-only demo's plain sentence for the world `name`, when its card's shocks all reach everyone, with how
+ * many shocks it covers; null for any other world. Called only in the static build.
+ */
+async function demoEveryoneWords(name: string | null): Promise<{ words: string; shocks: number } | null> {
+  if (!name) return null;
+  const { demoCards } = await import('./staticApi');
+  const card = (await demoCards()).find((c) => c.name === name);
+  return card && card.shocks.length > 0 && card.shocks.every((s) => s.target === 'all') ? { words: card.words, shocks: card.shocks.length } : null;
+}
 
 const Ctx = createContext<ArmContext>(EMPTY);
 
@@ -341,11 +375,18 @@ export function toCatalog(kinds: ShockKind[] | undefined | null): Catalog | null
 }
 
 export function ArmLabelsProvider({ children }: { children: ReactNode }) {
-  const { data } = useAsync(() => Promise.all([getExperiment().catch(() => null), getShocksCatalog().catch(() => null)]), []);
+  const name = useExperiment().name;
+  const { data } = useAsync(
+    () => Promise.all([getExperiment().catch(() => null), getShocksCatalog().catch(() => null), STATIC ? demoEveryoneWords(name).catch(() => null) : Promise.resolve(null)]),
+    [],
+  );
   const exp = data?.[0]?.summary?.experiment;
   const catalog = toCatalog(data?.[1]?.kinds);
   const intervention = interventionOf(exp?.treatment, exp?.shocks);
-  const value: ArmContext = { labels: armLabelsFor(intervention, catalog), intervention, catalog, nCouples: exp?.n_couples ?? data?.[0]?.manifest.n_couples ?? null };
+  // The card's sentence stands for the world's shocks only when it covers every one of them.
+  const demo = data?.[2] ?? null;
+  const everyone = demo && demo.shocks === intervention.worldShocks.length ? demo.words : null;
+  const value: ArmContext = { labels: armLabelsFor(intervention, catalog), intervention, catalog, nCouples: exp?.n_couples ?? data?.[0]?.manifest.n_couples ?? null, everyone };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

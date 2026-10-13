@@ -17,6 +17,7 @@ import Legend from '../components/Legend';
 import ArmTooltip from '../components/ArmTooltip';
 import { gridColor, axisColor } from '../palette';
 import { safeFixed } from '../format';
+import { CHART_TEXT_PX } from '../chartText';
 
 const C1 = 'var(--control)';
 const C2 = 'var(--treatment)';
@@ -28,8 +29,8 @@ function Lines({ rows, keys, labels, width, height, domain, yLabel }: { rows: Ag
       <Legend items={keys.map((_, i) => ({ label: labels[i], color: i === 0 ? '#2a78d6' : '#eb6834', kind: 'line' as const }))} />
       <LineChart width={width} height={height} data={rows} margin={{ top: 8, right: 16, bottom: 28, left: 8 }}>
         <CartesianGrid stroke={gridColor()} vertical={false} />
-        <XAxis dataKey="day" stroke={axisColor()} tick={{ fontSize: 14 }} label={{ value: 'Day', position: 'insideBottom', offset: -18, fontSize: 14 }} />
-        <YAxis stroke={axisColor()} tick={{ fontSize: 14 }} domain={domain} width={56} label={{ value: yLabel, angle: -90, position: 'insideLeft', fontSize: 14 }} />
+        <XAxis dataKey="day" stroke={axisColor()} tick={{ fontSize: CHART_TEXT_PX }} label={{ value: 'Day', position: 'insideBottom', offset: -18, fontSize: CHART_TEXT_PX }} />
+        <YAxis stroke={axisColor()} tick={{ fontSize: CHART_TEXT_PX }} domain={domain} width={56} label={{ value: yLabel, angle: -90, position: 'insideLeft', fontSize: CHART_TEXT_PX }} />
         <Tooltip content={<ArmTooltip />} />
         {keys.map((k, i) => (
           <Line key={String(k)} dataKey={String(k)} name={labels[i]} stroke={colors[i]} strokeWidth={2} dot={false} isAnimationActive={false} />

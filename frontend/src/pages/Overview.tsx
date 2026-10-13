@@ -13,10 +13,23 @@ import { fmtShare, safeFixed, shortHash } from '../format';
 import { useArmContext, whatDiffers } from '../arms';
 import VersusParent from '../components/VersusParent';
 import { chanceWords, noIntervention } from '../nullRun';
+import { useExperiment } from '../experiment';
+
+/** The read-only demo (VITE_STATIC=1) heads each world with the name every other part of the demo calls it. */
+const STATIC = import.meta.env.VITE_STATIC === '1';
+
+/**
+ * The read-only demo's heading for a world: the name it is listed under, with the run's own name beside it
+ * when the two differ (the example town's run is named retention-90d). The live app heads it with the run's name.
+ */
+export function listedHeading(runName: string, listed: string | null): string {
+  return listed && listed !== runName ? `${listed} (run name ${runName})` : runName;
+}
 
 export default function Overview() {
   const { data, error, loading } = useAsync(getExperiment, []);
   const arms = useArmContext();
+  const listed = useExperiment().name;
   if (error) return <ErrorBox message={error} />;
   if (!data) return <Loading what="the experiment" />;
   const { manifest, summary } = data;
@@ -29,7 +42,7 @@ export default function Overview() {
   return (
     <div className={loading ? 'stale' : ''}>
       <Banner />
-      <h1>{manifest.name}</h1>
+      <h1>{STATIC ? listedHeading(manifest.name, listed) : manifest.name}</h1>
       {chance ? (
         <div className="takeaway" data-testid="chance-headline">
           <p className="takeaway-lead">{chance.lead}</p>
@@ -40,7 +53,7 @@ export default function Overview() {
       <div className="kpis">
         <StatTile label="Couples" value={manifest.n_couples.toLocaleString()} sub={`${(summary?.arms.control.couples ?? manifest.n_couples / 2).toLocaleString()} control, ${(summary?.arms.treatment.couples ?? manifest.n_couples / 2).toLocaleString()} treatment`} />
         <StatTile label="Days simulated" value={String(manifest.days)} />
-        <StatTile label="What differs" value={whatDiffers(arms.intervention, arms.catalog)} sub={exp ? `${labels.control.small}; ${labels.treatment.small}` : undefined} text />
+        <StatTile label="What differs" value={whatDiffers(arms.intervention, arms.catalog, arms.everyone)} sub={exp ? `${labels.control.small}; ${labels.treatment.small}` : undefined} text />
         <StatTile label="Seeds" value={`${manifest.seeds.population} / ${manifest.seeds.assignment} / ${manifest.seeds.dynamics}`} sub="population / assignment / dynamics" />
         <StatTile label="Determinism hash" value={shortHash(manifest.determinism_hash, 8)} sub={manifest.determinism_hash} />
         {divorce ? <StatTile label="Divorced within the year" value={`${fmtShare(divorce.control_mean)} vs ${fmtShare(divorce.treatment_mean)}`} sub={`${labels.control.plain} vs ${labels.treatment.plain}`} /> : null}

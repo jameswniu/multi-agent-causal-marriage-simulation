@@ -13,6 +13,10 @@ import { ArmLabelsProvider } from './arms';
 import { ExperimentProvider, useExperiment, withExperimentQuery } from './experiment';
 import { ErrorBox } from './components/Status';
 import { interventionSummary } from './arms';
+import { StaticBanner, StaticNewNote } from './components/StaticDemo';
+
+/** The read-only demo (VITE_STATIC=1): a banner on every page, and no way to start a run. */
+const STATIC = import.meta.env.VITE_STATIC === '1';
 
 const NAV: [string, string][] = [
   ['/world', 'World'],
@@ -28,7 +32,7 @@ function TopBar() {
   const exp = useExperiment();
   const location = useLocation();
   return (
-    <header className="topbar" aria-label="Experiment">
+    <header className={STATIC ? 'topbar topbar-static' : 'topbar'} aria-label="Experiment">
       <label>
         Experiment
         <select
@@ -48,9 +52,11 @@ function TopBar() {
         </select>
       </label>
       {exp.error ? <span className="muted">Experiment list unavailable: {exp.error}</span> : null}
-      <NavLink to={withExperimentQuery('/new', exp.name)} className={({ isActive }) => `newlink${isActive ? ' active' : ''}`} aria-current={location.pathname === '/new' ? 'page' : undefined}>
-        New experiment
-      </NavLink>
+      {STATIC ? null : (
+        <NavLink to={withExperimentQuery('/new', exp.name)} className={({ isActive }) => `newlink${isActive ? ' active' : ''}`} aria-current={location.pathname === '/new' ? 'page' : undefined}>
+          New experiment
+        </NavLink>
+      )}
     </header>
   );
 }
@@ -59,7 +65,8 @@ function Shell() {
   const exp = useExperiment();
   const key = exp.name ?? 'single';
   return (
-    <div className="shell">
+    // The demo's class lifts every small text to 16px, since the demo is read at 75% zoom (styles.css).
+    <div className={STATIC ? 'shell static-demo' : 'shell'}>
       <nav className="nav" aria-label="Pages">
         <div className="brand">LoveWorld</div>
         {NAV.map(([to, label]) => (
@@ -69,6 +76,7 @@ function Shell() {
         ))}
       </nav>
       <main className="main">
+        {STATIC ? <StaticBanner /> : null}
         <TopBar />
         {exp.unknown ? (
           <div data-testid="unknown-experiment">
@@ -87,7 +95,7 @@ function Shell() {
             <Route path="/agents/:id" element={<AgentDetail />} />
             <Route path="/policy" element={<Policy />} />
             <Route path="/governance" element={<Governance />} />
-            <Route path="/new" element={<NewExperiment />} />
+            <Route path="/new" element={STATIC ? <StaticNewNote /> : <NewExperiment />} />
             <Route path="*" element={<Navigate to={withExperimentQuery('/world', exp.name)} replace />} />
           </Routes>
         </ArmLabelsProvider>

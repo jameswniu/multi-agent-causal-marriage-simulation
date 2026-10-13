@@ -41,7 +41,8 @@ import {
 
 type Pixi = typeof import('pixi.js');
 
-const ASSET = '/assets/kenney';
+// Under the site's base path, which is the root in the live app and /<repository>/ on the read-only demo.
+const ASSET = `${import.meta.env.BASE_URL}assets/kenney`;
 const PEOPLE = 8;
 const MAX_SCALE = 4;
 const DRAG_PX = 5;
@@ -87,12 +88,18 @@ interface Props {
   experiment?: string | null;
   /** Called each time the town has been built and is drawing. */
   onReady?: () => void;
+  /**
+   * The district a phone opens on, when the page picks one: the read-only demo opens a shock that reaches only
+   * the treatment arm on that district, where its rings are, and keeps the district on screen when the town
+   * draws the other world. Left out, a phone opens on control and every rebuild returns there.
+   */
+  phoneDistrict?: District | null;
 }
 
 /** Below this host width the town shows one district at a time with a switch. */
 export const PHONE_MAX_PX = 600;
 const MINI_W = 200;
-type District = 'control' | 'plaza' | 'treatment';
+export type District = 'control' | 'plaza' | 'treatment';
 
 /** Mini-map colour of a state letter, the same colours the town's dots use (remarried couples purple). */
 export function miniColor(ch: string, arm: Arm | null, origin: Origin | null): string | null {
@@ -383,6 +390,7 @@ export default function TownView({
   rings = null,
   experiment = null,
   onReady,
+  phoneDistrict = null,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const lensRef = useRef<LensData | null>(lens);
@@ -392,7 +400,11 @@ export default function TownView({
   // New rings only redraw the rings and the mini-map, not every figure.
   const ringsDirtyRef = useRef(true);
   const [narrow, setNarrow] = useState(false);
-  const [district, setDistrict] = useState<District>('control');
+  const [district, setDistrict] = useState<District>(phoneDistrict ?? 'control');
+  // The district on a phone's screen. When the page picked where a phone opens, a rebuild (the town drawing
+  // the other world) stays on it; otherwise a rebuild opens on control, as it always has.
+  const districtRef = useRef<District>(phoneDistrict ?? 'control');
+  const keepDistrictRef = useRef(phoneDistrict !== null);
   // The couples table belongs to one world, so each world drawn in this town keeps its own: a table
   // read for another world is never used for this one, and flipping back to a world rebuilds at once.
   const [rowsBy, setRowsBy] = useState<Map<WorldResponse, { rows: CoupleRow[]; note: string | null }>>(() => new Map());
@@ -420,6 +432,15 @@ export default function TownView({
     ringsRef.current = rings;
     ringsDirtyRef.current = true;
   }, [rings]);
+  // A page that picks another opening district later moves a phone there too.
+  useEffect(() => {
+    keepDistrictRef.current = phoneDistrict !== null;
+    if (phoneDistrict === null || districtRef.current === phoneDistrict) return;
+    districtRef.current = phoneDistrict;
+    setDistrict(phoneDistrict);
+    const host = hostRef.current;
+    if (host && host.clientWidth > 0 && host.clientWidth < PHONE_MAX_PX) camera.current?.focusDistrict(phoneDistrict);
+  }, [phoneDistrict]);
   useEffect(() => {
     const host = hostRef.current;
     if (!host || typeof ResizeObserver === 'undefined') return;
@@ -742,7 +763,7 @@ export default function TownView({
       // Open on the whole town, or on one district on a phone. When only the world drawn changed (this
       // one or the one it came from), the camera stays where it was.
       const kept = savedCamera.current;
-      if (host.clientWidth > 0 && host.clientWidth < PHONE_MAX_PX) focusDistrict('control');
+      if (host.clientWidth > 0 && host.clientWidth < PHONE_MAX_PX) focusDistrict(keepDistrictRef.current ? districtRef.current : 'control');
       else if (kept && kept.cols === layout.districtCols) {
         applyScale(Math.min(MAX_SCALE, Math.max(minScale(), kept.scale)));
         sc.root.x = kept.x;
@@ -1096,6 +1117,7 @@ export default function TownView({
   }, [agents, layout, world, controlTitle, treatmentTitle, cols]);
 
   const pickDistrict = useCallback((d: District) => {
+    districtRef.current = d;
     setDistrict(d);
     camera.current?.focusDistrict(d);
   }, []);

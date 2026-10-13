@@ -3,6 +3,7 @@ import type { ConflictRow, DailyRow, EventRow } from '../types';
 import { memberColor, gridColor, axisColor } from '../palette';
 import ArmTooltip from './ArmTooltip';
 import Legend from './Legend';
+import { CHART_TEXT_PX } from '../chartText';
 
 interface Props {
   daily: DailyRow[];
@@ -34,8 +35,8 @@ export default function TrustLines({ daily, conflicts, events, width, height, me
       <Legend items={[{ label: `Agent ${agentA}`, color: memberColor('a'), kind: 'line' }, { label: `Agent ${agentB}`, color: memberColor('b'), kind: 'line' }]} />
       <LineChart width={width} height={height} data={rows} margin={{ top: 16, right: 48, bottom: 28, left: 8 }}>
         <CartesianGrid stroke={gridColor()} vertical={false} />
-        <XAxis dataKey="day" type="number" domain={['dataMin', 'dataMax']} stroke={axisColor()} tick={{ fontSize: 14 }} label={{ value: 'Day', position: 'insideBottom', offset: -18, fontSize: 14 }} />
-        <YAxis stroke={axisColor()} tick={{ fontSize: 14 }} domain={domain} width={56} label={{ value: metric === 'trust' ? 'Trust (0 to 1)' : 'Affect (-1 to 1)', angle: -90, position: 'insideLeft', fontSize: 14 }} />
+        <XAxis dataKey="day" type="number" domain={['dataMin', 'dataMax']} stroke={axisColor()} tick={{ fontSize: CHART_TEXT_PX }} label={{ value: 'Day', position: 'insideBottom', offset: -18, fontSize: CHART_TEXT_PX }} />
+        <YAxis stroke={axisColor()} tick={{ fontSize: CHART_TEXT_PX }} domain={domain} width={56} label={{ value: metric === 'trust' ? 'Trust (0 to 1)' : 'Affect (-1 to 1)', angle: -90, position: 'insideLeft', fontSize: CHART_TEXT_PX }} />
         <Tooltip content={<ArmTooltip unit={metric} />} />
         {conflicts.map((c, i) => (
           <ReferenceArea key={i} x1={c.started_day} x2={(c.ended_day ?? daily[daily.length - 1]?.day ?? c.started_day) + 1} fill="var(--treatment)" fillOpacity={0.1} stroke="none" />
@@ -45,7 +46,7 @@ export default function TrustLines({ daily, conflicts, events, width, height, me
         {markers.map((e, i) => {
           const r = byDay.get(e.day);
           const y = r ? (r.a + r.b) / 2 : domain[0];
-          return <ReferenceDot key={i} x={e.day} y={y} r={5} fill="var(--ink)" stroke="var(--surface)" strokeWidth={2} label={{ value: e.kind.replace(/_/g, ' '), position: 'top', fontSize: 14 }} />;
+          return <ReferenceDot key={i} x={e.day} y={y} r={5} fill="var(--ink)" stroke="var(--surface)" strokeWidth={2} label={{ value: e.kind.replace(/_/g, ' '), position: 'top', fontSize: CHART_TEXT_PX }} />;
         })}
       </LineChart>
       <p className="muted">Shaded spans are open conflicts. Dots mark state transitions.</p>

@@ -3,7 +3,7 @@
 // request bodies the server takes, and the day the new world's replay starts from.
 import { shockFirstDay, type Catalog } from './arms';
 import { shockEnd } from './town/timebar';
-import type { ForkRequest, RunRequest, RunShock, RunTranslation, ShockKind, TranslateResponse } from './types';
+import type { ForkRequest, RunRequest, RunShock, RunTranslation, ShockKind, ShockSpec, TranslateResponse } from './types';
 import { isTraitKind, rowSpec, type RunForm, type ShockForm } from './validation';
 
 let nextId = 1;
@@ -126,8 +126,13 @@ export function buildForkRequest(form: RunForm, kinds: ShockKind[], parent: stri
 
 /** The day a new world's replay starts on: ten days before its first shock acts, or the first day without shocks. */
 export function replayStartDay(shocks: ShockForm[], days: number): number {
-  if (!shocks.length) return 0;
-  const first = Math.min(...shocks.map((s) => shockFirstDay(rowSpec(s))));
+  return replayStartForSpecs(shocks.map(rowSpec), days);
+}
+
+/** The same day for shocks as the server runs them, such as the read-only demo's shocks run in advance. */
+export function replayStartForSpecs(specs: ShockSpec[], days: number): number {
+  if (!specs.length) return 0;
+  const first = Math.min(...specs.map(shockFirstDay));
   const last = Math.max(0, days - 1);
   return Math.min(last, Math.max(0, first - REPLAY_LEAD_DAYS));
 }

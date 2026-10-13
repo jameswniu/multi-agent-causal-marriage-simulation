@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { getExperiment } from '../api';
 import { useAsync } from '../useAsync';
 import Banner from '../components/Banner';
@@ -5,6 +6,9 @@ import AteTable from '../components/AteTable';
 import { ErrorBox, Loading, Empty } from '../components/Status';
 import { fmt } from '../format';
 import { armLabels } from '../arms';
+
+/** The read-only demo (VITE_STATIC=1), where nobody can run a placebo, says where the placebo is instead. */
+const STATIC = import.meta.env.VITE_STATIC === '1';
 
 export default function Governance() {
   const { data, error, loading } = useAsync(getExperiment, []);
@@ -31,6 +35,15 @@ export default function Governance() {
           </p>
           <AteTable outcomes={placebo.outcomes} />
         </div>
+      ) : STATIC && data.parent ? (
+        <Empty>
+          <span data-testid="placebo-in-parent">
+            This world was run without a placebo of its own. The placebo for these same couples is on{' '}
+            <Link to={`/governance?experiment=${encodeURIComponent(data.parent.parent)}`}>the Governance page of {data.parent.parent}</Link>, the world it was forked from.
+          </span>
+        </Empty>
+      ) : STATIC ? (
+        <Empty>This world was published without a placebo run.</Empty>
       ) : (
         <Empty>No placebo run linked. Run <code>loveworld placebo</code> beside this experiment and re-analyze.</Empty>
       )}

@@ -1,4 +1,5 @@
-// Typed wrappers over the FastAPI endpoints in docs/contracts.md sections 3, 5 and 6.
+// Typed wrappers over the FastAPI endpoints in docs/contracts.md sections 3, 5 and 6. In the read-only static
+// build (staticMode.ts) every read is answered from exported files instead, and every write is refused.
 import type {
   AgentDetailResponse,
   CoupleDetailResponse,
@@ -47,6 +48,8 @@ export class ApiError extends Error {
 
 /** With VITE_USE_FIXTURES=1 the app serves the test fixtures instead of calling the API (npm run dev:fixtures). */
 const USE_FIXTURES = import.meta.env.VITE_USE_FIXTURES === '1';
+/** With VITE_STATIC=1 (the read-only demo) every read comes from exported files and every write is refused. */
+const STATIC = import.meta.env.VITE_STATIC === '1';
 
 /** Scope a request to `experiment` when given, else to the experiment in the URL. */
 function withExperiment(path: string, experiment?: string | null): string {
@@ -101,8 +104,21 @@ async function fromFixtures<T>(path: string, init?: RequestInit, experiment?: st
   throw new ApiError(404, path, `No fixture for ${path}`);
 }
 
+/** The static build's answer to a read: the exported file, or the error the server would give, as an ApiError. */
+async function fromStatic<T>(path: string, init?: RequestInit, experiment?: string | null): Promise<T> {
+  const s = await import('./staticApi');
+  try {
+    return (await s.readStatic(path, init?.method ?? 'GET', experiment ?? currentExperiment, init?.signal ?? undefined)) as T;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') throw err;
+    if (err instanceof s.StaticError) throw new ApiError(err.status, path, `${err.status} ${err.detail} (${path})`);
+    throw new ApiError(0, path, `Network error reaching ${path}: ${(err as Error).message}`);
+  }
+}
+
 async function fetchJson<T>(path: string, init?: RequestInit, experiment?: string | null): Promise<T> {
   if (USE_FIXTURES) return fromFixtures<T>(path, init, experiment);
+  if (STATIC) return fromStatic<T>(path, init, experiment);
   const full = withExperiment(path, experiment);
   const headers: Record<string, string> = { Accept: 'application/json', ...((init?.headers as Record<string, string>) ?? {}) };
   if (init?.method === 'POST') {
@@ -239,6 +255,7 @@ export async function getLens(name: string): Promise<LensData> {
     return m.getLens(name);
   }
   const path = `/lens/${encodeURIComponent(name)}`;
+  if (STATIC) return fromStatic<LensData>(path);
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${withExperiment(path)}`, { headers: { Accept: 'application/octet-stream' } });

@@ -2,6 +2,7 @@ import { PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart } from 'r
 import type { AgentRow } from '../types';
 import { armColor, gridColor } from '../palette';
 import { safeFixed } from '../format';
+import { CHART_TEXT_PX } from '../chartText';
 
 export const TRAITS: (keyof AgentRow)[] = ['neuroticism', 'agreeableness', 'conscientiousness', 'openness', 'extraversion', 'forgiveness', 'commitment', 'closeness_pref', 'conflict_engagement'];
 
@@ -12,12 +13,15 @@ export default function TraitRadar({ agent, size }: { agent: AgentRow; size: num
   const narrow = size < 420;
   const data = TRAITS.map((t) => ({ trait: narrow ? SHORT[String(t)] : String(t).replace(/_/g, ' '), full: String(t).replace(/_/g, ' '), value: Number(agent[t]) }));
   const color = armColor(agent.arm);
+  // The trait names sit outside the radar, so at the demo's larger chart text the radar is drawn smaller to keep
+  // them inside, down to a phone's width.
+  const radius = size * (CHART_TEXT_PX > 14 ? 0.24 : 0.3);
   return (
     <div>
-      <RadarChart width={size} height={size} data={data} outerRadius={size * 0.3} margin={{ top: 8, right: 24, bottom: 8, left: 24 }}>
+      <RadarChart width={size} height={size} data={data} outerRadius={radius} margin={{ top: 8, right: 24, bottom: 8, left: 24 }}>
         <PolarGrid stroke={gridColor()} />
-        <PolarAngleAxis dataKey="trait" tick={{ fontSize: 14 }} />
-        <PolarRadiusAxis domain={[0, 1]} tick={{ fontSize: 14 }} />
+        <PolarAngleAxis dataKey="trait" tick={{ fontSize: CHART_TEXT_PX }} />
+        <PolarRadiusAxis domain={[0, 1]} tick={{ fontSize: CHART_TEXT_PX }} />
         <Radar dataKey="value" stroke={color} strokeWidth={2} fill={color} fillOpacity={0.12} isAnimationActive={false} />
       </RadarChart>
       <div className="table-wrap">
