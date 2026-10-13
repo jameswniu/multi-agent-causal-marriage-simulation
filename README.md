@@ -27,6 +27,11 @@
 A multi-agent simulation of married couples that runs a randomized controlled trial on one setting, how long each partner remembers a fight.<br/>
 Every decision is logged and every run replays exactly, so each effect traces back to the rules that caused it.
 
+<br/>
+
+<a href="https://jameswniu.github.io/multi-agent-causal-marriage-simulation/"><img alt="Read-only demo of the dashboard on GitHub Pages, with the example town and three shocks run in advance" src="https://img.shields.io/badge/demo-try_it_in_your_browser-4a5263?style=flat-square&labelColor=0e1119"></a><br/>
+<a href="https://jameswniu.github.io/multi-agent-causal-marriage-simulation/">Try the read-only demo in your browser</a>: the example town and three shocks run in advance, with nothing to install.
+
 </div>
 
 ## Watch it
