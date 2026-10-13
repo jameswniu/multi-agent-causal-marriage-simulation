@@ -7,6 +7,9 @@
 target/
 frontend/node_modules/
 frontend/dist/
+frontend/dist-static/
+site/
+.demo-shots/
 python/.venv/
 **/__pycache__/
 **/.pytest_cache/

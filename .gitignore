@@ -21,3 +21,6 @@ python/dist/
 /results/example/episodes.parquet
 # Local settings, never committed
 .env
+# The read-only demo's built site and its local screenshots
+/site/
+/.demo-shots/

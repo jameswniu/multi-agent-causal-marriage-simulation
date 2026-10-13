@@ -397,11 +397,13 @@ engine/        Rust crate: config, population, memory, policy, dynamics, systems
 python/        uv package `loveworld`: experiments, analysis, forks, run queue, translator, API, CLI, tests
 frontend/      Vite + React + TypeScript dashboard, with the PixiJS town
 experiments/   example.yaml, retention-45d.yaml, contagion-block.yaml, job-loss.yaml, daily-texts.yaml,
-               neuroticism-shift.yaml, crisis-under-retention.yaml, smoke.yaml
+               neuroticism-shift.yaml, crisis-under-retention.yaml, smoke.yaml, and demo/, the shocks the
+               free read-only demo runs in advance (docs/static-demo.md)
 results/       run outputs; results/example keeps the small tables and summary of the example run
 docs/          design.md, contracts.md (schemas, CLI, API), prior-art.md, deploy.md, figures/
 tools/         figures.py, which draws the README figures and badges from the example run;
-               fit_pair_weights.py and pairs_sweep.py, behind the matched-pairs section
+               fit_pair_weights.py and pairs_sweep.py, behind the matched-pairs section;
+               serve_static.py, which serves the read-only demo the way GitHub Pages does
 assets/        README recordings and screenshots of the dashboard
 deploy/        the container entrypoint and the edge worker for a public deployment
 ```

@@ -136,6 +136,8 @@ loveworld placebo <experiment.yaml> [--out ...]                           # same
 loveworld twins <experiment.yaml> [--out ...]                             # arm-override both ways on the same seeds, paired effects
 loveworld replay <results_dir>                                            # engine replay, exit non-zero on mismatch
 loveworld serve <results_dir> [--port 8765]                              # FastAPI + built dashboard
+loveworld demo [<results root>]                                           # run experiments/demo/ on the example (section 14)
+loveworld static [<results root>] [--site site]                           # export the read-only demo's data (section 14)
 loveworld build-engine                                                    # cargo build --release
 ```
 
@@ -959,3 +961,64 @@ The analysis reads `config.assignment.mode`:
 
 `tools/fit_pair_weights.py` refits the weights from a full example run, and `tools/pairs_sweep.py`
 repeats the measurement docs/design.md reports.
+
+## 14. The free read-only demo (added 2026-10-12)
+
+A static copy of the dashboard for GitHub Pages holds the example and a few shocks run in advance, with no
+server and no model. docs/static-demo.md describes it for a reader, and this section is its contract.
+
+`experiments/demo/<name>.json`, one per shock, with exactly these keys:
+
+```
+{"name": "demo-...", "order": 1, "title": "...", "words": "...", "typed": bool,
+ "parent": "example", "hits": "treatment" | "all",
+ "shocks": [the fork's shocks, each exactly as Shock.to_engine() writes it, target included],
+ "translation": {"shock_index", "recorded": "2026-10-12T01:33:33-07:00", "record": <a saved
+                 results/.translations record, status ok>} | null,
+ "note": "..."}
+```
+
+`typed` may be true only when `translate.text_sha256(words)` equals the record's `text_sha256`, a hash of the
+text lowercased with its spacing collapsed, which cannot check case or spacing. `hits` is
+`all` when any shock targets all, else `treatment`. A translated shock must be the shock as translated.
+`loveworld demo` forks each file's parent through `forking.plan_fork` and `forking.run_fork` (the fork
+endpoint's own code), writing translation.json from the saved record through `translate.translation_file`,
+and replaces an earlier build of the same world. It never calls a model.
+
+`loveworld static` stages a results root of the default world and the demo worlds (hard links, with their
+placebo and twins siblings), asks `create_app` on it for every read below through fastapi's TestClient, and
+writes each response body gzipped (level 9, no timestamp) under `<site>/data`, refusing a demo world whose
+parent.json no longer matches the parent on disk. It fails above 900 MB and says when the data passes 400 MB.
+
+```
+index.json.gz                     {"format": 1, "default", "event_chunk_days": 10, "couples_page": 10000, "quickstart",
+                                   "worlds": [{"name", "days", "couples", "agents", "couples_columns",
+                                               "lenses": {name: {"headers": {X-Lens-*}} | {"status": 404, "detail"}}}],
+                                   "demos": [{"name", "order", "title", "words", "typed", "parent", "hits", "shocks",
+                                              "note", "translation": {"translation_id", "model", "recorded",
+                                                                      "rationale", "words"} | null}],
+                                   "not_exported": [...]}
+experiments, health, shocks-catalog, lenses .json.gz    the global reads
+w/<world>/<read>.json.gz          experiment, ate, curves, distributions, policy, world, twins-world, digest
+w/<world>/couples.json.gz         GET /api/couples?limit=10000 (every couple, in table order, which is couple id order)
+w/<world>/couples/<id>.json.gz    GET /api/couples/<id>, for every couple
+w/<world>/agents/<id>.json.gz     GET /api/agents/<id>, for every agent in the agents table
+w/<world>/events/<k>.json.gz      {"from": 10k, "to", "days": [GET /api/events?day=N for each day, as sent]}
+w/<world>/lens/<name>.bin.gz      GET /api/lens/<name>
+```
+
+The dashboard built with `VITE_STATIC=1` (and `VITE_BASE`, the site's path) answers every `api.ts` read from
+these files (`frontend/src/staticApi.ts`) and never requests `/api`. `make static-frontend` puts it in `<site>`
+with a copy of `index.html` per page (`world.html`, `overview.html`, `comparisons.html`, `couples.html`,
+`agents.html`, `policy.html`, `governance.html`, `new.html`), which GitHub Pages serves for a link to that page
+with status 200, and `404.html`, through which a link to one couple or agent loads. `/api/couples` keeps rows
+equal to `arm`, `state` (final state) and `origin` when given, stable-sorts by `sort` (a couples column,
+missing values last), then pages by `offset` and `limit` (1 to 10,000), with the server's 400 and 422 answers.
+A detail id with no file is the server's 404 (`couple N not found`). Every POST, and `/api/jobs`, is refused
+with a 405 and a plain message. The World page offers "Try a shock" in place of "Shock this world", with one
+card per demo, and picking one opens that world as a finished run opens (section 12). The New experiment route
+is a one-line note, and a banner on every page says what LoveWorld is and that the site is read-only. A shocked
+world's Governance page points to its parent's placebo. On a phone the town opens a world whose added shocks
+all target the treatment arm on that district, and a world the demo ran on everyone is described in its card's
+words. The shell carries the class `static-demo`, under which every text the live app sets under 16px is 16px,
+and chart text is 16px. Off, the live app is unchanged.

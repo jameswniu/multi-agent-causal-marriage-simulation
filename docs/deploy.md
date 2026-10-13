@@ -11,6 +11,13 @@ a Cloudflare Worker that stops bots before they reach the translator or the run 
 $48 a month to keep up, and at most about $91 in a month when every visitor cap is hit. Nothing in
 this repository creates an account, a secret or a paid resource, so the steps below are done by hand.
 
+## The free read-only demo
+
+A static copy of the dashboard on GitHub Pages costs nothing to keep up. It shows the example town and a
+few shocks run in advance, with no server, no model and no typing, and CI rebuilds it on every push to
+main. [static-demo.md](static-demo.md) says what it is, what is frozen, how CI rebuilds it and how to
+build it locally. Everything below is about the full app.
+
 ## What runs where
 
 - The image (`Dockerfile`) builds the Rust engine, the React dashboard and the Python API, and

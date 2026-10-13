@@ -6,8 +6,15 @@ ENGINE := target/release/loveworld-engine
 EXPERIMENT ?= $(abspath experiments/example.yaml)
 RESULTS ?= $(abspath results/example)
 PORT ?= 8765
+# The free read-only demo: the folder it is built into, the path GitHub Pages serves it under, and a local port.
+SITE ?= $(abspath site)
+PAGES_BASE ?= /multi-agent-causal-marriage-simulation/
+STATIC_PORT ?= 8790
+# The dashboard's pages. Each gets its own copy of index.html, which GitHub Pages serves for a link to that page
+# with status 200; a link to one couple or agent reaches the app through 404.html instead.
+STATIC_PAGES := world overview comparisons couples agents policy governance new
 
-.PHONY: help engine engine-test python-sync python-test python-lint frontend-install frontend-test frontend-lint frontend-build test lint build example placebo twins replay serve dashboard figures figures-check clean
+.PHONY: help engine engine-test python-sync python-test python-lint frontend-install frontend-test frontend-lint frontend-build test lint build example placebo twins replay serve dashboard figures figures-check clean demo static static-frontend serve-static
 
 help:
 	@grep -E '^[a-z-]+:.*?## ' Makefile | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'
@@ -68,6 +75,23 @@ serve: ## Serve the API and built dashboard for every experiment under results/ 
 
 dashboard: frontend-build serve ## Build the dashboard, then serve it
 
+demo: engine ## Run the read-only demo's shocks (experiments/demo/) on the example world; run example first
+	$(PY) loveworld demo "$(abspath results)"
+
+static: ## Export the example and demo worlds as gzipped files for the read-only demo, into site/data
+	$(PY) loveworld static "$(abspath results)" --site "$(SITE)"
+
+static-frontend: ## Build the dashboard in read-only static mode into site/, with a page per route and 404.html for deep links
+	cd frontend && VITE_STATIC=1 VITE_BASE=$(PAGES_BASE) npm run build -- --outDir dist-static --emptyOutDir
+	rm -rf "$(SITE)/assets" "$(SITE)/index.html" "$(SITE)/404.html" $(foreach page,$(STATIC_PAGES),"$(SITE)/$(page).html")
+	mkdir -p "$(SITE)"
+	cp -R frontend/dist-static/. "$(SITE)/"
+	cp "$(SITE)/index.html" "$(SITE)/404.html"
+	for page in $(STATIC_PAGES); do cp "$(SITE)/index.html" "$(SITE)/$$page.html"; done
+
+serve-static: ## Serve site/ the way GitHub Pages does, on port 8790 under the repository's path
+	python3 tools/serve_static.py "$(SITE)" --port $(STATIC_PORT) --base $(PAGES_BASE)
+
 figures: ## Redraw the README figures from results/example/summary.json
 	python3 tools/figures.py --write
 
@@ -75,4 +99,4 @@ figures-check: ## Fail if a committed README figure differs from its generator
 	python3 tools/figures.py --check
 
 clean: ## Remove build outputs (keeps results/example)
-	rm -rf target frontend/dist python/.venv
+	rm -rf target frontend/dist frontend/dist-static site python/.venv
