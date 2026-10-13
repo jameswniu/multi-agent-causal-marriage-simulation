@@ -1,4 +1,4 @@
-"""Command line interface: run, analyze, placebo, twins, replay, serve, build-engine, policy-spec."""
+"""Command line interface: run, analyze, placebo, twins, replay, serve, demo, static, build-engine, policy-spec."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import typer
 
 from loveworld import analysis, runner
 from loveworld import engine as eng
+from loveworld.demo import DEMO_DIR
 from loveworld.experiment import (
     AnalysisSettings,
     ExperimentError,
@@ -17,6 +18,8 @@ from loveworld.experiment import (
     default_results_dir,
     load_experiment,
 )
+
+REPO_RESULTS = eng.REPO_ROOT / "results"
 
 app = typer.Typer(
     help="LoveWorld experiments: run the engine, estimate effects, serve the dashboard.", no_args_is_help=True
@@ -173,6 +176,56 @@ def serve(
     from loveworld.api import create_app
 
     uvicorn.run(create_app(results_dir), host=host, port=port)
+
+
+@app.command()
+def demo(
+    results_root: Path = typer.Argument(REPO_RESULTS, help="The results root that holds the parent world"),
+    demo_dir: Path = typer.Option(DEMO_DIR, help="Directory of demo files"),
+    only: list[str] = typer.Option([], help="Build only these demo worlds (by name)"),
+) -> None:
+    """Run the read-only demo's pre-run shocks: each file in experiments/demo/ forks its parent world."""
+    from loveworld import demo as demos
+
+    try:
+        items = demos.load_demos(demo_dir)
+    except demos.DemoError as e:
+        raise typer.BadParameter(str(e)) from e
+    unknown = sorted(set(only) - {d.name for d in items})
+    if unknown:
+        raise typer.BadParameter(f"no demo file names {unknown[0]}")
+    for d in items:
+        if only and d.name not in only:
+            continue
+        try:
+            demos.build_demo(d, results_root)
+        except (demos.DemoError, runner.TargetError, ExperimentError) as e:
+            raise typer.BadParameter(str(e)) from e
+        differ = demos.differing_per_day(results_root / d.parent, results_root / d.name)
+        peak = max(differ) if differ else 0
+        typer.echo(
+            f"{d.name}: forked from {d.parent}, hits {d.hits}; up to {peak:,} couples differ on a day, "
+            f"{differ[-1] if differ else 0:,} on the last"
+        )
+
+
+@app.command()
+def static(
+    results_root: Path = typer.Argument(REPO_RESULTS, help="The results root that holds the example and demo worlds"),
+    site: Path = typer.Option(eng.REPO_ROOT / "site", help="Site folder; the data goes in its data/ folder"),
+    default: str = typer.Option("example", help="The world the site opens on, and the parent of every demo"),
+    demo_dir: Path = typer.Option(DEMO_DIR, help="Directory of demo files"),
+    fail_mb: float = typer.Option(900.0, help="Fail when the gzipped data is larger than this many MB"),
+) -> None:
+    """Export the read-only demo's data: every response its pages read, gzipped, for GitHub Pages."""
+    from loveworld import static_site
+    from loveworld.demo import DemoError
+
+    try:
+        static_site.export_site(results_root, site, default=default, demo_dir=demo_dir, fail_mb=fail_mb, log=typer.echo)
+    except (static_site.StaticExportError, DemoError) as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1) from e
 
 
 @app.command("build-engine")

@@ -59,3 +59,33 @@ def test_cli_policy_spec(engine_ready: None) -> None:
     r = runner.invoke(app, ["policy-spec"])
     assert r.exit_code == 0, r.output
     assert "never_sees" in r.output
+
+
+def test_cli_demo_and_static_build_the_read_only_site(engine_ready: None, tmp_path: Path) -> None:
+    from .test_demo import _job_loss_demo, _write
+
+    root = tmp_path / "results"
+    for args in (
+        ["twins", str(EXPERIMENTS / "smoke.yaml"), "--out", str(root / "smoke-twins")],
+        ["run", str(EXPERIMENTS / "smoke.yaml"), "--out", str(root / "smoke")],
+    ):
+        r = runner.invoke(app, args)
+        assert r.exit_code == 0, r.output
+    demo_dir = tmp_path / "demo"
+    _write(demo_dir, "hard-times", _job_loss_demo("demo-hard-times"))
+    site = tmp_path / "site"
+    # Exporting before the demo world exists says to make it.
+    r = runner.invoke(
+        app, ["static", str(root), "--site", str(site), "--default", "smoke", "--demo-dir", str(demo_dir)]
+    )
+    assert r.exit_code == 1 and "run make demo" in r.output
+    r = runner.invoke(app, ["demo", str(root), "--demo-dir", str(demo_dir)])
+    assert r.exit_code == 0, r.output
+    assert "demo-hard-times: forked from smoke, hits treatment" in r.output
+    r = runner.invoke(app, ["demo", str(root), "--demo-dir", str(demo_dir), "--only", "demo-nope"])
+    assert r.exit_code != 0 and "no demo file names demo-nope" in r.output
+    r = runner.invoke(
+        app, ["static", str(root), "--site", str(site), "--default", "smoke", "--demo-dir", str(demo_dir)]
+    )
+    assert r.exit_code == 0, r.output
+    assert "MB gzipped" in r.output and (site / "data" / "index.json.gz").is_file()

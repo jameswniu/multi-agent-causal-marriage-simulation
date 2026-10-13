@@ -27,7 +27,7 @@ from loveworld import jobs as jobq
 from loveworld import public as pubmod
 from loveworld.analysis import Tables, load_tables, sanitize, sibling_dir
 from loveworld.engine import REPO_ROOT, EngineError
-from loveworld.experiment import ExperimentError, Shock, build_engine_config, parse_experiment
+from loveworld.experiment import ExperimentError, build_engine_config, parse_experiment
 from loveworld.schema import (
     EXPERIMENT_KEYS,
     MAX_COUPLES,
@@ -895,11 +895,6 @@ def parse_translations(raw: Any) -> list[tuple[str, int]]:
     return out
 
 
-def shock_record(shock: Shock) -> dict[str, Any]:
-    """Return a parsed shock as plain fields, the shape a translation's spec has."""
-    return translate.spec_of(shock)
-
-
 def _default_run_name() -> str:
     return "run-" + time.strftime("%Y%m%d-%H%M%S")
 
@@ -1098,11 +1093,7 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(e)) from e
         extra: dict[str, Any] = {}
         if pointers:
-            records = [
-                {"shock_index": idx, **translate.provenance(shock_translator, tid, shock_record(exp.shocks[idx]))}
-                for tid, idx in pointers
-            ]
-            extra["translation.json"] = {"translations": records}
+            extra["translation.json"] = translate.translation_file(shock_translator, pointers, exp.shocks)
         name = exp.name
         target = store.results_root / name
         twins = runner.twins_dir_for(target)
@@ -1164,17 +1155,10 @@ def create_app(
             raise HTTPException(status_code=409, detail=f"{twins.name} exists; pick another name")
         extra: dict[str, Any] = {}
         if pointers:
-            records = [
-                {"shock_index": idx, **translate.provenance(shock_translator, tid, shock_record(plan.shocks[idx]))}
-                for tid, idx in pointers
-            ]
-            extra["translation.json"] = {"translations": records}
-
-        def compare(run_dir: Path) -> dict[str, Any]:
-            return {"parent.json": forking.parent_record(plan, forking.compare_with_parent(run_dir, plan))}
+            extra["translation.json"] = translate.translation_file(shock_translator, pointers, plan.shocks)
 
         def work() -> dict[str, Any]:
-            runner.run_with_twins(plan.config, target, plan.settings, extra_files=extra or None, extra_from_run=compare)
+            forking.run_fork(plan, target, extra_files=extra or None)
             store.invalidate(plan.name)
             return {"name": plan.name, "dir": str(target)}
 

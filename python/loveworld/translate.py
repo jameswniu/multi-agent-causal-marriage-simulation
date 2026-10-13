@@ -697,3 +697,15 @@ def provenance(translator: Translator, translation_id: str, run_spec: dict[str, 
         "spec_as_run": run_spec,
         "edited": comparable(found.spec) != comparable(run_spec),
     }
+
+
+def translation_file(translator: Translator, pointers: list[tuple[str, int]], shocks: list[Shock]) -> dict[str, Any]:
+    """Return a run's translation.json: where each pointed-at shock came from, from this server's own records.
+
+    `pointers` pairs a translation id with the index of the shock it became, in the run's parse order.
+    """
+    return {
+        "translations": [
+            {"shock_index": idx, **provenance(translator, tid, spec_of(shocks[idx]))} for tid, idx in pointers
+        ]
+    }

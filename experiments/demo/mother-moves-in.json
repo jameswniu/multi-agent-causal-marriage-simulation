@@ -1,0 +1,85 @@
+{
+  "name": "demo-mother-moves-in",
+  "order": 1,
+  "title": "His mother moves in",
+  "words": "his mother moves in for two months starting in month four",
+  "typed": true,
+  "parent": "example",
+  "hits": "treatment",
+  "shocks": [
+    {
+      "kind": "custom",
+      "target": "treatment",
+      "member": "random",
+      "start_day": 90,
+      "end_day": 150,
+      "label": "mother moves in",
+      "description": "A partner's mother moves into the household for two months starting in month four, adding daily household strain on the partner whose mother it is and on the couple.",
+      "effects": [
+        {
+          "amount": 0.5,
+          "cadence": "daily",
+          "channel": "stress",
+          "end_day": 150,
+          "op": "add",
+          "start_day": 90,
+          "who": "both"
+        },
+        {
+          "amount": -0.03,
+          "cadence": "daily",
+          "channel": "affect",
+          "end_day": 150,
+          "op": "add",
+          "start_day": 90,
+          "who": "both"
+        }
+      ]
+    }
+  ],
+  "translation": {
+    "shock_index": 0,
+    "recorded": "2026-10-12T01:33:33-07:00",
+    "record": {
+      "days": 365,
+      "errors": [],
+      "message": null,
+      "model": "claude-haiku-5-5",
+      "rationale": "A parent moving in is not one of the named kinds, so it is a custom shock: month four starts on day 90 and two months lasts 60 days, ending on day 150, with daily stress on both partners and a mild daily affect dip.",
+      "spec": {
+        "description": "A partner's mother moves into the household for two months starting in month four, adding daily household strain on the partner whose mother it is and on the couple.",
+        "effects": [
+          {
+            "amount": 0.5,
+            "cadence": "daily",
+            "channel": "stress",
+            "end_day": 150,
+            "op": "add",
+            "start_day": 90,
+            "who": "both"
+          },
+          {
+            "amount": -0.03,
+            "cadence": "daily",
+            "channel": "affect",
+            "end_day": 150,
+            "op": "add",
+            "start_day": 90,
+            "who": "both"
+          }
+        ],
+        "end_day": 150,
+        "kind": "custom",
+        "label": "mother moves in",
+        "member": "random",
+        "start_day": 90,
+        "target": "treatment"
+      },
+      "status": "ok",
+      "text_sha256": "b205e43ff3a3e4de38377d4e642deff9aeaf0cf91e7526e676fedf41a4d16042",
+      "translation_id": "863b7bd56d5c441898cbef47cc6027e1",
+      "words": "Mother moves in (treatment arm): both partners: stress up 0.5 every day, days 90 to 150; both partners: mood down 0.03 every day, days 90 to 150"
+    }
+  },
+  "note": "Typed into the World page's shock box and run as the fork example-fork-20261012-013336, the world in the README's recording, which shows these words as typed. The record keeps a SHA-256 of the words lowercased with their spacing collapsed, which these words reproduce."
+}

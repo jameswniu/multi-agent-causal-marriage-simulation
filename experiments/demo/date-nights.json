@@ -1,0 +1,21 @@
+{
+  "name": "demo-date-nights",
+  "order": 3,
+  "title": "Weekly date nights for everyone",
+  "words": "Every couple in town starts a weekly date night on day 30 and keeps it up all year",
+  "typed": false,
+  "parent": "example",
+  "hits": "all",
+  "shocks": [
+    {
+      "kind": "date_nights",
+      "target": "all",
+      "member": "random",
+      "start_day": 30,
+      "end_day": null,
+      "magnitude": 1.0
+    }
+  ],
+  "translation": null,
+  "note": "Built by hand from the catalog's date nights kind at its default start day and magnitude, with no model. It hits both arms, so the memory setting is tested with date nights on both sides."
+}

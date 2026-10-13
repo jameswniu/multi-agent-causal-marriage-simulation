@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from loveworld import runner
 from loveworld.analysis import couple_frame, load_tables, paired_effects
 from loveworld.experiment import AnalysisSettings, ExperimentError, Shock, parse_shock
 from loveworld.schema import MAX_RESAMPLES
@@ -157,3 +158,21 @@ def parent_record(plan: ForkPlan, comparison: dict[str, Any]) -> dict[str, Any]:
         "appended_shocks": [s.to_engine() for s in plan.shocks],
         "comparison": comparison,
     }
+
+
+def run_fork(
+    plan: ForkPlan, target: Path, extra_files: dict[str, Any] | None = None, overwrite: bool = False
+) -> dict[str, Any]:
+    """Run a planned fork and its twins into `target`, with parent.json computed from the finished run.
+
+    The fork endpoint and the read-only demo's builder both run forks through here, so a demo world is
+    exactly what the API makes from the same request. The endpoint never overwrites a world; the builder
+    replaces its own earlier demo worlds, through the runner's safe swap.
+    """
+
+    def compare(run_dir: Path) -> dict[str, Any]:
+        return {"parent.json": parent_record(plan, compare_with_parent(run_dir, plan))}
+
+    return runner.run_with_twins(
+        plan.config, target, plan.settings, overwrite=overwrite, extra_files=extra_files, extra_from_run=compare
+    )
