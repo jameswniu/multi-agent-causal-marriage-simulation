@@ -13,7 +13,15 @@
     "assignment": {
       "mode": "couple",
       "treatment_fraction": 0.5,
-      "block_size": 10
+      "block_size": 10,
+      "pair_weights": {
+        "neuroticism": 0.17,
+        "conscientiousness": 0.028,
+        "agreeableness": -0.206,
+        "base_trust": -0.256,
+        "prior_divorces": -0.027,
+        "years_married": -0.038
+      }
     },
     "arm_override": null,
     "treatment": {
@@ -31,6 +39,7 @@
     "seed": 7,
     "ci_level": 0.95,
     "unit": "initial couples",
+    "design": "Couple randomisation: an exact half of the couples, drawn at random, is treated.",
     "inference_unit": "couple",
     "n_clusters": 1000
   },

@@ -5,6 +5,14 @@
     "assignment": {
       "block_size": 10,
       "mode": "couple",
+      "pair_weights": {
+        "agreeableness": -0.206,
+        "base_trust": -0.256,
+        "conscientiousness": 0.028,
+        "neuroticism": 0.17,
+        "prior_divorces": -0.027,
+        "years_married": -0.038
+      },
       "treatment_fraction": 0.5
     },
     "association": {
@@ -265,7 +273,7 @@
       "sha256": "6a299b4cb490dbbbc9dd24115ec19385febffcab62a973f0a113fbac499459e2"
     }
   },
-  "generated_at_unix": 1791777778,
+  "generated_at_unix": 1791852357,
   "n_couples": 1000,
   "name": "retention-90d",
   "policy_spec": {
