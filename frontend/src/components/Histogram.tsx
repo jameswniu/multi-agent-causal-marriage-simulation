@@ -1,3 +1,6 @@
+// Bar chart of how one outcome is spread across the couples of each arm: one bar per arm in each bin, its
+// height the share of that arm's couples whose value falls in the bin. The Comparisons page draws one per
+// outcome, so the two arms' spreads can be compared and not only their averages.
 import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from 'recharts';
 import type { Histogram as HistogramData } from '../types';
 import { armColor, gridColor, axisColor } from '../palette';

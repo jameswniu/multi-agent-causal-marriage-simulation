@@ -1,4 +1,6 @@
-// "Try a shock" on the read-only demo's World page, in place of "Shock this world". The demo has no server, so
+// LoveWorld simulates 1,000 married couples for a year, and a shock is one event added to a finished world,
+// such as a layoff, after which the same couples run again on the same random draws. This is "Try a shock" on
+// the read-only demo's World page, in place of "Shock this world". The demo has no server, so
 // its shocks were run in advance on the example town (experiments/demo/), and this panel shows one card each:
 // the request in plain words, where the shock came from, the shock as it ran and which houses it hits.
 // Picking one switches the page to that world in place, exactly as a finished run does in the live app: the

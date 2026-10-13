@@ -1,3 +1,5 @@
+// Radar chart of one simulated partner's nine personality traits, each from 0 to 1, drawn in the colour of the
+// arm the partner's couple is in, with a table of the exact values below it. The agent page draws it.
 import { PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart } from 'recharts';
 import type { AgentRow } from '../types';
 import { armColor, gridColor } from '../palette';

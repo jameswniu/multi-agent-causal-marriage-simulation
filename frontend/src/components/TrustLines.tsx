@@ -1,3 +1,6 @@
+// Line chart of one couple's two partners over the year: each partner's trust in the other (0 to 1) or their
+// affect, which is their mood (-1 to 1), with every open conflict shaded and a dot at each change in the
+// relationship, such as separated or reconciled. The couple page draws it.
 import { CartesianGrid, Line, LineChart, ReferenceArea, ReferenceDot, Tooltip, XAxis, YAxis } from 'recharts';
 import type { ConflictRow, DailyRow, EventRow } from '../types';
 import { memberColor, gridColor, axisColor } from '../palette';

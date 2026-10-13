@@ -1,3 +1,10 @@
+"""Tests for the loveworld command line, which runs the simulated couples and analyses them.
+
+They cover run, replay and analyze on a small experiment, the placebo and twins runs the Governance page
+reads, a bad experiment file, the policy spec, and the demo and static commands that build the free
+read-only site.
+"""
+
 from __future__ import annotations
 
 import json

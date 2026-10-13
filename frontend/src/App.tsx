@@ -1,3 +1,7 @@
+// The dashboard's frame for LoveWorld, a simulation of 1,000 married couples run as a randomized trial of how
+// long each partner remembers a fight: the list of pages, the experiment picker above every page, and the
+// route to each page. In the read-only demo (VITE_STATIC=1) it also shows the demo's banner and puts one line
+// in place of the New experiment page.
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import World from './pages/World';
 import Overview from './pages/Overview';

@@ -1,4 +1,9 @@
-"""The read-only demo's pre-run shocks: the committed files, the checks on them, and the worlds the builder makes."""
+"""The read-only demo's pre-run shocks: the committed files, the checks on them, and the worlds the builder makes.
+
+A pre-run shock forks the example world: the same simulated couples run again on the same random draws with one
+event added, such as a layoff. Each world comes with its twins, a second run that puts every couple under both
+memory settings on those same draws.
+"""
 
 from __future__ import annotations
 
@@ -85,7 +90,7 @@ def test_two_demo_files_may_not_share_a_name(tmp_path: Path) -> None:
 
 @pytest.fixture
 def smoke_root(tmp_path: Path, defaults: dict) -> Path:
-    """A results root holding the smoke experiment and its twins, as make placebo twins example leaves the example."""
+    """A results root holding the smoke experiment and its twins run, as make placebo twins example leaves them."""
     exp = load_experiment(EXPERIMENTS / "smoke.yaml", defaults)
     root = tmp_path / "results"
     runner.run_twins(exp, root / "smoke-twins")

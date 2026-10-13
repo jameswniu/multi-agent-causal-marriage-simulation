@@ -1,14 +1,21 @@
 # The free read-only demo
 
-The dashboard needs a server to run a world and a model to read a typed shock, and both cost money to keep
-up (docs/deploy.md). The free demo needs neither. It is a static copy of the dashboard on GitHub Pages, at
-https://jameswniu.github.io/multi-agent-causal-marriage-simulation/ once Pages is turned on for the
-repository, holding the example town and three shocks that were run in advance.
+LoveWorld simulates 1,000 married couples for a year as a randomized trial of one setting, how long each
+partner remembers a fight, and its dashboard plays the year back as a town with one house per couple. The
+free demo at https://jameswniu.github.io/multi-agent-causal-marriage-simulation/ is a static copy of that
+dashboard on GitHub Pages, so anyone can watch the example town, and three shocks run on it in advance,
+without installing anything. A shock is one event added to a finished world, such as a layoff, after which
+the same couples run again on the same random draws, so every difference is the shock's doing.
+
+The full dashboard needs a server to run a world and a model to read a shock typed in plain words, and both
+cost money to keep up (docs/deploy.md). The demo needs neither.
 
 ## What a visitor can do
 
-- Watch the example town play on the World page, which the site opens on, with every lens, the grid view
-  and the same couples under both arms.
+- Watch the example town play on the World page, which the site opens on. Each lens colours the houses by
+  one measure, such as how hard a couple holds a grudge. The grid view shows the two arms, the half of the
+  couples who forget a fight in two weeks and the half who hold onto it for three months, side by side, and
+  the twins view shows every couple under both settings.
 - Press Try a shock and pick one of the three shocks. Each card shows the request in plain words, where the
   shock came from, the shock as it ran and which houses it hits. Picking one switches the page to that world
   in place, as a finished run does in the live app. The town replays from ten days before the shock, every
@@ -38,9 +45,9 @@ card's words are copied as the README's recording shows them typed.
 | `demo-date-nights` | Weekly date nights from day 30 to the end of the year, for every couple in both arms | Built from the catalog's date nights kind by hand, with no model |
 
 The worlds themselves are not committed. `loveworld demo` runs each file through the fork endpoint's own
-code (`forking.plan_fork`, then `forking.run_fork`, which runs the world and its twins), with the saved
-record standing in for the translator, so each demo world is exactly what the live app makes from the same
-request. The model is never called.
+code (`forking.plan_fork`, then `forking.run_fork`, which runs the world and its twins, the same couples
+under both memory settings), with the saved record standing in for the translator, so each demo world is
+exactly what the live app makes from the same request. The model is never called.
 
 On one platform the engine reproduces a world bit for bit. Across platforms it does not quite, since the
 maths library behind exp, ln, powf and cos rounds some floats differently on Linux and macOS. CI builds the

@@ -1,3 +1,8 @@
+// Governance page: three checks that a measured effect comes from the setting the two arms differ in and not
+// from the simulation harness. A placebo run gives both arms the same setting and should find no effect, twin
+// runs put every couple under both settings on the same random draws, and covariate balance shows the arms
+// started alike. When a run has no placebo or twins beside it, the page names the command that makes them,
+// from loveworld, the project's command line tool (python/loveworld/cli.py).
 import { Link } from 'react-router-dom';
 import { getExperiment } from '../api';
 import { useAsync } from '../useAsync';
