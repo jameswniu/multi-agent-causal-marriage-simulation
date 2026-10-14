@@ -47,6 +47,9 @@ jobs:
           cache-dependency-glob: python/uv.lock
           # setup-uv prunes the cache before saving it, which drops every downloaded wheel and leaves it empty.
           prune-cache: false
+          # ci.yml's setup-uv saves a pruned cache under the plain key for the same uv.lock, and a saved key is never
+          # replaced, so without a suffix of its own this build would restore that empty cache every time.
+          cache-suffix: pages
       - run: cd python && uv sync --no-dev
       - uses: actions/setup-node@v4
         with:
