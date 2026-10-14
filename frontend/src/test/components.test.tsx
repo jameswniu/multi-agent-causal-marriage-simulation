@@ -3,7 +3,8 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import AteTable from '../components/AteTable';
-import ForestPlot from '../components/ForestPlot';
+import ForestPlot, { forestLayout, wrapWords } from '../components/ForestPlot';
+import ArmTooltip from '../components/ArmTooltip';
 import { buildSegments } from '../components/StateGantt';
 import { changedOnDay, charStyle } from '../components/WorldGrid';
 import { probabilities } from '../components/UnderTheHood';
@@ -50,6 +51,56 @@ describe('ForestPlot', () => {
   it('renders one row per outcome', () => {
     render(<ForestPlot outcomes={outcomes} width={600} />);
     expect(screen.getAllByTestId('forest-row').length).toBe(outcomes.length);
+  });
+
+  // The example's outcome names, the longest 42 characters.
+  const names = [
+    'Divorced within the window', 'Separated at least once', 'Days married until divorce or end', "Trust on the couple's last day", 'Mean trust over couple-days',
+    'Conflicts per couple-year', 'Escalations per conflict', 'Conflicts ending in reconciliation', 'Days from conflict onset to reconciliation', 'Divorced agents who remarried',
+  ];
+  const charPx = (7.5 / 14) * 16;
+
+  it('writes every outcome name in full in a column beside the whiskers on a desktop at 75% zoom', () => {
+    const wide = forestLayout(names, 1635);
+    expect(wide.stacked).toBe(false);
+    expect(wide.labelW).toBeGreaterThanOrEqual(42 * charPx);
+    expect(wide.rows.map((r) => r.lines)).toEqual(names.map((n) => [n]));
+    expect(wide.plotW).toBeGreaterThan(1000);
+  });
+
+  it('writes every outcome name in full on its own lines above its whisker on a phone, so no two read alike', () => {
+    for (const width of [321, 451]) {
+      const narrow = forestLayout(names, width);
+      expect(narrow.stacked).toBe(true);
+      expect(narrow.rows.map((r) => r.lines.join(' '))).toEqual(names);
+      for (const r of narrow.rows) for (const line of r.lines) expect(line.length * charPx).toBeLessThanOrEqual(width);
+      narrow.rows.forEach((r, i) => {
+        // The last line of a name ends above its whisker's zero line, and a row starts below the one before it.
+        expect(r.nameY + (r.lines.length - 1) * 20 + 4).toBeLessThanOrEqual(r.y - 13);
+        if (i > 0) expect(r.nameY - 13).toBeGreaterThan(narrow.rows[i - 1].y + 13);
+      });
+      expect(narrow.height).toBeGreaterThan(narrow.rows[names.length - 1].y + 13);
+    }
+    expect(forestLayout(names, 321).rows[8].lines).toEqual(['Days from conflict onset to', 'reconciliation']);
+    render(<ForestPlot outcomes={outcomes.map((o, i) => ({ ...o, label: names[i] }))} width={321} />);
+    const drawn = screen.getAllByTestId('forest-name').map((t) => [...t.querySelectorAll('tspan')].map((line) => line.textContent).join(' '));
+    expect(drawn).toEqual(names);
+    expect(document.body.textContent).not.toContain('…');
+  });
+
+  it('wraps a name at its spaces and keeps a word too long for a line whole', () => {
+    expect(wrapWords('Days from conflict onset to reconciliation', 30)).toEqual(['Days from conflict onset to', 'reconciliation']);
+    expect(wrapWords('reconciliation', 5)).toEqual(['reconciliation']);
+  });
+});
+
+describe('ArmTooltip', () => {
+  it('writes a long arm name in full, so the tooltip wraps its words rather than cutting them', () => {
+    const long = 'Holds onto fights for 3 months, one partner loses their job on day 60 (1.5 stress)';
+    render(<ArmTooltip active label={42} payload={[{ name: long, value: 0.98612, color: '#eb6834' }] as never} unit="share" />);
+    expect(screen.getByText('Day 42')).toBeInTheDocument();
+    expect(screen.getByText(long)).toBeInTheDocument();
+    expect(screen.getByText('0.986')).toBeInTheDocument();
   });
 });
 
@@ -114,9 +165,19 @@ describe('World copy', () => {
     ];
     const iv = interventionOf({ parameter: 'none', control_value: null, treatment_value: null }, shocks);
     expect(framingSentence(1000, iv, catalog, 'randomized')).toBe(
-      'Both grids start from the same 1,000 couples on the same day. Only this, one partner loses their job (a random partner, treatment arm), days 60 to 210, magnitude 1.5 (stress). Memory is identical in both arms. Everyone also lives through every seventh day both partners store a positive memory of an evening together (both partners, everyone), from day 0 to the end of the run, magnitude 1 (warmth).',
+      'Both grids start from the same 1,000 couples on the same day. The only difference is a shock to the treatment arm: in every treatment couple, one partner picked at random loses their job on day 60, so their stress jumps by 1.5 that day and stays raised until day 210. Memory is identical in both arms. Both arms also live through the same shock: once a week from day 0 to the end of the run, both partners in every couple in town go on a date night and store a good memory.',
     );
-    expect(framingSentence(1000, iv, catalog, 'twins')).toContain('the only difference is one partner loses their job (a random partner, treatment arm), days 60 to 210, magnitude 1.5 (stress). Memory is identical in both arms.');
+    expect(framingSentence(1000, iv, catalog, 'twins')).toBe(
+      'Each tile is one couple shown twice, the same people and the same random events, and the only difference is a shock to the treatment arm: in every treatment couple, one partner picked at random loses their job on day 60, so their stress jumps by 1.5 that day and stays raised until day 210. Memory is identical in both runs. Both runs also live through the same shock: once a week from day 0 to the end of the run, both partners in every couple in town go on a date night and store a good memory.',
+    );
+  });
+  it('frames a memory change with a treatment shock as a whole sentence, where the Overview tile keeps its short form', () => {
+    const job: ShockSpec = { kind: 'job_loss', target: 'treatment', member: 'random', start_day: 60, end_day: 150, magnitude: 1.5, trait: null };
+    const iv = interventionOf(spec, [job]);
+    expect(framingSentence(1000, iv, catalog, 'randomized', 'districts')).toBe(
+      'Both districts start from the same 1,000 couples on the same day. The only difference is how long a fight stays in memory, 14 days versus 90, and a shock to the treatment arm: in every treatment couple, one partner picked at random loses their job on day 60, so their stress jumps by 1.5 that day and stays raised until day 150.',
+    );
+    expect(whatDiffers(iv, catalog)).toMatch(/^Only how long a fight stays in memory, 14 days versus 90, and a shock to the treatment arm: in every treatment couple, /);
   });
   it('phrases divorce as 1 in N and writes the takeaway', () => {
     expect(oneInN(26, 500)).toBe('1 in 19');
@@ -126,7 +187,8 @@ describe('World copy', () => {
     expect(takeaway(364, c, t, 500, 500, 'randomized')).toBe(
       'By day 365, 5.2% of control couples had divorced against 11.8% of treatment couples. The only difference was how long a fight stayed in memory.',
     );
-    expect(takeaway(364, c, t, 500, 500, 'randomized', 'this, one partner loses their job on day 60')).toMatch(/The only difference was this, one partner loses their job on day 60\.$/);
+    const shocked = interventionOf(null, [{ kind: 'job_loss', target: 'treatment', member: 'random', start_day: 60, end_day: 210, magnitude: 1.5 }]);
+    expect(takeaway(364, c, t, 500, 500, 'randomized', differenceClause(shocked))).toMatch(/The only difference was a shock the treatment arm alone went through\.$/);
   });
 });
 
@@ -215,22 +277,25 @@ describe('pulses, probabilities, requests, async', () => {
     expect(l.treatment.small).toBe('treatment, job loss day 60');
     const iv = interventionOf(none, shocks);
     expect(whatDiffers(iv, catalog)).toBe(
-      'Only this, one partner loses their job (a random partner, treatment arm), days 60 to 210, magnitude 1.5 (stress). Memory is identical in both arms. Everyone also lives through every seventh day both partners store a positive memory of an evening together (both partners, everyone), from day 0 to the end of the run, magnitude 1 (warmth).',
+      'Only a shock to the treatment arm: in every treatment couple, one partner picked at random loses their job on day 60, so their stress jumps by 1.5 that day and stays raised until day 210. Memory is identical in both arms. Both arms also live through the same shock: once a week from day 0 to the end of the run, both partners in every couple in town go on a date night and store a good memory.',
     );
     const two: ShockSpec[] = [...shocks, { kind: 'temptation', target: 'treatment', member: 'a', start_day: 100, end_day: 200, magnitude: 0.2, trait: null }];
-    expect(armLabels(none, two, catalog).control.plain).toBe('No job loss, temptation');
-    expect(armLabels(none, two, catalog).treatment.plain).toBe('One partner loses their job on day 60 (1.5 stress), one partner keeps meeting attractive alternatives on day 100 (0.2 daily probability)');
+    expect(armLabels(none, two, catalog).control.plain).toBe('No job loss or temptation');
+    expect(armLabels(none, two, catalog).treatment.plain).toBe('One partner loses their job on day 60 (1.5 stress), partner A keeps meeting attractive people from day 100 (0.2 a day)');
+    expect(whatDiffers(interventionOf(none, two), catalog)).toMatch(/^Only two shocks to the treatment arm\. In every treatment couple, .* From day 100 to day 200, partner A in every treatment couple keeps meeting attractive people, with a 0\.2 chance each day of an encounter outside the relationship\. Memory is identical in both arms\. Both arms also live through/);
     const both = armLabels({ parameter: 'conflict_half_life_days', control_value: 14, treatment_value: 90 }, shocks, catalog);
     expect(both.treatment.plain).toBe('Holds onto fights for 3 months, one partner loses their job on day 60 (1.5 stress)');
-    expect(whatDiffers(interventionOf({ parameter: 'conflict_half_life_days', control_value: 14, treatment_value: 90 }, shocks), catalog)).toContain(
-      'Only how long a fight stays in memory, 14 days versus 90, and one partner loses their job (a random partner, treatment arm), days 60 to 210, magnitude 1.5 (stress). Everyone also',
+    expect(whatDiffers(interventionOf({ parameter: 'conflict_half_life_days', control_value: 14, treatment_value: 90 }, shocks), catalog)).toBe(
+      'Only how long a fight stays in memory, 14 days versus 90, and a shock to the treatment arm: in every treatment couple, one partner picked at random loses their job on day 60, so their stress jumps by 1.5 that day and stays raised until day 210. Both arms also live through the same shock: once a week from day 0 to the end of the run, both partners in every couple in town go on a date night and store a good memory.',
     );
-    expect(differenceClause(iv, catalog)).toBe('this, one partner loses their job (a random partner, treatment arm), days 60 to 210, magnitude 1.5 (stress)');
-    expect(differenceClause(interventionOf({ parameter: 'conflict_half_life_days', control_value: 14, treatment_value: 90 }, []), catalog)).toBe('how long a fight stayed in memory');
+    expect(differenceClause(iv)).toBe('a shock the treatment arm alone went through');
+    expect(differenceClause(interventionOf(none, two))).toBe('two shocks the treatment arm alone went through');
+    expect(differenceClause(interventionOf({ parameter: 'conflict_half_life_days', control_value: 14, treatment_value: 90 }, []))).toBe('how long a fight stayed in memory');
+    expect(differenceClause(interventionOf({ parameter: 'conflict_half_life_days', control_value: 14, treatment_value: 90 }, shocks))).toBe('how long a fight stayed in memory, and a shock the treatment arm alone went through');
     expect(armLabels(none, [], catalog).control.plain).toBe('Control');
     expect(armLabels(none, [], catalog).treatment.plain).toBe('Treatment');
-    // Without a catalog the kind itself is the fallback.
-    expect(armLabels(none, shocks, null).treatment.plain).toBe('Job loss on day 60 (1.5)');
+    // A named kind reads in words before the catalog has loaded too.
+    expect(armLabels(none, shocks, null).treatment.plain).toBe('One partner loses their job on day 60 (1.5 stress)');
   });
   it('summarises the intervention for the dropdown', () => {
     const items = (experimentsFixture as unknown as ExperimentsResponse).items;
@@ -288,7 +353,7 @@ describe('pulses, probabilities, requests, async', () => {
     expect(shockShort(shift, catalog)).toBe('trait shift (neuroticism)');
     const l = armLabels({ parameter: 'none', control_value: null, treatment_value: null }, [shift], catalog);
     expect(l.control.plain).toBe('No trait shift (neuroticism)');
-    expect(l.treatment.plain).toBe("One partner's neuroticism shifts on day 30 (+0.3 trait units)");
+    expect(l.treatment.plain).toBe("Partner A's neuroticism shifts on day 30 (+0.3)");
     const item = { ...(experimentsFixture as unknown as ExperimentsResponse).items[0], intervention: { memory: null, shocks: [shift] } };
     expect(interventionSummary(item, catalog)).toBe('trait shift (neuroticism) on day 30');
   });
@@ -297,14 +362,18 @@ describe('pulses, probabilities, requests, async', () => {
     const catalog = toCatalog((shocksCatalog as { kinds: ShockKind[] }).kinds);
     const world: ShockSpec = { kind: 'date_nights', target: 'all', member: 'random', start_day: 0, end_day: null, magnitude: 1, trait: null };
     const iv = interventionOf({ parameter: 'none', control_value: null, treatment_value: null }, [world]);
-    expect(whatDiffers(iv, catalog)).toBe('Nothing differs between the arms. Everyone lives through every seventh day both partners store a positive memory of an evening together (both partners, everyone), from day 0 to the end of the run, magnitude 1 (warmth).');
-    expect(differenceClause(iv, catalog)).toBeNull();
-    expect(sharedClause(iv, catalog)).toBe('everyone lived through every seventh day both partners store a positive memory of an evening together (both partners, everyone), from day 0 to the end of the run, magnitude 1 (warmth)');
-    const c = { married: 480, conflict: 10, separated: 2, divorced: 8 };
-    expect(takeaway(364, c, c, 500, 500, 'randomized', differenceClause(iv, catalog), sharedClause(iv, catalog))).toBe(
-      'By day 365, 1.6% of control couples had divorced against 1.6% of treatment couples. Nothing differed between the arms; everyone lived through every seventh day both partners store a positive memory of an evening together (both partners, everyone), from day 0 to the end of the run, magnitude 1 (warmth).',
+    expect(whatDiffers(iv, catalog)).toBe(
+      'Nothing differs between the arms. Both arms live through the same shock: once a week from day 0 to the end of the run, both partners in every couple in town go on a date night and store a good memory.',
     );
-    expect(framingSentence(1000, iv, catalog, 'twins')).toMatch(/nothing differs between the two runs; everyone lived through/);
+    expect(differenceClause(iv)).toBeNull();
+    expect(sharedClause(iv)).toBe('both lived through the same shock');
+    const c = { married: 480, conflict: 10, separated: 2, divorced: 8 };
+    expect(takeaway(364, c, c, 500, 500, 'randomized', differenceClause(iv), sharedClause(iv))).toBe(
+      'By day 365, 1.6% of control couples had divorced against 1.6% of treatment couples. Nothing differed between the arms; both lived through the same shock.',
+    );
+    expect(framingSentence(1000, iv, catalog, 'twins')).toBe(
+      'Each tile is one couple shown twice, the same people and the same random events, and nothing differs between the two runs. Both runs live through the same shock: once a week from day 0 to the end of the run, both partners in every couple in town go on a date night and store a good memory.',
+    );
   });
 
   it('the developer log unions days from every source and diffs against the previous logged record', () => {
@@ -338,13 +407,31 @@ describe('pulses, probabilities, requests, async', () => {
     expect(housekeeping).toBe(2);
   });
 
-  it('chart text and scoreboard sublines are at least 0.875rem', () => {
+  it('sets no text under 16px anywhere in the stylesheet, and chart text at 16px, so every word reads at 75% zoom', () => {
     render(<ForestPlot outcomes={outcomes.slice(0, 2)} width={600} />);
     const sizes = [...document.querySelectorAll('svg text')].map((t) => Number(t.getAttribute('font-size')));
     expect(sizes.length).toBeGreaterThan(0);
-    expect(Math.min(...sizes)).toBeGreaterThanOrEqual(14);
-    expect(styles).toMatch(/\.score \.sub \{[^}]*font-size: 0\.875rem/);
-    expect(styles).not.toMatch(/font-size: 0\.8[0-6]/);
+    expect(Math.min(...sizes)).toBe(16);
+    // Every font-size the stylesheet declares, in px (a rem is 16px), is at least 16, in the live app and the demo alike.
+    const declared = [...styles.matchAll(/font-size:\s*([\d.]+)(rem|px|em)/g)].map((m) => ({ text: m[0], px: Number(m[1]) * (m[2] === 'px' ? 1 : 16) }));
+    expect(declared.length).toBeGreaterThan(40);
+    expect(declared.filter((d) => d.px < 16)).toEqual([]);
+    expect(styles).not.toMatch(/font-size:\s*(small|smaller|x-small|xx-small|[\d.]+%)/);
+    // The demo's own 16px floor is gone: nothing depends on the static-demo class any more.
+    expect(styles).not.toContain('static-demo');
+    expect(styles).not.toContain('topbar-static');
+    expect(styles).toMatch(/\.chart svg text \{[^}]*font-size: 16px/);
+    // On a phone the experiment picker shrinks to the screen instead of widening the page.
+    expect(styles).toMatch(/\.topbar select \{[^}]*min-width: 0;[^}]*max-width: 100%/);
+    expect(styles).toMatch(/\.topbar label \{[^}]*min-width: 0;[^}]*max-width: 100%/);
+    // A table never breaks a word or a number inside it, so on a phone it scrolls inside its .table-wrap instead.
+    expect(styles).toMatch(/\ntable\.data \{[^}]*overflow-wrap: normal/);
+    expect(styles).toMatch(/\ntable\.data td\.num \{[^}]*white-space: nowrap/);
+    expect(styles).toMatch(/\ntable\.data td\.key-label \{[^}]*white-space: nowrap/);
+    // A chart's tooltip is at most the chart less 72px wide, so pinned to the plot's left edge it still ends inside.
+    expect(styles).toMatch(/\n\.chart \.recharts-tooltip-wrapper \{[^}]*max-width: calc\(100% - 72px\)/);
+    // A shock row's day boxes are wide enough for their hint, such as "to the end".
+    expect(styles).toMatch(/\n\.shock input\[type="number"\] \{[^}]*width: 7\.5rem/);
   });
 
   it('the review-named unused exports are gone', () => {
@@ -358,42 +445,120 @@ describe('pulses, probabilities, requests, async', () => {
 
 describe('shock words', () => {
   const catalog = toCatalog((shocksCatalog as { kinds: ShockKind[] }).kinds)!;
+  const KINDS = ['job_loss', 'financial_crisis', 'temptation', 'intimacy_mismatch', 'daily_texts', 'anniversary', 'date_nights', 'trait_shift'];
+  const base = (kind: string): ShockSpec => ({ kind, target: 'treatment', member: 'b', start_day: 60, end_day: 150, magnitude: 0.3, trait: kind === 'trait_shift' ? 'neuroticism' : null });
+
+  it('says every kind as a plain sentence, without the catalog clause or its parentheses', () => {
+    const say = (s: Partial<ShockSpec> & { kind: string }) => shockWords({ target: 'all', member: 'random', start_day: 30, end_day: null, magnitude: 1, ...s } as ShockSpec, catalog);
+    expect(say({ kind: 'date_nights' })).toBe('Once a week from day 30 to the end of the run, both partners in every couple in town go on a date night and store a good memory.');
+    expect(say({ kind: 'date_nights', target: 'treatment', magnitude: 1.5 })).toBe(
+      'Once a week from day 30 to the end of the run, both partners in every treatment couple go on a date night and store a good memory. Each date night counts 1.5 times as much as usual.',
+    );
+    expect(say({ kind: 'job_loss', target: 'treatment', start_day: 60, end_day: 150, magnitude: 1.5 })).toBe(
+      'In every treatment couple, one partner picked at random loses their job on day 60, so their stress jumps by 1.5 that day and stays raised until day 150.',
+    );
+    expect(say({ kind: 'financial_crisis', start_day: 90, end_day: 210 })).toBe('From day 90 to day 210, money trouble of magnitude 1 hits every couple in town, and both partners carry extra stress every day.');
+    expect(say({ kind: 'temptation', member: 'a', start_day: 60, end_day: 180, magnitude: 0.2 })).toBe(
+      'From day 60 to day 180, partner A in every couple in town keeps meeting attractive people, with a 0.2 chance each day of an encounter outside the relationship.',
+    );
+    expect(say({ kind: 'intimacy_mismatch', member: 'b', start_day: 90, magnitude: -0.4 })).toBe(
+      'On day 90, partner B in every couple in town starts wanting less closeness, down 0.4 on a scale of 0 to 1, and keeps wanting it.',
+    );
+    expect(say({ kind: 'daily_texts', member: 'a', target: 'treatment' })).toBe(
+      'From day 30 to the end of the run, partner A in every treatment couple sends partner B a loving text every day, and partner B stores a small warm memory and feels a little better each time.',
+    );
+    expect(say({ kind: 'anniversary', start_day: 180 })).toBe('On day 180 and every 365 days after, both partners in every couple in town celebrate an anniversary, store a strong warm memory and trust each other a little more.');
+    expect(say({ kind: 'trait_shift', trait: 'closeness_pref', magnitude: 0.3, target: 'treatment', end_day: 90 })).toBe(
+      'On day 30, the wish for closeness of one partner picked at random in every treatment couple goes up 0.3 on a scale of 0 to 1 and stays there, even after the shock ends on day 90.',
+    );
+    expect(say({ kind: 'job_loss', magnitude: 0, end_day: 60 })).toBe('Job loss from day 30 to day 60 for one partner picked at random in every couple in town, at magnitude 0, which changes nothing.');
+    for (const kind of KINDS) {
+      for (const target of ['all', 'treatment', 'control'] as const) {
+        for (const member of ['random', 'a', 'b'] as const) {
+          const text = shockWords({ ...base(kind), target, member }, catalog);
+          expect(text).toMatch(/^[A-Z][^()]*\.$/);
+          expect(text).not.toMatch(/everyone\)|\(both partners|treatment arm\)|magnitude [\d.]+ \(| {2}|\s[,.]/);
+          expect(text).toContain(target === 'all' ? 'every couple in town' : `every ${target} couple`);
+        }
+      }
+    }
+  });
+
+  it('says the edge cases plainly: a one-day change, a sure encounter, one anniversary and one day of texts', () => {
+    const say = (s: Partial<ShockSpec> & { kind: string }) => shockWords({ target: 'treatment', member: 'random', start_day: 75, end_day: 75, magnitude: 1, trait: null, ...s } as ShockSpec, catalog);
+    expect(say({ kind: 'intimacy_mismatch', magnitude: 0.4 })).toBe(
+      'On day 75, one partner picked at random in every treatment couple starts wanting more closeness, up 0.4 on a scale of 0 to 1, and keeps wanting it, even after the one-day shock is over.',
+    );
+    expect(say({ kind: 'trait_shift', trait: 'neuroticism', magnitude: 0.3 })).toMatch(/and stays there, even after the one-day shock is over\.$/);
+    expect(say({ kind: 'temptation', start_day: 90, end_day: 210 })).toBe(
+      'From day 90 to day 210, one partner picked at random in every treatment couple keeps meeting attractive people and has an encounter outside the relationship every day.',
+    );
+    expect(say({ kind: 'anniversary', start_day: 60, end_day: 150 })).toBe(
+      'On day 60, both partners in every treatment couple celebrate an anniversary, store a strong warm memory and trust each other a little more. The shock ends on day 150, before the next anniversary.',
+    );
+    expect(say({ kind: 'anniversary', start_day: 10, end_day: 500 })).toMatch(/^On day 10 and every 365 days after until day 500, /);
+    expect(say({ kind: 'daily_texts' })).toBe(
+      'On day 75, one partner picked at random in every treatment couple sends the other partner a loving text that day, and the other partner stores a small warm memory and feels a little better.',
+    );
+  });
 
   it('names every field of a shock, so shocks that differ in any field never read the same', () => {
-    const s: ShockSpec = { kind: 'job_loss', target: 'treatment', member: 'b', start_day: 60, end_day: 210, magnitude: 1.5, trait: null };
-    const text = shockWords(s, catalog);
-    expect(text).toContain('loses their job');
-    expect(text).toContain('partner B');
-    expect(text).toContain('treatment arm');
-    expect(text).toContain('days 60 to 210');
-    expect(text).toContain('magnitude 1.5');
-    expect(text).toContain(catalog.job_loss.magnitude.unit);
-    const small = shockWords({ ...s, magnitude: 0.1 }, catalog);
-    const big = shockWords({ ...s, magnitude: 5 }, catalog);
-    expect(small).not.toBe(big);
-    expect(shockWords({ ...s, target: 'control' }, catalog)).toContain('control arm');
-    expect(shockWords({ ...s, target: 'all' }, catalog)).toContain('everyone');
-    expect(shockWords({ ...s, member: 'a' }, catalog)).toContain('partner A');
-    expect(shockWords({ ...s, member: 'random' }, catalog)).toContain('a random partner');
-    expect(shockWords({ ...s, end_day: 60 }, catalog)).toContain('day 60,');
-    expect(shockBrief(small === big ? s : { ...s, magnitude: 0.1 }, catalog)).not.toBe(shockBrief({ ...s, magnitude: 5 }, catalog));
+    for (const kind of KINDS) {
+      const s = base(kind);
+      const variants: ShockSpec[] = [
+        s,
+        { ...s, target: 'all' },
+        { ...s, target: 'control' },
+        { ...s, start_day: 61 },
+        { ...s, end_day: 151 },
+        { ...s, end_day: null },
+        { ...s, magnitude: 0.4 },
+        { ...s, magnitude: 0 },
+        ...(catalog[kind]?.member_applies ? [{ ...s, member: 'a' as const }, { ...s, member: 'random' as const }] : []),
+        ...(kind === 'trait_shift' ? [{ ...s, trait: 'openness' }] : []),
+      ];
+      const words = variants.map((v) => shockWords(v, catalog));
+      expect(new Set(words).size).toBe(words.length);
+    }
+    const job = base('job_loss');
+    expect(shockBrief({ ...job, magnitude: 0.1 }, catalog)).not.toBe(shockBrief({ ...job, magnitude: 5 }, catalog));
   });
 
-  it('names the trait and its signed shift for a trait shift, and both partners for a couple-wide kind', () => {
-    const shift: ShockSpec = { kind: 'trait_shift', target: 'treatment', member: 'a', start_day: 30, end_day: null, magnitude: 0.3, trait: 'neuroticism' };
-    const text = shockWords(shift, catalog);
-    expect(text).toContain('neuroticism');
-    expect(text).toContain('magnitude +0.3');
-    expect(text).toContain('from day 30');
-    const crisis: ShockSpec = { kind: 'financial_crisis', target: 'all', member: 'random', start_day: 90, end_day: 120, magnitude: 1, trait: null };
-    expect(shockWords(crisis, catalog)).toContain('both partners');
+  it('reads naturally on the World page and the Overview for every kind, aimed at everyone or at the treatment arm, with or without a memory change', () => {
+    const custom: ShockSpec = {
+      kind: 'custom', target: 'treatment', member: 'random', start_day: 90, end_day: 150, magnitude: 0, label: 'mother moves in',
+      effects: [{ channel: 'stress', op: 'add', amount: 0.5, cadence: 'daily', who: 'both' }],
+    };
+    const memory = { parameter: 'conflict_half_life_days', control_value: 14, treatment_value: 90 };
+    const c = { married: 480, conflict: 10, separated: 2, divorced: 8 };
+    for (const shock of [...KINDS.map(base), custom]) {
+      for (const target of ['all', 'treatment'] as const) {
+        for (const mem of [memory, null]) {
+          const iv = interventionOf(mem, [{ ...shock, target }]);
+          const texts = [
+            whatDiffers(iv, catalog),
+            framingSentence(1000, iv, catalog, 'randomized', 'districts'),
+            framingSentence(1000, iv, catalog, 'twins'),
+            takeaway(364, c, c, 500, 500, 'randomized', differenceClause(iv), sharedClause(iv)),
+          ];
+          for (const text of texts) {
+            expect(text).toMatch(/^[A-Z]/);
+            expect(text).toMatch(/\.$/);
+            expect(text).not.toMatch(/[()]| {2}|\s[,.:;]|\.\.|[,:;]\.|Only this,|lives? through every seventh/);
+          }
+          // The shock itself is always told, in its own sentence, whichever arm it reaches.
+          expect(texts[0]).toContain(shockWords({ ...shock, target }, catalog).slice(1, 40));
+        }
+      }
+    }
   });
 
-  it('resolves an open end day the way the engine does', () => {
+  it('resolves an open end day the way the engine does, and says so when the catalog has not loaded', () => {
     const k = catalog.job_loss;
     const len = k.default_length_days ?? (k.default_end_day != null ? k.default_end_day - k.default_start_day : null);
     const s: ShockSpec = { kind: 'job_loss', target: 'treatment', member: 'random', start_day: 10, end_day: null, magnitude: 1, trait: null };
-    expect(shockWords(s, catalog)).toContain(len == null ? 'from day 10 to the end of the run' : `days 10 to ${10 + len}`);
-    expect(shockWords(s, null)).toContain('from day 10 on');
+    expect(shockWords(s, catalog)).toContain(len == null ? 'stays raised to the end of the run' : `stays raised until day ${10 + len}`);
+    expect(shockWords(s, null)).toContain('stays raised from then on');
+    expect(shockWords({ ...s, kind: 'date_nights' }, null)).toContain('Once a week from day 10 on,');
   });
 });

@@ -53,7 +53,7 @@ export default function Overview() {
       <div className="kpis">
         <StatTile label="Couples" value={manifest.n_couples.toLocaleString()} sub={`${(summary?.arms.control.couples ?? manifest.n_couples / 2).toLocaleString()} control, ${(summary?.arms.treatment.couples ?? manifest.n_couples / 2).toLocaleString()} treatment`} />
         <StatTile label="Days simulated" value={String(manifest.days)} />
-        <StatTile label="What differs" value={whatDiffers(arms.intervention, arms.catalog, arms.everyone)} sub={exp ? `${labels.control.small}; ${labels.treatment.small}` : undefined} text />
+        <StatTile label="What differs" value={whatDiffers(arms.intervention, arms.catalog)} sub={exp ? `${labels.control.small}; ${labels.treatment.small}` : undefined} text />
         <StatTile label="Seeds" value={`${manifest.seeds.population} / ${manifest.seeds.assignment} / ${manifest.seeds.dynamics}`} sub="population / assignment / dynamics" />
         <StatTile label="Determinism hash" value={shortHash(manifest.determinism_hash, 8)} sub={manifest.determinism_hash} />
         {divorce ? <StatTile label="Divorced within the year" value={`${fmtShare(divorce.control_mean)} vs ${fmtShare(divorce.treatment_mean)}`} sub={`${labels.control.plain} vs ${labels.treatment.plain}`} /> : null}

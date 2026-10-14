@@ -36,27 +36,29 @@ const motherMovesIn: ShockSpec = {
 };
 
 describe('custom shock words', () => {
-  it('reads each effect in plain words with whom, how much, how often and when', () => {
+  it('reads each effect as a plain sentence with how much, how often, for whom and when', () => {
     const [stress, hazard, memory] = motherMovesIn.effects as EffectSpec[];
-    expect(effectWords(stress, motherMovesIn)).toBe('both partners: stress up 0.4 every day, days 60 to 120');
-    expect(effectWords(hazard, motherMovesIn)).toBe('both partners: fights start 1.3 times as often, days 60 to 120');
-    expect(effectWords(memory, motherMovesIn)).toBe('a random partner: a hurtful memory of strength 0.3 every week, days 60 to 120');
+    expect(effectWords(stress, motherMovesIn)).toBe('Stress goes up 0.4 every day for both partners from day 60 to day 120.');
+    expect(effectWords(hazard, motherMovesIn)).toBe('Fights start 1.3 times as often from day 60 to day 120.');
+    expect(effectWords(memory, motherMovesIn)).toBe('One partner picked at random stores a hurtful memory of strength 0.3 every week from day 60 to day 120.');
   });
 
   it('names the other partner, signs, windows and every channel', () => {
     const s: ShockSpec = { ...motherMovesIn, member: 'a', end_day: null };
     const e = (over: Partial<EffectSpec>): EffectSpec => ({ channel: 'affect', op: 'add', amount: -0.05, cadence: 'daily', who: 'partner', ...over });
-    expect(effectWords(e({}), s)).toBe('partner B: mood down 0.05 every day, from day 60 to the end of the run');
-    expect(effectWords(e({ channel: 'trust', amount: 0.2, cadence: 'once', who: 'member' }), s)).toBe('partner A: trust up 0.2 once, on day 60');
-    expect(effectWords(e({ channel: 'trait', trait: 'conflict_engagement', amount: -0.2, cadence: 'yearly', who: 'both' }), s)).toContain('conflict engagement down 0.2 every year');
-    expect(effectWords(e({ channel: 'outside', amount: 0.25 }), s)).toContain('a 0.25 chance a day of meeting someone attractive');
-    expect(effectWords(e({ channel: 'repair_propensity', op: 'multiply', amount: 2 }), s)).toContain('2 times the odds of making up');
-    expect(effectWords(e({ start_day: 70, end_day: 80 }), s)).toContain('days 70 to 80');
+    expect(effectWords(e({}), s)).toBe('Mood goes down 0.05 every day for partner B from day 60 to the end of the run.');
+    expect(effectWords(e({ channel: 'trust', amount: 0.2, cadence: 'once', who: 'member' }), s)).toBe('Trust goes up 0.2 for partner A on day 60.');
+    expect(effectWords(e({ channel: 'trait', trait: 'conflict_engagement', amount: -0.2, cadence: 'yearly', who: 'both' }), s)).toContain('Conflict engagement goes down 0.2 every year for both partners');
+    expect(effectWords(e({ channel: 'outside', amount: 0.25 }), s)).toContain('Partner B has a 0.25 chance each day of meeting someone attractive');
+    expect(effectWords(e({ channel: 'repair_propensity', op: 'multiply', amount: 2 }), s)).toContain('Partner B has 2 times the usual odds of making up');
+    expect(effectWords(e({ start_day: 70, end_day: 80 }), s)).toContain('from day 70 to day 80');
   });
 
   it('carries the label into every summary without needing a magnitude', () => {
     const words = shockWords(motherMovesIn, catalog);
-    expect(words.startsWith('Mother moves in (treatment arm): both partners: stress up 0.4 every day')).toBe(true);
+    expect(words).toBe(
+      'Mother moves in for every treatment couple from day 60 to day 120, so stress goes up 0.4 every day for both partners, fights start 1.3 times as often and one partner picked at random stores a hurtful memory of strength 0.3 every week.',
+    );
     expect(words).not.toContain('magnitude');
     expect(shockBrief(motherMovesIn, catalog)).toBe('Mother moves in on day 60 (3 effects)');
     expect(shockShort(motherMovesIn, catalog)).toBe('mother moves in');
@@ -64,13 +66,42 @@ describe('custom shock words', () => {
     expect(labels.control.plain).toBe('No mother moves in');
     expect(labels.treatment.plain).toBe('Mother moves in on day 60 (3 effects)');
     expect(labels.treatment.small).toContain('mother moves in day 60');
-    expect(whatDiffers(interventionOf(null, [motherMovesIn]), catalog)).toContain('mother moves in (treatment arm): both partners: stress up 0.4 every day');
+    expect(whatDiffers(interventionOf(null, [motherMovesIn]), catalog)).toBe(`Only a shock to the treatment arm. ${words} Memory is identical in both arms.`);
+    // A custom shock both arms live through keeps its label's capital and reads as its own sentence.
+    expect(whatDiffers(interventionOf(null, [{ ...motherMovesIn, target: 'all' }]), catalog)).toBe(
+      'Nothing differs between the arms. Both arms live through the same shock. Mother moves in for every couple in town from day 60 to day 120, so stress goes up 0.4 every day for both partners, fights start 1.3 times as often and one partner picked at random stores a hurtful memory of strength 0.3 every week.',
+    );
+    // Effects with windows of their own each say theirs.
+    const staggered: ShockSpec = { ...motherMovesIn, effects: [{ ...(motherMovesIn.effects as EffectSpec[])[0], start_day: 70, end_day: 90 }, (motherMovesIn.effects as EffectSpec[])[1]] };
+    expect(shockWords(staggered, catalog)).toBe(
+      'Mother moves in for every treatment couple, so stress goes up 0.4 every day for both partners from day 70 to day 90 and fights start 1.3 times as often from day 60 to day 120.',
+    );
   });
 
-  it('keeps named kinds exactly as they read before', () => {
+  it('says a partner is picked at random before any effect names the other partner', () => {
+    const [stress, hazard, memory] = motherMovesIn.effects as EffectSpec[];
+    // One effect on one partner: the other partner of a random pick is a random pick too.
+    expect(shockWords({ ...motherMovesIn, effects: [stress, hazard, { ...memory, who: 'partner' }] }, catalog)).toBe(
+      'Mother moves in for every treatment couple from day 60 to day 120, so stress goes up 0.4 every day for both partners, fights start 1.3 times as often and one partner picked at random stores a hurtful memory of strength 0.3 every week.',
+    );
+    // More than one: the pick is said once, first, and the effects name the chosen partner and the other one.
+    const both: ShockSpec = { ...motherMovesIn, effects: [{ ...memory, who: 'partner' }, { ...stress, who: 'member' }] };
+    expect(shockWords(both, catalog)).toBe(
+      'Mother moves in for every treatment couple from day 60 to day 120, with one partner in each couple picked at random, so the other partner stores a hurtful memory of strength 0.3 every week and stress goes up 0.4 every day for the chosen partner.',
+    );
+    // Partner A or B is named outright, with no pick to say.
+    expect(shockWords({ ...both, member: 'a' }, catalog)).toBe(
+      'Mother moves in for every treatment couple from day 60 to day 120, so partner B stores a hurtful memory of strength 0.3 every week and stress goes up 0.4 every day for partner A.',
+    );
+    // A sure meeting reads as one.
+    expect(effectWords({ channel: 'outside', op: 'add', amount: 1, cadence: 'daily', who: 'both' }, motherMovesIn)).toBe('Both partners meet someone attractive every day from day 60 to day 120.');
+  });
+
+  it('names a partner a named kind picks, and keeps the job loss label as it read before', () => {
     const job: ShockSpec = { kind: 'job_loss', target: 'treatment', member: 'b', start_day: 60, end_day: 210, magnitude: 1.5, trait: null };
-    expect(shockWords(job, catalog)).toContain('magnitude 1.5');
-    expect(shockBrief(job, catalog)).toBe('One partner loses their job on day 60 (1.5 stress)');
+    expect(shockWords(job, catalog)).toBe('In every treatment couple, partner B loses their job on day 60, so their stress jumps by 1.5 that day and stays raised until day 210.');
+    expect(shockBrief(job, catalog)).toBe('Partner B loses their job on day 60 (1.5 stress)');
+    expect(shockBrief({ ...job, member: 'random' }, catalog)).toBe('One partner loses their job on day 60 (1.5 stress)');
   });
 });
 
@@ -163,14 +194,14 @@ describe('custom shocks in the run form', () => {
     fireEvent.change(screen.getByLabelText('Describe what happens'), { target: { value: 'His mother moves in for two months' } });
     fireEvent.click(screen.getByTestId('translate'));
     const card = await screen.findByTestId('translation-card');
-    expect(within(card).getByTestId('translation-words')).toHaveTextContent('Mother moves in (treatment arm): both partners: stress up 0.3 every day, days 30 to 90');
+    expect(within(card).getByTestId('translation-words')).toHaveTextContent('Mother moves in for every treatment couple from day 30 to day 90, so stress goes up 0.3 every day for both partners and fights start 1.4 times as often.');
     expect(within(card).getByTestId('translation-description')).toHaveTextContent('moves into the couple');
     const effects = screen.getAllByTestId('effect-row');
     expect(effects).toHaveLength(2);
-    expect(within(effects[1]).getByTestId('effect-words')).toHaveTextContent('both partners: fights start 1.4 times as often, days 30 to 90');
+    expect(within(effects[1]).getByTestId('effect-words')).toHaveTextContent('Fights start 1.4 times as often from day 30 to day 90.');
     expect(within(card).queryByTestId('translation-edited')).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Effect 2 amount'), { target: { value: '1.8' } });
-    expect(within(effects[1]).getByTestId('effect-words')).toHaveTextContent('fights start 1.8 times as often');
+    expect(within(effects[1]).getByTestId('effect-words')).toHaveTextContent('Fights start 1.8 times as often');
     expect(within(card).getByTestId('translation-edited')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'mother-run' } });
     fireEvent.click(screen.getByTestId('run'));

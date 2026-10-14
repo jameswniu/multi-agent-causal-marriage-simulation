@@ -1,5 +1,6 @@
-// Tests for the read-only demo's "Try a shock" (components/TryShock.tsx) and its static build: one card per
-// shock run in advance, saying what someone asked for, where the shock came from, the shock as it ran and
+// Tests for the read-only demo's "Try a shock" (components/TryShock.tsx) and for what its static build shares with
+// the live app: the town a phone opens on, the words for a shock both arms live through, and 16px chart text.
+// One card per shock run in advance says what someone asked for, where the shock came from, the shock as it ran and
 // which houses it hits; and picking one switches the World page to that world in place, replaying it from
 // just before the shock with the couples that differ counted, exactly as a finished run does in the live app.
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
@@ -79,6 +80,21 @@ async function staticApp(path: string, reads: Partial<typeof mock> = {}) {
   vi.resetModules();
   vi.doMock('../api', () => ({ ...mock, ...reads }));
   vi.doMock('../staticApi', () => ({ demoCards: async () => [...CARDS].sort((a, b) => a.order - b.order) }));
+  const { default: App } = await import('../App');
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <Probe />
+      <Routes>
+        <Route path="*" element={<App />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+/** Render the live app (VITE_STATIC unset) the same way: the mock API with any reads replaced. */
+async function liveApp(path: string, reads: Partial<typeof mock> = {}) {
+  vi.resetModules();
+  vi.doMock('../api', () => ({ ...mock, ...reads }));
   const { default: App } = await import('../App');
   return render(
     <MemoryRouter initialEntries={[path]}>
@@ -203,13 +219,14 @@ describe('Try a shock in the static build', () => {
     const mother = within(panel).getByTestId('demo-card-demo-mother-moves-in');
     expect(mother).toHaveTextContent('“His mother moves in for two months starting in month four”');
     expect(mother).toHaveTextContent('Typed into the shock box and turned into this shock by claude-haiku-5-5 on 12 October 2026.');
-    expect(mother).toHaveTextContent('Ran as: Mother moves in (treatment arm): both partners: stress up 0.5 every day, days 40 to 60');
+    expect(mother).toHaveTextContent('Ran as: Mother moves in for every treatment couple from day 40 to day 60, so stress goes up 0.5 every day for both partners.');
     expect(mother).toHaveTextContent('Hits: The treatment arm only: the district on the right, or its tab on a phone.');
     const layoff = within(panel).getByTestId('demo-card-demo-layoff');
     expect(layoff).not.toHaveTextContent('“');
-    expect(layoff).toHaveTextContent('One partner loses their job (a random partner, treatment arm), days 30 to 50');
+    expect(layoff).toHaveTextContent('Ran as: In every treatment couple, one partner picked at random loses their job on day 30, so their stress jumps by 1.5 that day and stays raised until day 50.');
     const dates = within(panel).getByTestId('demo-card-demo-date-nights');
     expect(dates).toHaveTextContent('with no model');
+    expect(dates).toHaveTextContent('Ran as: Once a week from day 12 to the end of the run, both partners in every couple in town go on a date night and store a good memory.');
     expect(dates).toHaveTextContent('Hits: Every house: both arms');
     expect(panel).toHaveTextContent('README quickstart');
     // Nothing in the panel can type or run a shock.
@@ -286,63 +303,77 @@ describe('the town on a phone', () => {
     expect(await pressedDistrict()).toBe('control');
   });
 
-  it('keeps the live app opening every world on control', async () => {
+  it('opens a treatment-only fork on the treatment district in the live app too, and the example town on control', async () => {
     await mock.forkExperiment({ parent: 'retention-90d', name: 'demo-layoff', shocks: [JOB_LOSS] });
-    await phoneApp('/world?experiment=demo-layoff', false);
+    const first = await phoneApp('/world?experiment=demo-layoff', false);
+    expect(await pressedDistrict()).toBe('treatment');
+    first.unmount();
+    await phoneApp('/world?experiment=retention-90d', false);
     expect(await pressedDistrict()).toBe('control');
+  });
+
+  it('opens the world a live "Shock this world" run lands on at the treatment district, where its rings are', async () => {
+    await phoneApp('/world?experiment=retention-90d', false);
+    expect(await pressedDistrict()).toBe('control');
+    fireEvent.click(await screen.findByTestId('shock-this-world'));
+    const panel = await screen.findByTestId('shock-panel');
+    fireEvent.change(await within(panel).findByLabelText('Describe what happens'), { target: { value: 'His mother moves in for two months' } });
+    fireEvent.click(within(panel).getByTestId('translate'));
+    await within(panel).findByTestId('translation-card');
+    fireEvent.click(within(panel).getByTestId('run'));
+    // The page switches to the new world in place, and the phone's town opens where the shock landed.
+    await waitFor(() => expect((screen.getByTestId('experiment-select') as HTMLSelectElement).value).toBe('retention-90d-fork'));
+    await waitFor(() => expect(screen.queryByTestId('shock-panel')).not.toBeInTheDocument());
+    expect(await pressedDistrict()).toBe('treatment');
   });
 });
 
 describe('a shock run in advance on everyone', () => {
-  const words = 'Every couple in town starts a weekly date night on day 12';
   const memory = { parameter: 'conflict_half_life_days', control_value: 14, treatment_value: 90 };
+  const shared = 'also live through the same shock: once a week from day 12 to the end of the run, both partners in every couple in town go on a date night and store a good memory.';
+  // The server lists the fork's shock in its summary; the mock reuses the parent's, so add it to the fork's.
+  const forkedReads = {
+    getExperiment: async () => {
+      const base = await mock.getExperiment();
+      return base.parent && base.summary ? { ...base, summary: { ...base.summary, experiment: { ...base.summary.experiment, shocks: [DATE_NIGHTS] } } } : base;
+    },
+  } as Partial<typeof mock>;
 
-  it("is said in its card's plain sentence when the demo gives one, and in the shock's own words otherwise", async () => {
+  it("is said in the shock's own words, after what differs between the arms", async () => {
     const { interventionOf, sharedClause, whatDiffers } = await import('../arms');
     const { framingSentence } = await import('../pages/World');
     const both = interventionOf(memory, [DATE_NIGHTS]);
-    expect(whatDiffers(both, null, words)).toBe(`Only how long a fight stays in memory, 14 days versus 90. ${words}.`);
-    expect(whatDiffers(both, null)).toMatch(/\. Everyone also lives through date nights/);
+    expect(whatDiffers(both, null)).toBe(`Only how long a fight stays in memory, 14 days versus 90. Both arms ${shared.replace('to the end of the run', 'on')}`);
     const onlyEveryone = interventionOf(null, [DATE_NIGHTS]);
-    expect(whatDiffers(onlyEveryone, null, words)).toBe(`Nothing differs between the arms. ${words}.`);
-    expect(sharedClause(onlyEveryone, null, words)).toBe('every couple in town starts a weekly date night on day 12');
-    expect(sharedClause(onlyEveryone, null)).toMatch(/^everyone lived through date nights/);
-    expect(framingSentence(1000, both, null, 'randomized', 'districts', words)).toBe(
-      `Both districts start from the same 1,000 couples on the same day. On the left a fight fades from memory in 14 days. On the right it lingers for 90. Nothing else differs. ${words}.`,
+    expect(whatDiffers(onlyEveryone, null)).toMatch(/^Nothing differs between the arms\. Both arms live through the same shock: once a week from day 12 on, both partners in every couple in town go on a date night/);
+    expect(sharedClause(onlyEveryone)).toBe('both lived through the same shock');
+    expect(framingSentence(1000, both, null, 'randomized', 'districts')).toBe(
+      `Both districts start from the same 1,000 couples on the same day. On the left a fight fades from memory in 14 days. On the right it lingers for 90. Nothing else differs. Both districts ${shared.replace('to the end of the run', 'on')}`,
     );
-    expect(framingSentence(1000, both, null, 'randomized', 'districts')).toMatch(/Nothing else differs\. Everyone lived through date nights/);
   });
 
-  it('reads as that sentence on the World page and the Overview of the static build', async () => {
+  it('reads the same in the live app and the static build, on the World page and the Overview', async () => {
     await mock.forkExperiment({ parent: 'retention-90d', name: 'demo-date-nights', shocks: [{ ...DATE_NIGHTS, target: 'all' }] });
-    // The server lists the fork's shock in its summary; the mock reuses the parent's, so add it here.
-    const getExperiment: typeof mock.getExperiment = async () => {
-      const base = await mock.getExperiment();
-      return base.summary ? { ...base, summary: { ...base.summary, experiment: { ...base.summary.experiment, shocks: [DATE_NIGHTS] } } } : base;
-    };
-    const { unmount } = await staticApp('/world?experiment=demo-date-nights', { getExperiment });
-    await waitFor(() => expect(screen.getByTestId('framing')).toHaveTextContent(`Nothing else differs. ${words}.`));
-    expect(screen.getByTestId('framing')).not.toHaveTextContent('lived through');
-    unmount();
-    await staticApp('/overview?experiment=demo-date-nights', { getExperiment });
-    await waitFor(() => expect(screen.getByText(`Only how long a fight stays in memory, 14 days versus 90. ${words}.`)).toBeInTheDocument());
+    for (const build of ['static', 'live'] as const) {
+      const world = build === 'static' ? await staticApp('/world?experiment=demo-date-nights', forkedReads) : await liveApp('/world?experiment=demo-date-nights', forkedReads);
+      await waitFor(() => expect(screen.getByTestId('framing')).toHaveTextContent(`Nothing else differs. Both grids ${shared}`));
+      expect(screen.getByTestId('framing')).not.toHaveTextContent('(');
+      world.unmount();
+      const overview = build === 'static' ? await staticApp('/overview?experiment=demo-date-nights', forkedReads) : await liveApp('/overview?experiment=demo-date-nights', forkedReads);
+      await waitFor(() => expect(screen.getByText(`Only how long a fight stays in memory, 14 days versus 90. Both arms ${shared}`)).toBeInTheDocument());
+      overview.unmount();
+    }
   });
 
-  it('reads as that sentence after picking the card on the example town, since every page loads again for the world picked', async () => {
+  it('reads that way after picking the card on the example town, since every page loads again for the world picked', async () => {
     await mock.forkExperiment({ parent: 'retention-90d', name: 'demo-date-nights', shocks: [{ ...DATE_NIGHTS, target: 'all' }] });
-    // Only the fork lists the date nights shock, as the server's summary of each world does.
-    const getExperiment: typeof mock.getExperiment = async () => {
-      const base = await mock.getExperiment();
-      return base.parent && base.summary ? { ...base, summary: { ...base.summary, experiment: { ...base.summary.experiment, shocks: [DATE_NIGHTS] } } } : base;
-    };
-    await staticApp('/world?experiment=retention-90d', { getExperiment });
+    await staticApp('/world?experiment=retention-90d', forkedReads);
     await waitFor(() => expect(screen.getByTestId('framing')).toHaveTextContent('Nothing else differs.'));
-    expect(screen.getByTestId('framing')).not.toHaveTextContent(words);
+    expect(screen.getByTestId('framing')).not.toHaveTextContent('date night');
     fireEvent.click(await screen.findByRole('button', { name: 'Try a shock' }));
     fireEvent.click(await screen.findByTestId('pick-demo-date-nights'));
     await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/world?experiment=demo-date-nights'));
-    await waitFor(() => expect(screen.getByTestId('framing')).toHaveTextContent(`Nothing else differs. ${words}.`));
-    expect(screen.getByTestId('framing')).not.toHaveTextContent('lived through');
+    await waitFor(() => expect(screen.getByTestId('framing')).toHaveTextContent(`Nothing else differs. Both grids ${shared}`));
   });
 });
 
@@ -381,26 +412,46 @@ describe('the charts', () => {
   const effectXs = () =>
     [...document.querySelectorAll('svg text')].filter((t) => /^[+-]?\d/.test(t.textContent ?? '')).map((t) => Number(t.getAttribute('x')));
 
-  it("write their words at 16px in the static build, and keep the forest plot's effects inside a phone's width", async () => {
-    vi.stubEnv('VITE_STATIC', '1');
+  for (const build of ['static', 'live'] as const) {
+    it(`write their words at 16px in the ${build} build, and keep the forest plot's effects inside a phone's width`, async () => {
+      if (build === 'static') vi.stubEnv('VITE_STATIC', '1');
+      vi.resetModules();
+      const { CHART_TEXT_PX } = await import('../chartText');
+      const { default: ForestPlot } = await import('../components/ForestPlot');
+      expect(CHART_TEXT_PX).toBe(16);
+      render(<ForestPlot outcomes={outcomes} width={320} />);
+      expect([...document.querySelectorAll('svg text')].every((t) => t.getAttribute('font-size') === '16')).toBe(true);
+      // 103px of the 320 are kept for each effect, such as +76.8%, right of its interval.
+      expect(Math.max(...effectXs())).toBe(320 - 103 + 8);
+    });
+  }
+
+  it("draw the agent's trait radar at a quarter of its box, so every trait name stays inside a phone's width", async () => {
     vi.resetModules();
-    const { CHART_TEXT_PX } = await import('../chartText');
-    const { default: ForestPlot } = await import('../components/ForestPlot');
-    expect(CHART_TEXT_PX).toBe(16);
-    render(<ForestPlot outcomes={outcomes} width={320} />);
-    expect([...document.querySelectorAll('svg text')].every((t) => t.getAttribute('font-size') === '16')).toBe(true);
-    // 103px of the 320 are kept for each effect, such as +76.8%, right of its interval.
-    expect(Math.max(...effectXs())).toBe(320 - 103 + 8);
+    const { default: TraitRadar } = await import('../components/TraitRadar');
+    const agent = { neuroticism: 0.4, agreeableness: 0.5, conscientiousness: 0.6, openness: 0.5, extraversion: 0.5, forgiveness: 0.5, commitment: 0.7, closeness_pref: 0.5, conflict_engagement: 0.5, arm: 'control' } as never;
+    const { container } = render(<TraitRadar agent={agent} size={300} />);
+    // The spokes run from the centre to the outer ring: radius 72 in a 300px box (0.24 of it), as the demo drew it, not 90.
+    const spokes = [...container.querySelectorAll('.recharts-polar-grid-angle line')].map((l) =>
+      Math.hypot(Number(l.getAttribute('x2')) - Number(l.getAttribute('x1')), Number(l.getAttribute('y2')) - Number(l.getAttribute('y1'))),
+    );
+    expect(spokes).toHaveLength(9);
+    expect(Math.max(...spokes)).toBeCloseTo(72, 0);
   });
 
-  it("keep the live app's 14px words and layout", async () => {
+  it('draw no number on the trait radar, so no scale label sits on a trait name or on the centre', async () => {
     vi.resetModules();
-    const { CHART_TEXT_PX } = await import('../chartText');
-    const { default: ForestPlot } = await import('../components/ForestPlot');
-    expect(CHART_TEXT_PX).toBe(14);
-    render(<ForestPlot outcomes={outcomes} width={320} />);
-    expect([...document.querySelectorAll('svg text')].every((t) => t.getAttribute('font-size') === '14')).toBe(true);
-    // A 160px label column, a 120px plot, then the effect, as before.
-    expect(Math.max(...effectXs())).toBe(160 + 120 + 8);
+    const { default: TraitRadar, RADAR_SCALE_WORDS } = await import('../components/TraitRadar');
+    const agent = { neuroticism: 0.4, agreeableness: 0.5, conscientiousness: 0.6, openness: 0.5, extraversion: 0.5, forgiveness: 0.5, commitment: 0.7, closeness_pref: 0.5, conflict_engagement: 0.5, arm: 'control' } as never;
+    for (const size of [300, 360, 480]) {
+      const { container, unmount } = render(<TraitRadar agent={agent} size={size} />);
+      const words = [...container.querySelectorAll('svg text')].map((t) => t.textContent ?? '');
+      // Only the nine trait names are drawn: no 0 at the centre and no 1 at the rim beside conscientiousness.
+      expect(words).toHaveLength(9);
+      expect(words.filter((w) => /\d/.test(w))).toEqual([]);
+      expect(container.querySelector('.recharts-polar-radius-axis-tick, .recharts-polar-radius-axis-line')).toBeNull();
+      unmount();
+    }
+    expect(RADAR_SCALE_WORDS).toBe('Each trait from 0 at the centre to 1 at the outer ring');
   });
 });

@@ -4,7 +4,7 @@
 import { Link } from 'react-router-dom';
 import type { Outcome, PairedRow, ParentRecord } from '../types';
 import { shortHash } from '../format';
-import { shockWords, type Catalog } from '../arms';
+import { shocksIntroduced, type Catalog } from '../arms';
 
 const ARMS: { key: 'all' | 'control' | 'treatment'; label: string }[] = [
   { key: 'all', label: 'All couples' },
@@ -37,7 +37,8 @@ export default function VersusParent({ record, outcomes, catalog }: { record: Pa
       <h2>Versus its parent</h2>
       <p className="muted">
         Forked from <Link to={`/overview?experiment=${encodeURIComponent(record.parent)}`}>{record.parent}</Link> (determinism hash {shortHash(record.parent_determinism_hash, 8)}, engine{' '}
-        {record.parent_engine_version}). Same couples, seeds and settings; the only change is what it added: {record.appended_shocks.map((s) => shockWords(s, catalog)).join('; ')}.
+        {record.parent_engine_version}). Same couples, seeds and settings, and the only change is{' '}
+        {shocksIntroduced(record.appended_shocks.length === 1 ? 'the shock it added' : 'the shocks it added', record.appended_shocks, catalog)}
       </p>
       {c.comparable ? (
         <>

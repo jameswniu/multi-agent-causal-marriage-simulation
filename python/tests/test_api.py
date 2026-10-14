@@ -692,7 +692,7 @@ def test_translate_endpoint_answers_200_400_and_503_and_caches(tmp_path: Path) -
     body = ok.json()
     assert body["status"] == "ok" and body["spec"]["kind"] == "job_loss"
     assert (body["spec"]["start_day"], body["spec"]["end_day"]) == (60, 180)
-    assert "days 60 to 180" in body["words"] and body["rationale"] and body["model"] == "fake-model"
+    assert body["words"].endswith("stays raised until day 180.") and body["rationale"] and body["model"] == "fake-model"
     again = client.post("/api/shocks/translate", json={"text": JOB_TEXT.upper(), "days": 365}).json()
     assert again["translation_id"] == body["translation_id"] and len(fake.payloads) == 1
     for bad in ({"text": ""}, {"text": "x" * 401}, {"text": "ok", "days": 9999}, {"text": "ok", "extra": 1}, {}):

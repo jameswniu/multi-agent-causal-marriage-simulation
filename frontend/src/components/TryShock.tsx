@@ -84,7 +84,7 @@ export default function TryShock({ world, onClose, onReplayHere }: { world: stri
                 {card.typed ? <p className="try-typed">&ldquo;{card.words}&rdquo;</p> : <p className="try-words">{card.words}.</p>}
                 <p className="try-source">{sourceWords(card, catalog)}</p>
                 <p>
-                  <strong>Ran as:</strong> {card.shocks.map((s) => shockWords(s, catalog)).join('; ')}
+                  <strong>Ran as:</strong> {card.shocks.map((s) => shockWords(s, catalog)).join(' ')}
                 </p>
                 <p>
                   <strong>Hits:</strong> {hitsWords(card)}

@@ -16,7 +16,7 @@ import WorldGrid, { charStyle } from '../components/WorldGrid';
 import TileLegend from '../components/TileLegend';
 import Scoreboard, { pct } from '../components/Scoreboard';
 import EventMarkers from '../components/EventMarkers';
-import { armLabelsFor, differenceClause, interventionOf, sharedClause, shockShort, useArmContext, whatDiffers, type ArmLabels, type Catalog, type Intervention } from '../arms';
+import { armLabelsFor, differenceClause, interventionOf, sharedClause, sharedWords, shockShort, twinsDifference, useArmContext, whatDiffers, type ArmLabels, type Catalog, type Intervention } from '../arms';
 import { supportsWebGL } from '../town/webgl';
 import TimeStrip from '../components/TimeStrip';
 import Inspector from '../town/Inspector';
@@ -113,25 +113,23 @@ function useDayEvents(day: number, enabled: boolean) {
 }
 
 /**
- * The one-sentence framing of the experiment, filled from the intervention. `everyone`, given only on the
- * read-only demo, is the plain sentence for what everyone lives through (arms.tsx, whatDiffers).
+ * The framing of the experiment above the town, filled from the intervention: what differs between the two
+ * halves, then any shock both live through, each shock in its own plain sentence (arms.tsx, shockWords).
  */
-export function framingSentence(n: number, iv: Intervention, catalog: Catalog | null, mode: Mode, picture: 'grids' | 'districts' = 'grids', everyone: string | null = null): string {
+export function framingSentence(n: number, iv: Intervention, catalog: Catalog | null, mode: Mode, picture: 'grids' | 'districts' = 'grids'): string {
   if (mode === 'twins') {
     const lead = 'Each tile is one couple shown twice, the same people and the same random events';
-    if (!iv.memory && !iv.treatmentShocks.length) {
-      const shared = sharedClause(iv, catalog, everyone);
-      return shared ? `${lead}, and nothing differs between the two runs; ${shared}.` : `${lead}, and nothing differs between the two runs.`;
-    }
-    const diff = whatDiffers(iv, catalog, everyone).replace(/^Only this, /, '').replace(/^Only /, '').replace(/\.$/, '');
-    return `${lead}, and the only difference is ${diff[0].toLowerCase()}${diff.slice(1)}.`;
+    const diff = twinsDifference(iv, catalog);
+    const shared = sharedWords(iv, catalog, 'runs', diff !== null);
+    const head = diff ? `${lead}, and ${diff}` : `${lead}, and nothing differs between the two runs.`;
+    return shared ? `${head} ${shared}` : head;
   }
   const couples = n.toLocaleString();
   const mem = iv.memory;
   const lead = `Both ${picture} start from the same ${couples} couples on the same day.`;
   if (mem && mem.parameter === 'conflict_half_life_days' && iv.treatmentShocks.length === 0) {
-    const shared = sharedClause(iv, catalog, everyone);
-    const tail = shared ? ` ${shared[0].toUpperCase()}${shared.slice(1)}.` : '';
+    const shared = sharedWords(iv, catalog, picture);
+    const tail = shared ? ` ${shared}` : '';
     const c = fmtNum(mem.control_value);
     const t = fmtNum(mem.treatment_value);
     const middle =
@@ -142,7 +140,8 @@ export function framingSentence(n: number, iv: Intervention, catalog: Catalog | 
           : `On both sides a fight's memory half-life is ${c} days.`;
     return `${lead} ${middle} Nothing else differs.${tail}`;
   }
-  return `${lead} ${whatDiffers(iv, catalog, everyone)}`;
+  const differs = whatDiffers(iv, catalog, 'The only difference is');
+  return `${lead} ${differs}${differs.endsWith('.') ? '' : '.'}`;
 }
 
 export function gridTitles(labels: ArmLabels): [string, string] {
@@ -150,9 +149,9 @@ export function gridTitles(labels: ArmLabels): [string, string] {
 }
 
 /**
- * The district a phone opens the town on in the read-only demo: treatment when every shock a fork added
- * reaches only that arm, since all its rings are there whichever of the two worlds the town draws, and
- * control otherwise.
+ * The district a phone opens the town on: treatment when every shock a fork added reaches only that arm, since
+ * all its rings are there whichever of the two worlds the town draws, and control otherwise. A world that was
+ * just shocked in place opens there too, so its rings are in view from the first day of the replay.
  */
 export function phoneDistrictFor(parent: ParentRecord | null | undefined): 'control' | 'treatment' {
   const added = parent?.appended_shocks ?? [];
@@ -186,7 +185,7 @@ export function Counters({ world, day }: { world: WorldResponse; day: number }) 
   if (!c) return null;
   const row = (arm: 'control' | 'treatment') => (
     <tr key={arm}>
-      <td>
+      <td className="key-label" data-testid={`${arm}-counter-arm`}>
         <span className="swatch" style={{ background: `var(--${arm})` }} aria-hidden="true" />
         {arm === 'control' ? 'Control' : 'Treatment'}
       </td>
@@ -549,9 +548,9 @@ export default function World() {
   const atEnd = d >= maxDay;
   const takeawayText =
     mode === 'twins' && twinsData
-      ? takeaway(maxDay, twinsData.counts_control[twinsData.counts_control.length - 1], twinsData.counts_treatment[twinsData.counts_treatment.length - 1], twinsData.couples.length, twinsData.couples.length, 'twins', differenceClause(arms.intervention, arms.catalog), sharedClause(arms.intervention, arms.catalog))
+      ? takeaway(maxDay, twinsData.counts_control[twinsData.counts_control.length - 1], twinsData.counts_treatment[twinsData.counts_treatment.length - 1], twinsData.couples.length, twinsData.couples.length, 'twins', differenceClause(arms.intervention), sharedClause(arms.intervention))
       : lastCounts
-        ? takeaway(maxDay, lastCounts.control, lastCounts.treatment, groups.control.length, groups.treatment.length, 'randomized', differenceClause(arms.intervention, arms.catalog), sharedClause(arms.intervention, arms.catalog))
+        ? takeaway(maxDay, lastCounts.control, lastCounts.treatment, groups.control.length, groups.treatment.length, 'randomized', differenceClause(arms.intervention), sharedClause(arms.intervention))
         : '';
   const worldName = expName ?? data?.[1]?.manifest.name ?? null;
 
@@ -560,7 +559,7 @@ export default function World() {
       <Banner />
       <h1>World replay</h1>
       <p className="world-actions">
-        <button type="button" className={STATIC ? 'button-link try-button' : 'button-link'} onClick={() => setShockOpen((o) => !o)} aria-expanded={shockOpen} disabled={!worldName} data-testid={STATIC ? 'try-a-shock' : 'shock-this-world'}>
+        <button type="button" className="button-link" onClick={() => setShockOpen((o) => !o)} aria-expanded={shockOpen} disabled={!worldName} data-testid={STATIC ? 'try-a-shock' : 'shock-this-world'}>
           {STATIC ? 'Try a shock' : 'Shock this world'}
         </button>
         {STATIC ? (
@@ -586,7 +585,7 @@ export default function World() {
         )
       ) : null}
       <p className="framing" data-testid="framing">
-        {framingSentence(nInitial, arms.intervention, arms.catalog, mode, showTown ? 'districts' : 'grids', arms.everyone)}
+        {framingSentence(nInitial, arms.intervention, arms.catalog, mode, showTown ? 'districts' : 'grids')}
       </p>
       <div className="card">
         <div className="filters" role="group" aria-label="Playback">
@@ -779,7 +778,7 @@ export default function World() {
                 rings={rings}
                 experiment={flipped ? parentName : null}
                 onReady={onTownReady}
-                phoneDistrict={STATIC ? phoneDistrictFor(parentRecord) : null}
+                phoneDistrict={phoneDistrictFor(parentRecord)}
               />
             </Suspense>
           ) : (

@@ -152,7 +152,7 @@ export const translateShock = async (text: string, days: number): Promise<Transl
     const err = 'treatment.shocks[0].magnitude must lie in [0.0, 5.0], got 1000.0';
     return { ...base, translation_id: 'tr-big', status: 'invalid', spec: { ...spec, magnitude: 1000 }, words: null, errors: [err], message: `The translation does not fit the simulation: ${err}` };
   }
-  return { ...base, translation_id: 'tr-job', status: 'ok', spec, words: `One partner loses their job (a random partner, treatment arm), days 60 to ${spec.end_day}, magnitude 1.5 (stress)` };
+  return { ...base, translation_id: 'tr-job', status: 'ok', spec, words: `In every treatment couple, one partner picked at random loses their job on day 60, so their stress jumps by 1.5 that day and stays raised until day ${spec.end_day}.` };
 };
 let jobs: Record<string, JobResponse> = {};
 let jobSeq = 0;

@@ -27,6 +27,7 @@ import uuid
 from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -42,7 +43,6 @@ from loveworld.schema import (
     SHIFTABLE_TRAITS,
     SHOCK_CATALOG,
     SHOCK_KINDS,
-    shock_last_day,
 )
 
 DEFAULT_MODEL = "claude-haiku-5-5"
@@ -160,113 +160,342 @@ def _fmt(x: float) -> str:
     return "0" if s in ("-0", "") else s
 
 
-def shock_words(spec: dict[str, Any]) -> str:
-    """Every field of a shock in plain words, matching shockWords in the dashboard.
-
-    For example "One partner loses their job (a random partner, treatment arm), days 60 to 180,
-    magnitude 1.5 (stress)".
-    """
-    if spec.get("kind") == "custom":
-        return custom_words(spec)
-    kind = SHOCK_KINDS.get(str(spec.get("kind")))
-    trait = spec.get("trait")
-    if trait:
-        base = f"One partner's {str(trait).replace('_', ' ')} shifts"
-    elif kind:
-        base = kind["blurb"].replace(";", ":").replace(".", ":").split(":")[0].strip()
-    else:
-        base = str(spec.get("kind", "")).replace("_", " ").capitalize()
-    member = spec.get("member", "random")
-    if kind and not kind["member_applies"]:
-        who = "both partners"
-    else:
-        who = {"a": "partner A", "b": "partner B"}.get(str(member), "a random partner")
-    target = {"treatment": "treatment arm", "control": "control arm"}.get(str(spec.get("target")), "everyone")
-    start = int(spec.get("start_day", 0))
-    end = spec.get("end_day")
-    if end is None:
-        last = shock_last_day(str(spec.get("kind")), start, None)
-        days = f"from day {start} to the end of the run" if last is None else f"days {start} to {last}"
-    else:
-        days = f"day {start}" if int(end) == start else f"days {start} to {int(end)}"
-    magnitude = float(spec.get("magnitude", 0.0))
-    signed = trait is not None or (kind is not None and kind["magnitude"]["min"] < 0)
-    text = _fmt(magnitude)
-    if signed and magnitude > 0:
-        text = "+" + text
-    unit = kind["magnitude"]["unit"] if kind else ""
-    return f"{base} ({who}, {target}), {days}, magnitude {text}{f' ({unit})' if unit else ''}"
+# The sentence a shock reads as. Every function below is a line-for-line port of the dashboard's own
+# (shockWords, effectWords and their helpers in frontend/src/arms.tsx), so the translate response's
+# `words` is the sentence the dashboard writes for the same shock. frontend/src/fixtures/shockWords.json
+# holds shocks and their sentences, and a Python test and a frontend test both require them.
 
 
+class _Unknown:
+    """Stand for the last day of a shock whose kind the catalog does not list, so only its start is said."""
+
+
+_UNKNOWN = _Unknown()
+_COUPLES_WORDS = {"treatment": "every treatment couple", "control": "every control couple"}
+_PICKED_WORDS = {"a": "partner A", "b": "partner B"}
+_OTHER_WORDS = {"a": "partner B", "b": "partner A"}
 _EPISODE_WORDS = {"positive": "warm", "conflict": "hurtful", "repair": "reconciling", "disappointment": "disappointing"}
-_CADENCE_WORDS = {"once": "once", "daily": "every day", "weekly": "every week", "yearly": "every year"}
-_TARGET_WORDS = {"treatment": "treatment arm", "control": "control arm"}
+_CADENCE_WORDS = {"once": "", "daily": " every day", "weekly": " every week", "yearly": " every year"}
+# Kinds that always act on both partners, even when the catalog does not say so.
+_BOTH_PARTNER_KINDS = ("financial_crisis", "anniversary", "date_nights")
+
+
+def _plain_number(x: float) -> str:
+    """Print a number as the dashboard does, to three decimals at most with trailing zeros dropped.
+
+    The rounding is JavaScript's toFixed: half away from zero, on the number's exact value.
+    """
+    s = format(Decimal(float(x)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP), "f")
+    if "." in s:
+        s = s.rstrip("0").rstrip(".")
+    return "0" if s in ("-0", "") else s
+
+
+def _js_number(x: Any) -> str:
+    """Write a day or an amount as JavaScript writes it into a sentence: 60 for 60.0, else the shortest digits."""
+    if isinstance(x, bool) or not isinstance(x, int | float):
+        return str(x)
+    if isinstance(x, int) or float(x).is_integer():
+        return str(int(x))
+    return repr(float(x))
+
+
+def _upper_first(s: str) -> str:
+    return s[:1].upper() + s[1:]
+
+
+def _kind_words(kind: str) -> str:
+    return kind.replace("_", " ")
 
 
 def _num(x: float) -> str:
-    return _fmt(abs(float(x)))
+    """Say the size of a change without its sign."""
+    return _plain_number(abs(float(x)))
 
 
-def _up_down(x: float) -> str:
-    return f"down {_num(x)}" if float(x) < 0 else f"up {_num(x)}"
+def _goes(x: float) -> str:
+    """Say 'goes up 0.3' or 'goes down 0.3'."""
+    return f"goes down {_num(x)}" if float(x) < 0 else f"goes up {_num(x)}"
 
 
-def effect_words(effect: dict[str, Any], shock: dict[str, Any]) -> str:
-    """One effect in plain words, matching effectWords in the dashboard.
+def _trait_words(trait: Any) -> str:
+    """Name a trait as people say it: closeness_pref is a partner's wish for closeness."""
+    t = "conflict_engagement" if trait is None else str(trait)
+    return "wish for closeness" if t == "closeness_pref" else _kind_words(t)
 
-    For example "both partners: stress up 0.4 every day, days 60 to 120".
+
+def _list_words(items: list[str], last: str = "and") -> str:
+    """Join words as 'a, b and c'."""
+    if len(items) <= 1:
+        return "".join(items)
+    return f"{', '.join(items[:-1])} {last} {items[-1]}"
+
+
+def _couples_words(spec: dict[str, Any]) -> str:
+    """Name the couples a shock reaches: one arm's, or every couple in town, the couples who remarry included."""
+    return _COUPLES_WORDS.get(str(spec.get("target")), "every couple in town")
+
+
+def _picked_words(member: Any) -> str:
+    return _PICKED_WORDS.get(str(member), "one partner picked at random")
+
+
+def _other_words(member: Any) -> str:
+    return _OTHER_WORDS.get(str(member), "the other partner")
+
+
+def _shock_end(spec: dict[str, Any]) -> int | None | _Unknown:
+    """Return the last day a shock acts, resolved as the dashboard resolves it.
+
+    That is its own end day, else its start day plus its kind's catalog length, else None for a shock that
+    runs to the end of the run, and _UNKNOWN for a kind the catalog does not list.
     """
-    member = shock.get("member", "random")
-    chosen = {"a": "partner A", "b": "partner B"}.get(str(member), "a random partner")
-    other = {"a": "partner B", "b": "partner A"}.get(str(member), "the other partner")
-    channel = effect.get("channel")
-    who = effect.get("who", "member")
-    if channel == "onset_hazard" or who == "both":
-        whom = "both partners"
+    if spec.get("end_day") is not None:
+        return int(spec["end_day"])
+    if spec.get("kind") == "custom":
+        return None
+    k = SHOCK_KINDS.get(str(spec.get("kind")))
+    if k is None:
+        return _UNKNOWN
+    length = k.get("default_length_days")
+    if length is None and k.get("default_end_day") is not None:
+        length = int(k["default_end_day"]) - int(k["default_start_day"])
+    return None if length is None else int(spec.get("start_day", 0)) + int(length)
+
+
+def _span_words(start: Any, end: int | None | _Unknown) -> str:
+    """Say 'from day 60 to day 150', 'on day 60', 'from day 30 to the end of the run' or 'from day 30 on'."""
+    if isinstance(end, _Unknown):
+        return f"from day {_js_number(start)} on"
+    if end is None:
+        return f"from day {_js_number(start)} to the end of the run"
+    return f"on day {_js_number(start)}" if end == start else f"from day {_js_number(start)} to day {_js_number(end)}"
+
+
+def _times_usual(what: str, m: float) -> str:
+    """Say ' Each date night counts 2 times as much as usual.' for a magnitude that is not 1."""
+    return "" if m == 1 else f" Each {what} counts {_plain_number(m)} times as much as usual."
+
+
+def _named_shock_words(spec: dict[str, Any]) -> str:
+    """Say one of the catalog's named kinds as a plain sentence, with every field it was given."""
+    kind = str(spec.get("kind"))
+    m = float(spec.get("magnitude", 0.0))
+    couples = _couples_words(spec)
+    who = _picked_words(spec.get("member"))
+    start = spec.get("start_day", 0)
+    end = _shock_end(spec)
+    span = _span_words(start, end)
+    one_day = not isinstance(end, _Unknown) and end is not None and end == start
+    k = SHOCK_KINDS.get(kind)
+    trait = spec.get("trait")
+    s_start = _js_number(start)
+    if m == 0:
+        # A magnitude of 0 runs the kind and changes nothing, which is all the sentence needs to say.
+        label = k["label"] if k else _upper_first(_kind_words(kind))
+        both = (k is not None and k["member_applies"] is False) or kind in _BOTH_PARTNER_KINDS
+        whom = "both partners" if both else who
+        of = f" of {_trait_words(trait)}" if trait else ""
+        return f"{label}{of} {span} for {whom} in {couples}, at magnitude 0, which changes nothing."
+    # A one-day change stays after the shock is over, which an end day set on the shock does not undo. A shock
+    # that ends on the day it starts is a one-day shock.
+    own_end = spec.get("end_day")
+    if own_end is None:
+        stays = ""
+    elif own_end == start:
+        stays = ", even after the one-day shock is over"
     else:
-        whom = chosen if who == "member" else other
-    cadence = str(effect.get("cadence"))
-    how = _CADENCE_WORDS.get(cadence, cadence)
+        stays = f", even after the shock ends on day {_js_number(own_end)}"
+    if kind == "job_loss":
+        if one_day:
+            after = ""
+        elif isinstance(end, _Unknown):
+            after = " and stays raised from then on"
+        elif end is None:
+            after = " and stays raised to the end of the run"
+        else:
+            after = f" and stays raised until day {_js_number(end)}"
+        return (
+            f"In {couples}, {who} loses their job on day {s_start}, so their stress jumps by {_plain_number(m)} "
+            f"that day{after}."
+        )
+    if kind == "financial_crisis":
+        return (
+            f"{_upper_first(span)}, money trouble of magnitude {_plain_number(m)} hits {couples}, and both partners "
+            f"carry extra stress {'that day' if one_day else 'every day'}."
+        )
+    if kind == "temptation":
+        # At a chance of 1 the encounter is certain, so the sentence says it happens.
+        if m == 1:
+            odds = f" and has an encounter outside the relationship {'that day' if one_day else 'every day'}"
+        else:
+            odds = (
+                f", with a {_plain_number(m)} chance {'that day' if one_day else 'each day'} of an encounter "
+                "outside the relationship"
+            )
+        return f"{_upper_first(span)}, {who} in {couples} keeps meeting attractive people{odds}."
+    if kind == "intimacy_mismatch":
+        return (
+            f"On day {s_start}, {who} in {couples} starts wanting {'less' if m < 0 else 'more'} closeness, "
+            f"{'down' if m < 0 else 'up'} {_num(m)} on a scale of 0 to 1, and keeps wanting it{stays}."
+        )
+    if kind == "trait_shift":
+        return (
+            f"On day {s_start}, the {_trait_words(trait)} of {who} in {couples} {_goes(m)} on a scale of 0 to 1 "
+            f"and stays there{stays}."
+        )
+    if kind == "daily_texts":
+        other = _other_words(spec.get("member"))
+        return (
+            f"{_upper_first(span)}, {who} in {couples} sends {other} a loving text "
+            f"{'that day' if one_day else 'every day'}, and {other} stores a small warm memory and feels a little "
+            f"better{'' if one_day else ' each time'}.{_times_usual('text', m)}"
+        )
+    if kind == "anniversary":
+        # A shock that ends within a year of its first day holds that one anniversary, so its end closes the sentence.
+        once = not one_day and isinstance(end, int) and end < int(start) + 365
+        if one_day or once:
+            when = f"On day {s_start}"
+        else:
+            until = f" until day {_js_number(end)}" if isinstance(end, int) else ""
+            when = f"On day {s_start} and every 365 days after{until}"
+        ends = f" The shock ends on day {_js_number(end)}, before the next anniversary." if once else ""
+        return (
+            f"{when}, both partners in {couples} celebrate an anniversary, store a strong warm memory and trust each "
+            f"other a little more.{ends}{_times_usual('anniversary', m)}"
+        )
+    if kind == "date_nights":
+        when = f"On day {s_start}" if one_day else f"Once a week {span}"
+        return (
+            f"{when}, both partners in {couples} go on a date night and store a good memory."
+            f"{_times_usual('date night', m)}"
+        )
+    # A kind with no sentence of its own still names every field.
+    label = k["label"] if k else _upper_first(_kind_words(kind))
+    whom = "both partners" if k is not None and k["member_applies"] is False else who
+    unit = k["magnitude"]["unit"] if k else ""
+    moving = f", moving {_trait_words(trait)}" if trait else ""
+    size = f"{_plain_number(m)}{f' ({unit})' if unit else ''}"
+    return f"{label} {span} for {whom} in {couples}{moving}, at magnitude {size}."
+
+
+def _partners_of(shock: dict[str, Any]) -> tuple[str, str, bool]:
+    """Name the partners a custom shock's sentence names: the chosen one, the other one, and whether it says the pick.
+
+    Partner A or B is named outright. A partner picked at random is picked once per couple for the whole shock,
+    so when more than one effect falls on one partner, the sentence says first that one partner in each couple
+    is picked at random, then names them "the chosen partner" and "the other partner", as the shock's fields do.
+    A single such effect says "one partner picked at random" on either side, since the other partner of a random
+    pick is a random pick too (partnersOf in arms.tsx).
+    """
+    member = shock.get("member")
+    if str(member) in _PICKED_WORDS:
+        return _picked_words(member), _other_words(member), False
+    single = [e for e in shock.get("effects") or [] if e.get("channel") != "onset_hazard" and e.get("who") != "both"]
+    if len(single) <= 1:
+        return _picked_words(member), _picked_words(member), False
+    return "the chosen partner", "the other partner", True
+
+
+def _effect_who(effect: dict[str, Any], shock: dict[str, Any], partners: tuple[str, str, bool] | None = None) -> str:
+    """Name whom an effect hits: 'both partners', 'partner A', 'the other partner'.
+
+    Alone, an effect names the partner by the shock's member; in a custom shock's sentence it names them as the
+    sentence does (_partners_of).
+    """
+    if effect.get("channel") == "onset_hazard" or effect.get("who") == "both":
+        return "both partners"
+    if partners is not None:
+        return partners[0] if effect.get("who") == "member" else partners[1]
+    member = shock.get("member")
+    return _picked_words(member) if effect.get("who") == "member" else _other_words(member)
+
+
+def _effect_span(effect: dict[str, Any], shock: dict[str, Any]) -> str:
+    """Say an effect's own window, else the shock's: 'from day 60 to day 120', or 'on day 60' for a one-off."""
+    start = effect.get("start_day")
+    start = shock.get("start_day", 0) if start is None else start
+    end = effect.get("end_day")
+    end = shock.get("end_day") if end is None else end
+    if effect.get("cadence") == "once":
+        return f"on day {_js_number(start)}"
+    return _span_words(start, None if end is None else int(end))
+
+
+def _effect_clause(
+    effect: dict[str, Any], shock: dict[str, Any], with_span: bool, partners: tuple[str, str, bool] | None = None
+) -> str:
+    """Say one effect as a clause, 'stress goes up 0.4 every day for both partners', with its window if asked."""
+    cadence = effect.get("cadence")
+    how = _CADENCE_WORDS.get(str(cadence), f" {cadence}")
+    who = _effect_who(effect, shock, partners)
+    many = who == "both partners"
+    channel = effect.get("channel")
     amount = float(effect.get("amount", 0.0))
     if channel == "stress":
-        what = f"stress {_up_down(amount)} every day" if cadence == "daily" else f"stress {_up_down(amount)} {how}"
+        what = f"stress {_goes(amount)}{how} for {who}"
     elif channel == "affect":
-        what = f"mood {_up_down(amount)} {how}"
+        what = f"mood {_goes(amount)}{how} for {who}"
     elif channel == "trust":
-        what = f"trust {_up_down(amount)} {how}"
+        what = f"trust {_goes(amount)}{how} for {who}"
     elif channel == "episode":
-        cls = str(effect.get("class") or "positive")
-        what = f"a {_EPISODE_WORDS.get(cls, cls)} memory of strength {_num(amount)} {how}"
+        cls = effect.get("class")
+        cls = "positive" if cls is None else str(cls)
+        verb = "store" if many else "stores"
+        what = f"{who} {verb} a {_EPISODE_WORDS.get(cls, cls)} memory of strength {_num(amount)}{how}"
     elif channel == "outside":
-        what = f"a {_num(amount)} chance a day of meeting someone attractive"
+        # At a chance of 1 the meeting is certain, so the sentence says it happens.
+        if amount == 1:
+            what = f"{who} {'meet' if many else 'meets'} someone attractive every day"
+        else:
+            what = f"{who} {'have' if many else 'has'} a {_num(amount)} chance each day of meeting someone attractive"
     elif channel == "onset_hazard":
         what = f"fights start {_num(amount)} times as often"
     elif channel == "repair_propensity":
-        what = f"{_num(amount)} times the odds of making up"
+        what = f"{who} {'have' if many else 'has'} {_num(amount)} times the usual odds of making up"
     elif channel == "trait":
-        what = f"{str(effect.get('trait') or 'a trait').replace('_', ' ')} {_up_down(amount)} {how}"
+        trait = effect.get("trait")
+        what = f"{_trait_words('a trait' if trait is None else trait)} {_goes(amount)}{how} for {who}"
     else:
-        what = f"{channel} {amount} {how}"
-    start = effect.get("start_day")
-    start = int(shock.get("start_day", 0)) if start is None else int(start)
-    end = effect.get("end_day")
-    end = shock.get("end_day") if end is None else end
-    if cadence == "once":
-        days = f"on day {start}"
-    elif end is None:
-        days = f"from day {start} to the end of the run"
-    else:
-        days = f"on day {start}" if int(end) == start else f"days {start} to {int(end)}"
-    return f"{whom}: {what}, {days}"
+        # A channel the parser would refuse keeps its own name and amount.
+        what = f"{channel} {_js_number(effect.get('amount'))}{how} for {who}"
+    return f"{what} {_effect_span(effect, shock)}" if with_span else what
+
+
+def effect_words(effect: dict[str, Any], shock: dict[str, Any]) -> str:
+    """Say one effect of a custom shock as the sentence the dashboard's effectWords writes.
+
+    For example "Stress goes up 0.4 every day for both partners from day 60 to day 120."
+    """
+    return f"{_upper_first(_effect_clause(effect, shock, True))}."
 
 
 def custom_words(spec: dict[str, Any]) -> str:
-    """Return a custom shock in plain words: its label, its arm, and each effect."""
-    label = str(spec.get("label") or "custom shock").strip()
-    label = label[:1].upper() + label[1:]
-    target = _TARGET_WORDS.get(str(spec.get("target")), "everyone")
-    effects = "; ".join(effect_words(e, spec) for e in spec.get("effects") or [])
-    return f"{label} ({target}): {effects}"
+    """Say a custom shock as the one sentence the dashboard's shockWords writes.
+
+    It gives the label, whom the shock reaches, its window when every effect shares it, the random pick of a
+    partner when more than one effect falls on one partner (_partners_of), and each effect.
+    """
+    effects = list(spec.get("effects") or [])
+    label = spec.get("label")
+    head = f"{_upper_first(('custom shock' if label is None else str(label)).strip())} for {_couples_words(spec)}"
+    if not effects:
+        return f"{head}, with no effects."
+    spans = [_effect_span(e, spec) for e in effects]
+    shared = spans[0] if all(x == spans[0] for x in spans) else None
+    partners = _partners_of(spec)
+    picked = ", with one partner in each couple picked at random" if partners[2] else ""
+    clauses = [_effect_clause(e, spec, shared is None, partners) for e in effects]
+    return f"{head}{f' {shared}' if shared else ''}{picked}, so {_list_words(clauses)}."
+
+
+def shock_words(spec: dict[str, Any]) -> str:
+    """Say a shock as the plain sentence the dashboard's shockWords writes, naming every field it was given.
+
+    For example "In every treatment couple, one partner picked at random loses their job on day 60, so their
+    stress jumps by 1.5 that day and stays raised until day 180."
+    """
+    return custom_words(spec) if spec.get("kind") == "custom" else _named_shock_words(spec)
 
 
 def _effect_lines() -> str:

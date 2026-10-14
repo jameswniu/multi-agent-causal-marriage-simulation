@@ -9,7 +9,7 @@ import type { AgentDailyRow } from '../types';
 import { useAsync } from '../useAsync';
 import { ErrorBox, Loading } from '../components/Status';
 import ChartFrame from '../components/ChartFrame';
-import TraitRadar from '../components/TraitRadar';
+import TraitRadar, { RADAR_SCALE_WORDS } from '../components/TraitRadar';
 import EventMarkers from '../components/EventMarkers';
 import StatTile from '../components/StatTile';
 import UnderTheHood from '../components/UnderTheHood';
@@ -60,7 +60,7 @@ export default function AgentDetail() {
         <StatTile label="In the simulation" value={`${agent.divorces_in_sim} divorces, ${agent.marriages_in_sim} marriages`} sub={`final trust ${safeFixed(agent.final_trust, 2)}, ${agent.final_memory_size} memories kept`} />
       </div>
       <div className="grid-2">
-        <ChartFrame title="Personality and preferences" subtitle="Each trait from 0 to 1" height={320}>
+        <ChartFrame title="Personality and preferences" subtitle={RADAR_SCALE_WORDS} height={320}>
           {(w) => <TraitRadar agent={agent} size={Math.min(w, 360)} />}
         </ChartFrame>
         <div>

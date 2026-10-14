@@ -1,4 +1,5 @@
-/* Theme tokens follow the dataviz reference palette; dark mode is its own stepped set, not a flip. */
+/* The look of the LoveWorld dashboard, the live app and the read-only demo alike: colours, type, layout and every
+   page's parts. Theme tokens follow the dataviz reference palette; dark mode is its own stepped set, not a flip. */
 :root {
   color-scheme: light dark;
   --page: #f9f9f7;
@@ -80,6 +81,8 @@
 }
 
 * { box-sizing: border-box; }
+/* The dashboard is read at 75% browser zoom, where 16px shows as 12px, the least any text may be. So no text is
+   set under 1rem (16px), in the live app and the read-only demo alike, and chart text is 16px too (chartText.ts). */
 html { font-size: 16px; }
 body {
   margin: 0;
@@ -94,8 +97,8 @@ h1 { font-size: 1.5rem; margin: 0 0 0.5rem; }
 h2 { font-size: 1.2rem; margin: 1.5rem 0 0.5rem; }
 h3 { font-size: 1rem; margin: 1rem 0 0.4rem; color: var(--ink-2); }
 p { margin: 0.4rem 0; }
-small, .muted { color: var(--muted); font-size: 0.9rem; }
-code { font-size: 0.9rem; background: var(--surface); padding: 0 0.25rem; border-radius: 3px; }
+small, .muted { color: var(--muted); font-size: 1rem; }
+code { font-size: 1rem; background: var(--surface); padding: 0 0.25rem; border-radius: 3px; }
 
 .shell { display: flex; min-height: 100vh; }
 .nav {
@@ -127,38 +130,43 @@ code { font-size: 0.9rem; background: var(--surface); padding: 0 0.25rem; border
 .grid-2 > * { min-width: 0; }
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); gap: 0.75rem; margin: 0.75rem 0 1rem; }
 .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.7rem 0.9rem; min-width: 0; overflow-wrap: anywhere; }
-.tile .label { color: var(--ink-2); font-size: 0.9rem; }
+.tile .label { color: var(--ink-2); font-size: 1rem; }
 .tile .value { font-size: 1.6rem; font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
-.tile .sub { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
+.tile .sub { color: var(--muted); font-size: 1rem; overflow-wrap: anywhere; }
 .tile-text { grid-column: span 2; }
 .tile .value-text { font-size: 1.15rem; font-weight: 600; line-height: 1.35; }
 @media (max-width: 420px) { .tile-text { grid-column: auto; } }
 .hero { font-size: 3rem; font-weight: 600; line-height: 1.1; }
 
-table.data { border-collapse: collapse; width: 100%; font-size: 0.95rem; }
+/* A table never breaks a word or a number inside it, as the card's overflow-wrap would let it on a phone: a table
+   too wide for the screen scrolls sideways inside its .table-wrap instead, and a number stays on one line. */
+table.data { border-collapse: collapse; width: 100%; font-size: 1rem; overflow-wrap: normal; }
 table.data th, table.data td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--grid); vertical-align: top; }
 table.data th { color: var(--ink-2); font-weight: 600; position: sticky; top: 0; background: var(--surface); }
 table.data td.num, table.data th.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.data td.num { white-space: nowrap; }
+/* A row's name with its colour key, such as an arm in the World counters, keeps the key on the name's line. */
+table.data td.key-label { white-space: nowrap; }
 table.data tr.clickable { cursor: pointer; }
 table.data tr.clickable:hover { background: var(--page); }
 .table-wrap { overflow-x: auto; max-width: 100%; }
-.tag { display: inline-block; font-size: 0.875rem; padding: 0 0.4rem; border-radius: 999px; border: 1px solid var(--border); color: var(--ink-2); margin-left: 0.4rem; }
+.tag { display: inline-block; font-size: 1rem; padding: 0 0.4rem; border-radius: 999px; border: 1px solid var(--border); color: var(--ink-2); margin-left: 0.4rem; }
 .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 0.4rem; vertical-align: -1px; }
 .linekey { display: inline-block; width: 18px; height: 0; border-top: 3px solid currentColor; margin-right: 0.4rem; vertical-align: 3px; }
-.legend { display: flex; flex-wrap: wrap; gap: 1rem; font-size: 0.9rem; color: var(--ink-2); margin: 0.3rem 0 0.5rem; }
+.legend { display: flex; flex-wrap: wrap; gap: 1rem; font-size: 1rem; color: var(--ink-2); margin: 0.3rem 0 0.5rem; }
 .filters { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; margin-bottom: 0.75rem; }
-.filters label { font-size: 0.9rem; color: var(--ink-2); display: flex; gap: 0.3rem; align-items: center; }
+.filters label { font-size: 1rem; color: var(--ink-2); display: flex; gap: 0.3rem; align-items: center; }
 select, input[type="text"], input[type="number"] {
-  font: inherit; font-size: 0.95rem; padding: 0.3rem 0.45rem; border: 1px solid var(--axis); border-radius: 6px;
+  font: inherit; font-size: 1rem; padding: 0.3rem 0.45rem; border: 1px solid var(--axis); border-radius: 6px;
   background: var(--surface-raised); color: var(--ink);
 }
 button {
-  font: inherit; font-size: 0.95rem; padding: 0.35rem 0.7rem; border: 1px solid var(--axis); border-radius: 6px;
+  font: inherit; font-size: 1rem; padding: 0.35rem 0.7rem; border: 1px solid var(--axis); border-radius: 6px;
   background: var(--surface-raised); color: var(--ink); cursor: pointer;
 }
 button:disabled { opacity: 0.5; cursor: default; }
 a.button-link, button.button-link {
-  display: inline-block; font-size: 0.95rem; padding: 0.35rem 0.8rem; border: 1px solid var(--axis); border-radius: 6px;
+  display: inline-block; font-size: 1rem; padding: 0.35rem 0.8rem; border: 1px solid var(--axis); border-radius: 6px;
   background: var(--surface-raised); color: var(--ink); text-decoration: none; font-weight: 600;
 }
 a.button-link:hover, button.button-link:hover:not(:disabled) { border-color: var(--ink-2); }
@@ -180,28 +188,32 @@ button.button-link[aria-expanded="true"] { background: var(--ink); color: var(--
 .stale { opacity: 0.55; transition: opacity 0.2s; }
 .chart { width: 100%; min-width: 0; }
 .chart svg, .chart canvas, .card canvas { max-width: 100%; }
-.chart svg text { fill: var(--ink-2); font-size: 14px; font-family: var(--font); }
+.chart svg text { fill: var(--ink-2); font-size: 16px; font-family: var(--font); }
 .chart-title { font-weight: 600; margin: 0 0 0.2rem; }
-.chart-sub { color: var(--muted); font-size: 0.9rem; margin: 0 0 0.5rem; }
+.chart-sub { color: var(--muted); font-size: 1rem; margin: 0 0 0.5rem; }
 .tooltip {
   background: var(--surface-raised); border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem 0.6rem;
-  font-size: 0.9rem; color: var(--ink); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  font-size: 1rem; color: var(--ink); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 .tooltip .v { font-weight: 600; }
-.formula { max-width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.875rem; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink-2); }
+/* A chart's tooltip stays inside its chart. Recharts pins a tooltip too wide for either side of the pointer to the
+   plot's left edge, 64px in (the 8px margin and the 56px axis every chart has), so a tooltip is at most the chart's
+   width less 72px, and its words wrap to fit. */
+.chart .recharts-tooltip-wrapper { max-width: calc(100% - 72px); }
+.formula { max-width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1rem; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink-2); }
 .pill-nav { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
 .empty { color: var(--muted); padding: 1rem 0; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-details.tableview summary { cursor: pointer; color: var(--ink-2); font-size: 0.9rem; margin: 0.4rem 0; }
+details.tableview summary { cursor: pointer; color: var(--ink-2); font-size: 1rem; margin: 0.4rem 0; }
 
 .scoreboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 0.75rem; margin: 0.75rem 0; }
 .score { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.9rem; min-width: 0; }
-.score .label { color: var(--ink-2); font-size: 0.95rem; margin-bottom: 0.2rem; }
+.score .label { color: var(--ink-2); font-size: 1rem; margin-bottom: 0.2rem; }
 .score .pair { display: flex; gap: 1rem; align-items: baseline; flex-wrap: wrap; }
 .score .big { font-size: 1.9rem; font-weight: 700; line-height: 1.1; }
 .score .big.control { color: var(--control); }
 .score .big.treatment { color: var(--treatment); }
-.score .sub { display: block; color: var(--muted); font-size: 0.875rem; font-weight: 400; }
+.score .sub { display: block; color: var(--muted); font-size: 1rem; font-weight: 400; }
 .segmented { display: inline-flex; border: 1px solid var(--axis); border-radius: 8px; overflow: hidden; }
 .segmented button { border: 0; border-radius: 0; background: var(--surface-raised); }
 .segmented button[aria-pressed="true"] { background: var(--ink); color: var(--page); }
@@ -210,38 +222,43 @@ details.tableview summary { cursor: pointer; color: var(--ink-2); font-size: 0.9
 .takeaway p { margin: 0; }
 .takeaway .takeaway-detail { margin-top: 0.35rem; font-size: 1rem; color: var(--ink-2); }
 .framing { font-size: 1.05rem; margin: 0.25rem 0 0.75rem; }
-.tile-legend { display: flex; flex-wrap: wrap; gap: 0.9rem 1.2rem; font-size: 0.95rem; color: var(--ink-2); align-items: center; }
+.tile-legend { display: flex; flex-wrap: wrap; gap: 0.9rem 1.2rem; font-size: 1rem; color: var(--ink-2); align-items: center; }
 .tile-legend .tile-swatch { display: inline-block; width: 16px; height: 16px; border-radius: 3px; vertical-align: -3px; margin-right: 0.4rem; position: relative; }
 .tile-legend .tile-swatch .inner { position: absolute; left: 4px; top: 4px; width: 8px; height: 8px; background: var(--ink); }
 .tile-legend .tile-swatch .slash { position: absolute; left: 1px; top: 7px; width: 14px; height: 2px; background: var(--ink); transform: rotate(-45deg); }
 
 .topbar { display: flex; flex-wrap: wrap; gap: 0.75rem 1.25rem; align-items: center; padding: 0 0 0.75rem; margin-bottom: 1rem; border-bottom: 1px solid var(--border); }
-.topbar label { display: flex; gap: 0.4rem; align-items: center; font-size: 0.95rem; color: var(--ink-2); }
+/* A world's name and what it changes can be long, so on a phone the experiment picker shrinks to the screen instead of widening the page. */
+.topbar label { display: flex; gap: 0.4rem; align-items: center; font-size: 1rem; color: var(--ink-2); min-width: 0; max-width: 100%; }
+.topbar select { min-width: 0; max-width: 100%; }
 .topbar .newlink { font-weight: 600; text-decoration: none; padding: 0.3rem 0.7rem; border: 1px solid var(--axis); border-radius: 6px; color: var(--ink); }
 .topbar .newlink.active { background: var(--ink); color: var(--page); }
 .shock { border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 0.9rem; margin: 0.6rem 0; display: grid; gap: 0.5rem; }
 .shock .row { display: flex; flex-wrap: wrap; gap: 0.6rem 1rem; align-items: center; }
-.shock .blurb { color: var(--ink-2); font-size: 0.95rem; }
+.shock .blurb { color: var(--ink-2); font-size: 1rem; }
+/* A shock row's day boxes are wide enough for their hint, such as "to the end" or "day 150", which a box sized
+   for its three digits would cut off. */
+.shock input[type="number"] { width: 7.5rem; }
 .describe { display: grid; gap: 0.5rem; margin: 0.6rem 0 0.9rem; }
-.describe label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.95rem; color: var(--ink-2); }
+.describe label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 1rem; color: var(--ink-2); }
 .describe textarea { font: inherit; padding: 0.5rem 0.6rem; border: 1px solid var(--border); border-radius: 6px; resize: vertical; }
-.translation-card { display: grid; gap: 0.3rem; padding: 0.5rem 0.7rem; border-left: 3px solid var(--accent); background: var(--surface-raised); color: var(--ink); font-size: 0.95rem; }
+.translation-card { display: grid; gap: 0.3rem; padding: 0.5rem 0.7rem; border-left: 3px solid var(--accent); background: var(--surface-raised); color: var(--ink); font-size: 1rem; }
 .describe textarea { background: var(--surface-raised); color: var(--ink); }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 0.75rem 1rem; }
-.form-grid label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.95rem; color: var(--ink-2); }
-.hood table.data td, .hood table.data th { font-size: 0.875rem; padding: 0.25rem 0.4rem; }
+.form-grid label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 1rem; color: var(--ink-2); }
+.hood table.data td, .hood table.data th { font-size: 1rem; padding: 0.25rem 0.4rem; }
 .hood .dayhead { font-weight: 600; margin: 0.75rem 0 0.25rem; }
-.delta { color: var(--muted); font-size: 0.875rem; }
+.delta { color: var(--muted); font-size: 1rem; }
 
 /* Town view: the canvas is a fixed-height window onto a town larger than the screen. */
 .town { padding-bottom: 0.75rem; }
 .town-toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.4rem; }
 .town-toolbar button { min-width: 2.2rem; }
-.town-hint { font-size: 0.9rem; }
+.town-hint { font-size: 1rem; }
 .town-hover { min-height: 1.4em; }
 .town-canvas { position: relative; width: 100%; height: clamp(560px, 70vh, 1100px); border-radius: 6px; overflow: hidden; background: #7cc576; }
 .town-canvas canvas { max-width: none; }
-.town-legend { display: flex; flex-wrap: wrap; gap: 0.6rem 1.2rem; font-size: 0.95rem; color: var(--ink-2); align-items: center; margin-top: 0.6rem; }
+.town-legend { display: flex; flex-wrap: wrap; gap: 0.6rem 1.2rem; font-size: 1rem; color: var(--ink-2); align-items: center; margin-top: 0.6rem; }
 .town-roof { display: inline-flex; vertical-align: -4px; margin-right: 0.4rem; }
 .town-roof img { width: 12px; height: 16px; object-fit: cover; object-position: top; image-rendering: pixelated; }
 .town-marker { display: inline-block; width: 10px; height: 10px; background: #f6c945; border: 1.5px solid #3f2631; transform: rotate(45deg); margin: 0 0.5rem 0 0.2rem; vertical-align: 0; }
@@ -253,14 +270,14 @@ details.tableview summary { cursor: pointer; color: var(--ink-2); font-size: 0.9
 .town-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .town-label { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; gap: 0.1rem; padding: 0.2rem 0.5rem; border-radius: 6px; background: var(--surface); color: var(--ink); border: 1px solid var(--border); white-space: nowrap; }
 .town-label strong { font-size: 16px; line-height: 1.2; }
-.town-label span { font-size: 14px; line-height: 1.2; }
+.town-label span { font-size: 16px; line-height: 1.2; }
 .town-label strong, .town-label span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .town-label-end { text-align: right; align-items: flex-end; }
 .town-label-mid { text-align: center; align-items: center; }
 
 /* World page time bar: the density strip under the scrubber. */
 .timestrip { display: grid; grid-template-columns: minmax(90px, 160px) 1fr; gap: 0.2rem 0.6rem; align-items: stretch; margin: 0.4rem 0 0.2rem; }
-.timestrip-labels { display: grid; grid-template-rows: 1fr 1fr; font-size: 0.875rem; color: var(--ink-2); }
+.timestrip-labels { display: grid; grid-template-rows: 1fr 1fr; font-size: 1rem; color: var(--ink-2); }
 .timestrip-labels span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; align-self: center; }
 .timestrip-svg { width: 100%; height: 48px; cursor: pointer; background: var(--surface-raised); border: 1px solid var(--border); border-radius: 4px; }
 .timestrip-track { position: relative; }
@@ -268,7 +285,7 @@ details.tableview summary { cursor: pointer; color: var(--ink-2); font-size: 0.9
    day's changing numbers elsewhere re-rasterise them, which cost more than half the frame rate without a GPU. */
 .timestrip-track > .timestrip-svg { display: block; will-change: transform; }
 .timestrip-cursor { position: absolute; top: 1px; bottom: 1px; min-width: 2px; background: var(--ink); pointer-events: none; will-change: transform; }
-.timestrip-key { grid-column: 1 / -1; margin: 0; font-size: 0.875rem; }
+.timestrip-key { grid-column: 1 / -1; margin: 0; font-size: 1rem; }
 
 /* The town (or grid) with the couple panel beside it. */
 .world-main.with-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); gap: 1rem; align-items: start; }
@@ -276,20 +293,20 @@ details.tableview summary { cursor: pointer; color: var(--ink-2); font-size: 0.9
 .inspector { position: sticky; top: 0.5rem; max-height: calc(100vh - 1rem); overflow: auto; }
 .inspector-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
 .inspector-head h3 { margin: 0; }
-.inspector h4 { margin: 0.8rem 0 0.3rem; font-size: 0.95rem; }
+.inspector h4 { margin: 0.8rem 0 0.3rem; font-size: 1rem; }
 .spark { margin: 0.4rem 0; }
-.spark figcaption { font-size: 0.9rem; }
+.spark figcaption { font-size: 1rem; }
 .spark svg { width: 100%; height: 56px; background: var(--surface-raised); border: 1px solid var(--border); border-radius: 4px; }
 .loads { display: grid; gap: 0.25rem; }
-.load { display: grid; grid-template-columns: 4.5rem 1fr 1fr auto; gap: 0.4rem; align-items: center; font-size: 0.9rem; }
+.load { display: grid; grid-template-columns: 4.5rem 1fr 1fr auto; gap: 0.4rem; align-items: center; font-size: 1rem; }
 .load-bar { height: 8px; background: var(--surface-raised); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
 .load-bar > span { display: block; height: 100%; }
-.legacies { margin: 0; padding-left: 1.1rem; font-size: 0.9rem; }
+.legacies { margin: 0; padding-left: 1.1rem; font-size: 1rem; }
 
 /* Town extras: the lens picker, the mini-map, the lens key and the phone district switch. */
 .town-lens { display: inline-flex; gap: 0.4rem; align-items: center; }
 .town-mini { position: absolute; right: 8px; bottom: 8px; border: 1px solid var(--ink-2); border-radius: 4px; background: #7cc576; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12); cursor: pointer; }
-.lens-key { margin-top: 0.6rem; font-size: 0.95rem; }
+.lens-key { margin-top: 0.6rem; font-size: 1rem; }
 .lens-key p { margin: 0.2rem 0; }
 .lens-ramp { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .lens-bar { display: inline-block; width: min(260px, 50vw); height: 12px; border-radius: 6px; border: 1px solid var(--border); }
@@ -311,17 +328,13 @@ details.tableview summary { cursor: pointer; color: var(--ink-2); font-size: 0.9
   .town-hint { display: none; }
 }
 
-/* The read-only demo (static build): its banner, its notes and the Try a shock panel. Body text stays at 16px. */
+/* The read-only demo (static build): its banner, its notes and the Try a shock panel. */
 .static-banner {
   background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--accent);
   border-radius: 6px; padding: 0.45rem 0.8rem; margin: 0 0 0.75rem; font-size: 1rem; color: var(--ink);
 }
 .static-note { font-size: 1rem; margin: 1rem 0; }
-/* The demo's world names are long, so on a phone the experiment picker shrinks to the screen instead of widening the page. */
-.topbar-static label { min-width: 0; max-width: 100%; }
-.topbar-static select { min-width: 0; max-width: 100%; }
 .world-hint { font-size: 1rem; color: var(--ink-2); }
-button.button-link.try-button, .try-card button.button-link, .try-shock button { font-size: 1rem; }
 .try-lead { font-size: 1rem; color: var(--ink-2); margin: 0.5rem 0 0.75rem; }
 .try-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 0.75rem; margin-bottom: 0.75rem; }
 .try-card {
@@ -335,15 +348,3 @@ button.button-link.try-button, .try-card button.button-link, .try-shock button {
 .try-card .try-source { color: var(--ink-2); }
 .try-card button { margin-top: auto; align-self: flex-start; }
 .try-card .try-here { color: var(--ink-2); }
-
-/* The demo is read at 75% zoom, where 16px shows as 12px, the least any text it shows may be. So under the
-   shell's static-demo class, which only the static build sets, every text the live app sets smaller is 16px. */
-.static-demo small, .static-demo .muted, .static-demo code, .static-demo .tag, .static-demo .delta,
-.static-demo .tile .label, .static-demo .tile .sub, .static-demo .score .label, .static-demo .score .sub,
-.static-demo table.data, .static-demo .hood table.data td, .static-demo .hood table.data th,
-.static-demo select, .static-demo input, .static-demo button, .static-demo a.button-link, .static-demo button.button-link,
-.static-demo .topbar label, .static-demo .filters label, .static-demo .legend, .static-demo .tile-legend,
-.static-demo .chart-sub, .static-demo .tooltip, .static-demo .formula, .static-demo details.tableview summary,
-.static-demo .town-hint, .static-demo .town-legend, .static-demo .lens-key, .static-demo .timestrip-labels, .static-demo .timestrip-key,
-.static-demo .inspector h4, .static-demo .spark figcaption, .static-demo .load, .static-demo .legacies { font-size: 1rem; }
-.static-demo .town-label span, .static-demo .chart svg text { font-size: 16px; }

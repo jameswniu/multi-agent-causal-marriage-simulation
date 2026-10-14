@@ -89,9 +89,9 @@ interface Props {
   /** Called each time the town has been built and is drawing. */
   onReady?: () => void;
   /**
-   * The district a phone opens on, when the page picks one: the read-only demo opens a shock that reaches only
-   * the treatment arm on that district, where its rings are, and keeps the district on screen when the town
-   * draws the other world. Left out, a phone opens on control and every rebuild returns there.
+   * The district a phone opens on, when the page picks one: the World page opens a shock that reaches only the
+   * treatment arm on that district, where its rings are, and keeps the district on screen when the town draws
+   * the other world. Left out, a phone opens on control and every rebuild returns there.
    */
   phoneDistrict?: District | null;
 }

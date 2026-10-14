@@ -67,14 +67,32 @@ def test_a_description_becomes_a_validated_job_loss() -> None:
         "magnitude": 1.5,
         "trait": None,
     }
-    assert (
-        out.words
-        == "One partner loses their job (a random partner, treatment arm), days 60 to 180, magnitude 1.5 (stress)"
+    assert out.words == (
+        "In every treatment couple, one partner picked at random loses their job on day 60, so their stress jumps "
+        "by 1.5 that day and stays raised until day 180."
     )
     assert out.rationale.startswith("Month three") and out.model == "fake-model"
     assert out.text_sha256 == translate.text_sha256(JOB_TEXT)
     public = out.public()
     assert set(public) >= {"translation_id", "spec", "words", "rationale", "model", "status"}
+
+
+# Shocks and the sentence the dashboard writes for each (shockWords in frontend/src/arms.tsx), shared with a
+# frontend test so the translate endpoint's words and the dashboard's can never drift apart.
+SHOCK_WORDS = Path(__file__).resolve().parents[2] / "frontend" / "src" / "fixtures" / "shockWords.json"
+
+
+def test_the_words_are_the_dashboards_sentence_for_every_shared_shock() -> None:
+    data = json.loads(SHOCK_WORDS.read_text())
+    served = json.loads(json.dumps([dict(k) for k in SHOCK_CATALOG]))
+    assert data["catalog"] == served, "the shared file's catalog must be the one GET /api/shocks/catalog serves"
+    kinds = {c["spec"]["kind"] for c in data["cases"]}
+    assert {k["kind"] for k in SHOCK_CATALOG} | {"custom"} <= kinds
+    wrong = [(c["spec"], c["words"], translate.shock_words(c["spec"])) for c in data["cases"]]
+    assert [w for w in wrong if w[1] != w[2]] == []
+    for c in data["cases"]:
+        if c["spec"]["kind"] == "custom":
+            assert [translate.effect_words(e, c["spec"]) for e in c["spec"]["effects"]] == c["effects"]
 
 
 def test_the_payload_forces_the_tool_wraps_the_text_and_carries_no_arm_or_memory_settings() -> None:
@@ -192,15 +210,15 @@ def test_no_duration_takes_the_kinds_default_length_and_open_kinds_stay_open() -
     crisis = tr.translate("A financial crisis hits everyone", 365)
     assert crisis.status == "ok" and crisis.spec is not None
     assert crisis.spec["target"] == "all" and crisis.spec["end_day"] == 220
-    assert (
-        crisis.words
-        == "Money trouble for the household (both partners, everyone), days 100 to 220, magnitude 2 (stress)"
+    assert crisis.words == (
+        "From day 100 to day 220, money trouble of magnitude 2 hits every couple in town, and both partners carry "
+        "extra stress every day."
     )
     texts = tr.translate("She texts him every day", 365)
     assert texts.spec is not None and texts.spec["end_day"] is None
-    assert texts.words is not None and "from day 30 to the end of the run" in texts.words and "partner A" in texts.words
+    assert texts.words is not None and texts.words.startswith("From day 30 to the end of the run, partner A ")
     shift = tr.translate("He becomes more neurotic", 365)
-    assert shift.words is not None and "neuroticism shifts" in shift.words and "magnitude +0.3" in shift.words
+    assert shift.words is not None and "the neuroticism of one partner" in shift.words and "goes up 0.3" in shift.words
 
 
 def test_a_trait_shift_without_a_trait_is_an_error() -> None:
@@ -376,10 +394,11 @@ def test_an_event_no_kind_fits_becomes_a_custom_shock_inside_the_bounds() -> Non
 
         lo, hi, _ = EFFECT_CHANNELS[e["channel"]]["cadences"][e["cadence"]]
         assert lo <= e["amount"] <= hi
+    # One effect falls on one partner, the other partner of a random pick, which is a random pick too.
     assert out.words == (
-        "Mother moves in (treatment arm): both partners: stress up 0.3 every day, days 30 to 90; "
-        "both partners: fights start 1.4 times as often, days 30 to 90; "
-        "the other partner: a hurtful memory of strength 0.2 every week, days 30 to 90"
+        "Mother moves in for every treatment couple from day 30 to day 90, so stress goes up 0.3 every day for both "
+        "partners, fights start 1.4 times as often and one partner picked at random stores a hurtful memory of "
+        "strength 0.2 every week."
     )
     system = client.payloads[0]["system"]
     for channel in ("stress", "onset_hazard", "repair_propensity", "trait"):

@@ -10,19 +10,26 @@ import Banner from '../components/Banner';
 import AteTable from '../components/AteTable';
 import { ErrorBox, Loading, Empty } from '../components/Status';
 import { fmt } from '../format';
-import { armLabels } from '../arms';
+import { armLabelsFor, interventionOf, shocksIntroduced, useArmContext } from '../arms';
 
 /** The read-only demo (VITE_STATIC=1), where nobody can run a placebo, says where the placebo is instead. */
 const STATIC = import.meta.env.VITE_STATIC === '1';
 
 export default function Governance() {
   const { data, error, loading } = useAsync(getExperiment, []);
+  const { catalog } = useArmContext();
   if (error) return <ErrorBox message={error} />;
   if (!data) return <Loading what="governance checks" />;
   const summary = data.summary;
   if (!summary) return <Empty>No summary.json yet, so no governance checks to show.</Empty>;
   const { placebo, twins } = summary.governance;
-  const labels = armLabels(summary.experiment.treatment);
+  // The arms as every other page names them: the memory setting and any shock aimed at the treatment arm.
+  const iv = interventionOf(summary.experiment.treatment, summary.experiment.shocks);
+  const labels = armLabelsFor(iv, catalog);
+  const t = iv.treatmentShocks;
+  const w = iv.worldShocks;
+  // The twins table names each outcome the way the effects table does.
+  const outcomeLabels = new Map(summary.outcomes.map((o) => [o.name, o.label]));
   const coversZero = placebo ? placebo.outcomes.filter((o) => o.ci_low !== null && o.ci_high !== null && o.ci_low <= 0 && o.ci_high >= 0).length : 0;
   return (
     <div className={loading ? 'stale' : ''}>
@@ -32,6 +39,12 @@ export default function Governance() {
       <p>
         The two arms: <strong>{labels.control.plain}</strong> <small className="muted">({labels.control.small})</small> and <strong>{labels.treatment.plain}</strong> <small className="muted">({labels.treatment.small})</small>.
       </p>
+      {t.length || w.length ? (
+        <div data-testid="arm-shocks">
+          {t.length ? <p>{shocksIntroduced(`Only the treatment arm lives through ${t.length === 1 ? 'this shock' : 'these shocks'}`, t, catalog)}</p> : null}
+          {w.length ? <p>{shocksIntroduced(`Both arms live through ${w.length === 1 ? 'this shock' : 'these shocks'}`, w, catalog)}</p> : null}
+        </div>
+      ) : null}
       <h2>Placebo</h2>
       {placebo ? (
         <div className="card">
@@ -69,7 +82,7 @@ export default function Governance() {
               <tbody>
                 {twins.paired.map((p) => (
                   <tr key={p.name}>
-                    <td>{p.label ?? p.name}</td>
+                    <td>{outcomeLabels.get(p.name) ?? p.label ?? p.name.replace(/_/g, ' ')}</td>
                     <td className="num">{fmt(p.mean_diff)}</td>
                     <td className="num">{`[${fmt(p.ci_low)}, ${fmt(p.ci_high)}]`}</td>
                     <td className="num">{p.n_pairs.toLocaleString()}</td>

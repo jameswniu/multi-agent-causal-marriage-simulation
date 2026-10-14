@@ -8,6 +8,8 @@ import * as mock from './mockApi';
 import App from '../App';
 import { jobPolling } from '../jobs';
 import { BANNER_TEXT } from '../components/Banner';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 vi.mock('../api', () => import('./mockApi'));
 
@@ -53,6 +55,26 @@ describe('pages', () => {
     }
   });
 
+  it('Comparisons keeps every chart tooltip inside its chart, however long the arm names it shows', async () => {
+    // Recharts pins a tooltip too wide for either side of the pointer to the plot's left edge. Every chart's plot
+    // starts 64px in, and styles.css caps a chart's tooltip at the chart's width less 72px, so a tooltip pinned
+    // there still ends 8px inside the chart, its words wrapped.
+    const style = document.createElement('style');
+    style.textContent = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8');
+    document.head.appendChild(style);
+    try {
+      const { container } = at('/comparisons');
+      await screen.findByText('Conflicts per couple');
+      await waitFor(() => expect(container.querySelectorAll('.chart .recharts-tooltip-wrapper').length).toBe(6));
+      const grids = [...container.querySelectorAll('.recharts-cartesian-grid')];
+      expect(grids.length).toBe(6);
+      for (const g of grids) expect(g.querySelector('line')?.getAttribute('x')).toBe('64');
+      for (const tip of container.querySelectorAll('.chart .recharts-tooltip-wrapper')) expect(getComputedStyle(tip).maxWidth).toBe('calc(100% - 72px)');
+    } finally {
+      style.remove();
+    }
+  });
+
   it('Couples lists rows and filters by state', async () => {
     at('/couples');
     expect(await screen.findByText('6 couples')).toBeInTheDocument();
@@ -66,7 +88,8 @@ describe('pages', () => {
     expect(screen.getAllByTestId('gantt-segment').length).toBeGreaterThan(2);
     expect(screen.getByRole('table', { name: 'Members' })).toBeInTheDocument();
     expect(screen.getByRole('table', { name: 'Decisions' })).toBeInTheDocument();
-    expect(screen.getByText(/Day 45: divorced/)).toBeInTheDocument();
+    const eventsCard = screen.getByRole('heading', { name: 'Events' }).closest('.card') as HTMLElement;
+    expect(within(eventsCard).getByText(/Day 45: divorced/)).toBeInTheDocument();
   });
 
   it('AgentDetail shows traits and history', async () => {
@@ -74,6 +97,8 @@ describe('pages', () => {
     expect(await screen.findByRole('heading', { name: 'Agent 7' })).toBeInTheDocument();
     expect(screen.getByText('90 days')).toBeInTheDocument();
     expect(screen.getByRole('table', { name: 'Traits' })).toBeInTheDocument();
+    // The radar draws no number, so its subtitle says the scale.
+    expect(screen.getByText('Each trait from 0 at the centre to 1 at the outer ring')).toBeInTheDocument();
   });
 
   it('Policy lists what the policy never sees', async () => {
@@ -88,6 +113,36 @@ describe('pages', () => {
     expect(await screen.findByText(/intervals cover zero/)).toBeInTheDocument();
     expect(screen.getByRole('table', { name: 'Paired effects' })).toBeInTheDocument();
     expect(screen.getByRole('table', { name: 'Balance' })).toBeInTheDocument();
+    // A world without shocks names only the memory setting.
+    expect(screen.queryByTestId('arm-shocks')).not.toBeInTheDocument();
+  });
+
+  it("Governance names the twins table's outcomes as the effects table does, never by their ids", async () => {
+    // The server writes the paired rows with ids only, as the example run's summary does.
+    const real = mock.getExperiment;
+    vi.spyOn(mock, 'getExperiment').mockImplementation(async () => {
+      const base = await real();
+      const twins = base.summary!.governance.twins!;
+      return { ...base, summary: { ...base.summary!, governance: { ...base.summary!.governance, twins: { ...twins, paired: twins.paired.map((p) => ({ ...p, label: undefined })) } } } };
+    });
+    at('/governance');
+    const table = await screen.findByRole('table', { name: 'Paired effects' });
+    const names = within(table).getAllByRole('row').slice(1).map((r) => r.querySelector('td')?.textContent);
+    expect(names).toEqual(['Divorced within the year', 'Separated at year end', 'Days married in the window', 'Trust on the last day', 'Mean trust over the year', 'Conflicts per couple-year']);
+    expect(table).not.toHaveTextContent('_');
+    vi.restoreAllMocks();
+  });
+
+  it('Governance says which arm each shock reaches, what happens and on which days', async () => {
+    at('/governance?experiment=job-loss-api');
+    const shocks = await screen.findByTestId('arm-shocks');
+    expect(shocks).toHaveTextContent(
+      'Only the treatment arm lives through this shock: in every treatment couple, one partner picked at random loses their job on day 60, so their stress jumps by 1.5 that day and stays raised until day 210.',
+    );
+    expect(shocks).toHaveTextContent('Both arms live through this shock: once a week from day 0 to the end of the run, both partners in every couple in town go on a date night and store a good memory.');
+    // The two arms are named with the shock aimed at the treatment arm, as on every other page.
+    const arms = screen.getByText(/^The two arms:/);
+    expect(arms).toHaveTextContent('The two arms: No job loss (control, no job loss day 60) and One partner loses their job on day 60 (1.5 stress) (treatment, job loss day 60).');
   });
 
   it('World renders the framing, scoreboard and counters from the fixture and steps days with the keyboard', async () => {
@@ -97,6 +152,9 @@ describe('pages', () => {
     expect(screen.getByText('Forgets fights in 2 weeks')).toBeInTheDocument();
     expect(screen.getByText('Holds onto fights for 3 months')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId('control-married')).toHaveTextContent('3'));
+    // Each arm's name keeps its colour key on its line (styles.css, td.key-label).
+    expect(screen.getByTestId('treatment-counter-arm')).toHaveClass('key-label');
+    expect(screen.getByTestId('treatment-counter-arm')).toHaveTextContent('Treatment');
     // The asserting canvas mock: every initial couple tile plus the remarriage strip was painted.
     expect(canvasStats.contexts).toBeGreaterThan(0);
     expect(canvasStats.fillRect).toBeGreaterThanOrEqual(6);
@@ -256,7 +314,11 @@ describe('pages', () => {
   it('Overview and World render a shock-only experiment without throwing', async () => {
     at('/overview?experiment=job-loss-api');
     expect(await screen.findByRole('heading', { name: 'job-loss-api' })).toBeInTheDocument();
-    expect(screen.getByText('Only this, one partner loses their job (a random partner, treatment arm), days 60 to 210, magnitude 1.5 (stress). Memory is identical in both arms. Everyone also lives through every seventh day both partners store a positive memory of an evening together (both partners, everyone), from day 0 to the end of the run, magnitude 1 (warmth).')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Only a shock to the treatment arm: in every treatment couple, one partner picked at random loses their job on day 60, so their stress jumps by 1.5 that day and stays raised until day 210. Memory is identical in both arms. Both arms also live through the same shock: once a week from day 0 to the end of the run, both partners in every couple in town go on a date night and store a good memory.',
+      ),
+    ).toBeInTheDocument();
     expect(screen.getAllByText('No job loss').length).toBeGreaterThan(0);
     expect(screen.getAllByText('One partner loses their job on day 60 (1.5 stress)').length).toBeGreaterThan(0);
     // The remarriage outcome carries nulls in this run and must render as n/a, not crash.
@@ -267,10 +329,14 @@ describe('pages', () => {
   it('World frames a shock-only experiment by its shocks', async () => {
     at('/world?experiment=job-loss-api');
     await screen.findByRole('heading', { name: 'World replay' });
-    await waitFor(() => expect(screen.getByTestId('framing')).toHaveTextContent('Only this, one partner loses their job (a random partner, treatment arm), days 60 to 210, magnitude 1.5 (stress). Memory is identical in both arms.'));
+    await waitFor(() =>
+      expect(screen.getByTestId('framing')).toHaveTextContent(
+        'The only difference is a shock to the treatment arm: in every treatment couple, one partner picked at random loses their job on day 60, so their stress jumps by 1.5 that day and stays raised until day 210. Memory is identical in both arms. Both arms also live through the same shock: once a week from day 0 to the end of the run',
+      ),
+    );
     expect(screen.getByText('No job loss')).toBeInTheDocument();
     fireEvent.keyDown(window, { key: 'End' });
-    await waitFor(() => expect(screen.getByTestId('takeaway')).toHaveTextContent('The only difference was this, one partner loses their job (a random partner, treatment arm), days 60 to 210, magnitude 1.5 (stress).'));
+    await waitFor(() => expect(screen.getByTestId('takeaway')).toHaveTextContent('The only difference was a shock the treatment arm alone went through.'));
     const select = screen.getByTestId('experiment-select') as HTMLSelectElement;
     await waitFor(() => expect(select.options.length).toBe(3));
     expect([...select.options].map((o) => o.textContent)).toContain('job-loss-api (job loss on day 60, everyone: date nights on day 0)');
@@ -458,7 +524,9 @@ describe('plain-words shocks', () => {
     fireEvent.click(screen.getByTestId('translate'));
     const card = await screen.findByTestId('translation-card');
     expect(card).toHaveTextContent(`From your words: "${TEXT}"`);
-    expect(within(card).getByTestId('translation-words')).toHaveTextContent('One partner loses their job (a random partner, treatment arm), days 60 to 180, magnitude 1.5 (stress)');
+    expect(within(card).getByTestId('translation-words')).toHaveTextContent(
+      'In every treatment couple, one partner picked at random loses their job on day 60, so their stress jumps by 1.5 that day and stays raised until day 180.',
+    );
     expect(card).toHaveTextContent('Month three starts on day 60');
     expect(card).toHaveTextContent('Translated by fixture-model');
     expect((screen.getByLabelText('Describe what happens') as HTMLTextAreaElement).value).toBe('');
@@ -468,7 +536,7 @@ describe('plain-words shocks', () => {
     expect((within(row).getByLabelText('End day') as HTMLInputElement).value).toBe('180');
     expect(within(card).queryByTestId('translation-edited')).not.toBeInTheDocument();
     fireEvent.change(within(row).getByLabelText('End day'), { target: { value: '200' } });
-    expect(within(card).getByTestId('translation-words')).toHaveTextContent('days 60 to 200');
+    expect(within(card).getByTestId('translation-words')).toHaveTextContent('stays raised until day 200');
     expect(within(card).getByTestId('translation-edited')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'words-test' } });
     fireEvent.click(screen.getByTestId('run'));
@@ -616,7 +684,7 @@ describe('forked worlds and the run queue', () => {
     await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/overview?experiment=retention-90d-fork'));
     const versus = await screen.findByTestId('versus-parent');
     expect(versus).toHaveTextContent('Forked from retention-90d');
-    expect(versus).toHaveTextContent('One partner loses their job');
+    expect(versus).toHaveTextContent('the only change is the shock it added: in every treatment couple, one partner picked at random loses their job on day 60');
     expect(within(versus).getByRole('table', { name: 'Difference from the parent world' })).toBeInTheDocument();
     expect(within(versus).getAllByText('0.0%').length).toBeGreaterThan(0);
     spy.mockRestore();

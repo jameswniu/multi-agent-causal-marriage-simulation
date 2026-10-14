@@ -36,7 +36,7 @@ function TopBar() {
   const exp = useExperiment();
   const location = useLocation();
   return (
-    <header className={STATIC ? 'topbar topbar-static' : 'topbar'} aria-label="Experiment">
+    <header className="topbar" aria-label="Experiment">
       <label>
         Experiment
         <select
@@ -69,8 +69,7 @@ function Shell() {
   const exp = useExperiment();
   const key = exp.name ?? 'single';
   return (
-    // The demo's class lifts every small text to 16px, since the demo is read at 75% zoom (styles.css).
-    <div className={STATIC ? 'shell static-demo' : 'shell'}>
+    <div className="shell">
       <nav className="nav" aria-label="Pages">
         <div className="brand">LoveWorld</div>
         {NAV.map(([to, label]) => (

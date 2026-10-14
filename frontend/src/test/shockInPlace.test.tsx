@@ -79,7 +79,7 @@ describe('shocking a world in place', () => {
     fireEvent.click(within(panel).getByTestId('translate'));
     const card = await within(panel).findByTestId('translation-card');
     expect(card).toHaveTextContent(`From your words: "${MOTHER}"`);
-    expect(within(card).getByTestId('translation-words')).toHaveTextContent('Mother moves in (treatment arm)');
+    expect(within(card).getByTestId('translation-words')).toHaveTextContent('Mother moves in for every treatment couple from day 30 to day 90, so stress goes up 0.3 every day for both partners');
     fireEvent.click(within(panel).getByTestId('run'));
     await waitFor(() => expect(within(panel).getByTestId('progress')).toHaveTextContent('Waiting its turn, number 1 in line'));
     await waitFor(() => expect(within(panel).getByTestId('progress')).toHaveTextContent('Running the engine'));
