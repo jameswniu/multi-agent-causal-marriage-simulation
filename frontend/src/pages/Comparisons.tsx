@@ -1,3 +1,8 @@
+// The Comparisons page: one LoveWorld run's two arms side by side. LoveWorld randomises 1,000 simulated couples
+// into a control and a treatment arm that differ in how long a fight stays in memory (and in any shock added), and
+// this page charts each arm over the year: marriages surviving, trust with a 95% band, couples in open conflict and
+// retained negative memory, plus histograms of days to reconciliation and conflicts per couple. Every chart has a
+// table view below it.
 import { getCurves, getDistributions } from '../api';
 import { useAsync } from '../useAsync';
 import Banner from '../components/Banner';
