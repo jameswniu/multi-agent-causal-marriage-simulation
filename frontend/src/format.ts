@@ -50,6 +50,15 @@ export function fmtSignedValue(x: number | null | undefined, unit: string): stri
   return (x > 0 ? '+' : '') + fmtValue(x, unit);
 }
 
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+/** "2026-10-12T01:33:33-07:00" as "12 October 2026", the date where it was recorded. */
+export function recordedDate(iso: string): string {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return iso;
+  return `${Number(m[3])} ${MONTHS[Number(m[2]) - 1] ?? m[2]} ${m[1]}`;
+}
+
 /** toFixed that tolerates null, undefined and NaN (renders "n/a"). */
 export function safeFixed(x: number | null | undefined, digits = 2): string {
   if (x === null || x === undefined || Number.isNaN(Number(x))) return 'n/a';

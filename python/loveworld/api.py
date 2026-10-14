@@ -13,6 +13,7 @@ import os
 import threading
 import time
 from collections import OrderedDict
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from loveworld import demo as demos
 from loveworld import forking, runner, translate, world_views
 from loveworld import jobs as jobq
 from loveworld import public as pubmod
@@ -853,10 +855,12 @@ def parse_run_body(raw: Any) -> tuple[dict[str, Any], bool]:
             v = body[key]
             if isinstance(v, bool) or not isinstance(v, int) or v < 1 or v > cap:
                 raise ExperimentError(f"{key} must be an integer between 1 and {cap}, got {v!r}")
-    name = body.get("name") or _default_run_name()
-    if not isinstance(name, str) or not SAFE_NAME.fullmatch(name) or name.endswith(GOVERNANCE_SUFFIXES):
-        raise ExperimentError(f"name must match {SAFE_NAME.pattern} and not end in -placebo or -twins")
-    body["name"] = name
+    # A body without a name leaves it out, and the endpoint names the run as it queues it (default_name).
+    name = body.pop("name", None)
+    if name is not None and name != "":
+        if not isinstance(name, str) or not SAFE_NAME.fullmatch(name) or name.endswith(GOVERNANCE_SUFFIXES):
+            raise ExperimentError(f"name must match {SAFE_NAME.pattern} and not end in -placebo or -twins")
+        body["name"] = name
     analysis = body.get("analysis") or {}
     if not isinstance(analysis, dict):
         raise ExperimentError("analysis must be a mapping")
@@ -895,8 +899,18 @@ def parse_translations(raw: Any) -> list[tuple[str, int]]:
     return out
 
 
-def _default_run_name() -> str:
-    return "run-" + time.strftime("%Y%m%d-%H%M%S")
+def utc_stamp() -> str:
+    """Say the current UTC time to the second, as a default run name carries it: 20261014-121530."""
+    return time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+
+
+def default_name(base: str, taken: Callable[[str], bool]) -> str:
+    """Return `base`, else `base-2`, `base-3` and so on: the first that `taken` does not claim."""
+    name, n = base, 1
+    while taken(name):
+        n += 1
+        name = f"{base}-{n}"
+    return name
 
 
 # ---------------------------------------------------------------------------- app
@@ -915,9 +929,12 @@ def create_app(
     results root, since visitors' runs live beside the curated experiments.
     """
     store = ExperimentStore(Path(results_dir))
-    # Translation records live beside the experiments, in a hidden directory the store never lists.
+    # Translation records live beside the experiments, in a hidden directory the store never lists. The demo
+    # cards' saved translations answer their own words first, so typed demo words give the demo's shocks.
     shock_translator = (
-        translator if translator is not None else translate.Translator(record_dir=store.results_root / ".translations")
+        translator
+        if translator is not None
+        else translate.Translator(record_dir=store.results_root / ".translations", pinned=demos.pinned_translations())
     )
     if not store.single:
         # A run interrupted between its two publication renames leaves its results hidden
@@ -1046,17 +1063,44 @@ def create_app(
     def taken_names() -> set[str]:
         return set(store.names())
 
-    def submit(kind: str, name: str, work: Any, request: Request, wait: bool) -> Any:
-        """Queue a run and answer at once (202 and the job), or wait for it and answer like a finished run."""
+    # Every run and fork is named and queued under one lock, so two runs started in the same second get two names
+    # and a typed name cannot take a picked one in between. A name a visitor typed is checked as it stands.
+    naming = threading.Lock()
+
+    def name_taken(name: str) -> bool:
+        """Whether a run may not take `name`: it is on disk, with its twins or placebo, locked, queued or running."""
+        root = store.results_root
+        on_disk = (name, f"{name}-twins", f"{name}-placebo", f".{name}.lock", f".{name}-twins.lock")
+        return runs.busy(name) or any((root / n).exists() for n in on_disk)
+
+    def refuse_locked(name: str) -> None:
+        """Answer 409 at once for a name whose results or twins hold a lock on disk that no run here holds.
+
+        A run that stopped while publishing leaves its lock behind, and a run queued for that name would only fail
+        on it later. A name this server is running is answered by `enqueue` instead, as already queued or running.
+        """
+        if runs.busy(name):
+            return
+        target = store.results_root / name
+        for locked in (target, runner.twins_dir_for(target)):
+            if runner.publishing(locked):
+                detail = f".{locked.name}.lock exists: another run is publishing this target (remove it if stale)"
+                raise HTTPException(status_code=409, detail=detail)
+
+    def enqueue(kind: str, name: str, work: Any, request: Request) -> jobq.Job:
+        """Queue a run, or answer why not: 429 when the line or this visitor's turn is full, 409 for a busy name."""
         sid = session_of(request)
         if pub is not None and sid is not None and runs.active_for(sid) >= 1:
             raise HTTPException(status_code=429, detail="You already have a run in progress. Wait for it to finish.")
         try:
-            job = runs.submit(kind, name, work, owner=sid)
+            return runs.submit(kind, name, work, owner=sid)
         except jobq.QueueFull as e:
             raise HTTPException(status_code=429, detail=str(e)) from e
         except jobq.NameBusy as e:
             raise HTTPException(status_code=409, detail=str(e)) from e
+
+    def answer(job: jobq.Job, name: str, wait: bool) -> Any:
+        """Answer at once (202 and the job), or wait for the run and answer like a finished run."""
         if not wait:
             return JSONResponse(runs.describe(job), status_code=202)
         try:
@@ -1077,40 +1121,50 @@ def create_app(
                 body["name"] = pubmod.visitor_name(sid, taken_names())
                 body["analysis"] = dict(PUBLIC_ANALYSIS)
             raw, overwrite = parse_run_body(body)
-            exp = parse_experiment(raw)
-            if pub is not None:
-                # Checked on the parsed experiment, so a field left out cannot slip past through its default.
-                for key, value, cap in (
-                    ("n_couples", exp.n_couples, pub.config.max_couples),
-                    ("days", exp.days, pub.config.max_days),
-                ):
-                    if value > cap:
-                        raise ExperimentError(f"{key} is at most {cap} here, got {value}")
-            for _, idx in pointers:
-                if idx >= len(exp.shocks):
-                    raise ExperimentError(f"shock_index {idx} is past the experiment's {len(exp.shocks)} shocks")
         except ExperimentError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
-        extra: dict[str, Any] = {}
-        if pointers:
-            extra["translation.json"] = translate.translation_file(shock_translator, pointers, exp.shocks)
-        name = exp.name
-        target = store.results_root / name
-        twins = runner.twins_dir_for(target)
-        if target.exists() and any(target.iterdir()) and not overwrite:
-            raise HTTPException(status_code=409, detail=f"experiment {name!r} exists; set overwrite to replace it")
-        if twins.exists() and any(twins.iterdir()) and not overwrite:
-            raise HTTPException(status_code=409, detail=f"{twins.name} exists; set overwrite to replace it")
+        # A run sent without a name is named exp-<UTC date>-<time>, with -2, -3 and so on when that is taken.
+        named = "name" in raw
+        with naming:
+            if not named:
+                raw["name"] = default_name(f"exp-{utc_stamp()}", name_taken)
+            try:
+                exp = parse_experiment(raw)
+                if pub is not None:
+                    # Checked on the parsed experiment, so a field left out cannot slip past through its default.
+                    for key, value, cap in (
+                        ("n_couples", exp.n_couples, pub.config.max_couples),
+                        ("days", exp.days, pub.config.max_days),
+                    ):
+                        if value > cap:
+                            raise ExperimentError(f"{key} is at most {cap} here, got {value}")
+                for _, idx in pointers:
+                    if idx >= len(exp.shocks):
+                        raise ExperimentError(f"shock_index {idx} is past the experiment's {len(exp.shocks)} shocks")
+            except ExperimentError as e:
+                raise HTTPException(status_code=400, detail=str(e)) from e
+            extra: dict[str, Any] = {}
+            if pointers:
+                extra["translation.json"] = translate.translation_file(shock_translator, pointers, exp.shocks)
+            name = exp.name
+            target = store.results_root / name
+            twins = runner.twins_dir_for(target)
+            if target.exists() and any(target.iterdir()) and not overwrite:
+                raise HTTPException(status_code=409, detail=f"experiment {name!r} exists; set overwrite to replace it")
+            if twins.exists() and any(twins.iterdir()) and not overwrite:
+                raise HTTPException(status_code=409, detail=f"{twins.name} exists; set overwrite to replace it")
+            refuse_locked(name)
 
-        # Every run brings its twins (each couple under both arms on the same seeds), through this same
-        # job, so the run cap and the public rules cover them and the World page can show both.
-        def work() -> dict[str, Any]:
-            cfg = build_engine_config(exp)
-            runner.run_with_twins(cfg, target, exp.analysis, overwrite=overwrite, extra_files=extra or None)
-            store.invalidate(name)
-            return {"name": name, "dir": str(target)}
+            # Every run brings its twins (each couple under both arms on the same seeds), through this same
+            # job, so the run cap and the public rules cover them and the World page can show both.
+            def work() -> dict[str, Any]:
+                cfg = build_engine_config(exp)
+                runner.run_with_twins(cfg, target, exp.analysis, overwrite=overwrite, extra_files=extra or None)
+                store.invalidate(name)
+                return {"name": name, "dir": str(target)}
 
-        return submit("run", name, work, request, wait)
+            job = enqueue("run", name, work, request)
+        return answer(job, name, wait)
 
     @app.post("/api/experiments/fork")
     def fork_experiment(body: dict[str, Any], request: Request, wait: bool = Query(False)) -> Any:
@@ -1128,41 +1182,49 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"unknown parent experiment {parent!r}")
         parent_dir = store.dir_for(parent)
         assert parent_dir is not None
-        try:
-            pointers = parse_translations(body.get("translations"))
-            if pub is not None:
-                name = pubmod.visitor_name(sid or "000000000000", taken_names())
-            else:
-                name = body.get("name") or f"{parent[:40]}-fork-{time.strftime('%Y%m%d-%H%M%S')}"
-            if not isinstance(name, str) or not SAFE_NAME.fullmatch(name) or name.endswith(GOVERNANCE_SUFFIXES):
-                raise ExperimentError(f"name must match {SAFE_NAME.pattern} and not end in -placebo or -twins")
-            if name == parent:
-                raise ExperimentError("a fork needs a name of its own")
-            plan = forking.plan_fork(parent, parent_dir, body.get("shocks"), name)
-            if pub is not None and (plan.n_couples > pub.config.max_couples or plan.days > pub.config.max_days):
-                cap = f"{pub.config.max_couples} couples, {pub.config.max_days} days"
-                raise ExperimentError(f"this world is larger than a public run may be ({cap})")
-            for _, idx in pointers:
-                if idx >= len(plan.shocks):
-                    raise ExperimentError(f"shock_index {idx} is past the fork's {len(plan.shocks)} shocks")
-        except ExperimentError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from e
-        target = store.results_root / plan.name
-        twins = runner.twins_dir_for(target)
-        if target.exists() and any(target.iterdir()):
-            raise HTTPException(status_code=409, detail=f"experiment {plan.name!r} exists; pick another name")
-        if twins.exists() and any(twins.iterdir()):
-            raise HTTPException(status_code=409, detail=f"{twins.name} exists; pick another name")
-        extra: dict[str, Any] = {}
-        if pointers:
-            extra["translation.json"] = translate.translation_file(shock_translator, pointers, plan.shocks)
+        # A fork sent without a name is named <parent>-fork-<UTC date>-<time>, with -2, -3 and so on when taken.
+        named = pub is not None or body.get("name") not in (None, "")
+        with naming:
+            try:
+                pointers = parse_translations(body.get("translations"))
+                name: Any
+                if pub is not None:
+                    name = pubmod.visitor_name(sid or "000000000000", taken_names())
+                elif named:
+                    name = body.get("name")
+                else:
+                    name = default_name(f"{parent[:36]}-fork-{utc_stamp()}", name_taken)
+                if not isinstance(name, str) or not SAFE_NAME.fullmatch(name) or name.endswith(GOVERNANCE_SUFFIXES):
+                    raise ExperimentError(f"name must match {SAFE_NAME.pattern} and not end in -placebo or -twins")
+                if name == parent:
+                    raise ExperimentError("a fork needs a name of its own")
+                plan = forking.plan_fork(parent, parent_dir, body.get("shocks"), name)
+                if pub is not None and (plan.n_couples > pub.config.max_couples or plan.days > pub.config.max_days):
+                    cap = f"{pub.config.max_couples} couples, {pub.config.max_days} days"
+                    raise ExperimentError(f"this world is larger than a public run may be ({cap})")
+                for _, idx in pointers:
+                    if idx >= len(plan.shocks):
+                        raise ExperimentError(f"shock_index {idx} is past the fork's {len(plan.shocks)} shocks")
+            except ExperimentError as e:
+                raise HTTPException(status_code=400, detail=str(e)) from e
+            target = store.results_root / plan.name
+            twins = runner.twins_dir_for(target)
+            if target.exists() and any(target.iterdir()):
+                raise HTTPException(status_code=409, detail=f"experiment {plan.name!r} exists; pick another name")
+            if twins.exists() and any(twins.iterdir()):
+                raise HTTPException(status_code=409, detail=f"{twins.name} exists; pick another name")
+            refuse_locked(plan.name)
+            extra: dict[str, Any] = {}
+            if pointers:
+                extra["translation.json"] = translate.translation_file(shock_translator, pointers, plan.shocks)
 
-        def work() -> dict[str, Any]:
-            forking.run_fork(plan, target, extra_files=extra or None)
-            store.invalidate(plan.name)
-            return {"name": plan.name, "dir": str(target)}
+            def work() -> dict[str, Any]:
+                forking.run_fork(plan, target, extra_files=extra or None)
+                store.invalidate(plan.name)
+                return {"name": plan.name, "dir": str(target)}
 
-        return submit("fork", plan.name, work, request, wait)
+            job = enqueue("fork", plan.name, work, request)
+        return answer(job, plan.name, wait)
 
     @app.get("/api/jobs/{job_id}")
     def job_status(job_id: str, request: Request) -> dict[str, Any]:

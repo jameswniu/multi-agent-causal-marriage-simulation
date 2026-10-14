@@ -78,6 +78,11 @@ def test_the_committed_demo_shocks_are_valid_for_the_example_and_show_range() ->
         (lambda d: d.update(name="mother"), "name must start with 'demo-'"),
         (lambda d: d.update(translation=None), "typed words need the translation record"),
         (lambda d: d["translation"].update(shock_index=3), "shock_index must point at one of the shocks"),
+        (lambda d: d["translation"]["record"].update(reused=True), "must be a saved translation record"),
+        (
+            lambda d: d["translation"]["record"].update(recorded="2026-10-14T05:00:00-07:00"),
+            "the time the record itself gives",
+        ),
     ],
 )
 def test_a_demo_file_that_does_not_hold_what_ran_is_refused(tmp_path: Path, change: Any, message: str) -> None:
@@ -85,6 +90,35 @@ def test_a_demo_file_that_does_not_hold_what_ran_is_refused(tmp_path: Path, chan
     change(data)
     with pytest.raises(demo.DemoError, match=message):
         demo.check_demo(demo.load_demo(_write(tmp_path, "mother", data)), EXAMPLE_DAYS)
+
+
+def test_a_record_that_carries_its_own_time_is_accepted(tmp_path: Path) -> None:
+    data = _committed("mother-moves-in")
+    data["translation"]["record"]["recorded"] = data["translation"]["recorded"]
+    loaded = demo.load_demo(_write(tmp_path, "mother", data))
+    assert loaded.record is not None and loaded.record["recorded"] == "2026-10-12T01:33:33-07:00"
+    demo.check_demo(loaded, EXAMPLE_DAYS)
+
+
+def test_the_demo_cards_hand_the_live_app_their_saved_translations_dated_as_the_cards_date_them(
+    tmp_path: Path,
+) -> None:
+    items = demo.load_demos()
+    pins = demo.pinned_translations()
+    assert len(pins) == sum(d.translation is not None for d in items) >= 2
+    by_id = {p.translation_id: p for p in pins}
+    for d in items:
+        if d.translation is None:
+            continue
+        rec = d.translation["record"]
+        pin = by_id[rec["translation_id"]]
+        assert pin.recorded == d.translation["recorded"] and pin.spec == rec["spec"] and not pin.reused
+        assert (pin.text_sha256, pin.days, pin.model) == (rec["text_sha256"], rec["days"], rec["model"])
+        assert translate.reusable(pin), f"{d.name}: the card's shock must still run as saved"
+    # A card that does not load is left out, and the others still come through.
+    _write(tmp_path, "layoff", _committed("layoff"))
+    _write(tmp_path, "broken", {"name": "demo-broken"})
+    assert [p.translation_id for p in demo.pinned_translations(tmp_path)] == ["145db2abb8dc48f1a719425e95fb739f"]
 
 
 def test_two_demo_files_may_not_share_a_name(tmp_path: Path) -> None:

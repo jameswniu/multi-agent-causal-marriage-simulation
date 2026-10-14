@@ -98,6 +98,17 @@ interface Props {
 
 /** Below this host width the town shows one district at a time with a switch. */
 export const PHONE_MAX_PX = 600;
+/** Screen pixels between a district's title and the top of its houses, on a town wide enough to show every title in full. */
+const TITLE_GAP_PX = 6;
+/** Screen pixels kept clear above the tallest title, so it never touches the canvas edge. */
+const TITLE_TOP_PX = 4;
+/** World units a conflict sign rises above its lot, which a title must stay clear of too once zoomed in. */
+const SIGN_RISE = 10;
+
+/** Screen pixels between a district's title and its first row of lots at scale `s`, clear of any conflict sign. */
+function titleGap(s: number): number {
+  return Math.max(TITLE_GAP_PX, SIGN_RISE * s + 2);
+}
 const MINI_W = 200;
 export type District = 'control' | 'plaza' | 'treatment';
 
@@ -551,6 +562,13 @@ export default function TownView({
       let nearest: boolean | null = null;
       let dotMode: boolean | null = null;
       let onCamera = () => {};
+      // Screen pixels the top of the town must sit below the canvas top at the current zoom, so the district
+      // titles fit above the houses; set once the titles exist (placeLabels).
+      let titleRoom = () => 0;
+      // The same room for a whole-town view at scale `s`, and the height of the tallest title at that scale.
+      let titlesAt: (s: number) => { room: number; height: number } = () => ({ room: 0, height: 0 });
+      // The whole-town scale last worked out, so zooming out stops just below it.
+      let wholeTown = Infinity;
       const n = agents.length;
       const tints = new Uint32Array(n).fill(0x3b3b3b);
       // People are never hidden: when the sprites would be too small, each person is a dot in the
@@ -575,8 +593,10 @@ export default function TownView({
         const { w, h } = view();
         const tw = layout.width * scale;
         const th = layout.height * scale;
+        // A town that fits sits in the middle, but never so high that the district titles would cover houses.
+        const room = titleRoom();
         sc.root.x = tw <= w ? (w - tw) / 2 : Math.min(w * 0.08, Math.max(w * 0.92 - tw, sc.root.x));
-        sc.root.y = th <= h ? (h - th) / 2 : Math.min(h * 0.08, Math.max(h * 0.92 - th, sc.root.y));
+        sc.root.y = th + room <= h ? Math.max((h - th) / 2, room) : Math.min(Math.max(h * 0.08, room), Math.max(h * 0.92 - th, sc.root.y));
         savedCamera.current = { scale, x: sc.root.x, y: sc.root.y, cols: layout.districtCols };
         onCamera();
       };
@@ -600,7 +620,7 @@ export default function TownView({
           for (const t of sc.allTextures) t.source.scaleMode = wantNearest ? 'nearest' : 'linear';
         }
       };
-      const minScale = () => Math.min(view().w / layout.width, view().h / layout.height) * 0.9;
+      const minScale = () => Math.min(view().w / layout.width, view().h / layout.height, wholeTown) * 0.9;
       const zoomAt = (sx: number, sy: number, next: number) => {
         const s = Math.min(MAX_SCALE, Math.max(minScale(), next));
         const wx = (sx - sc.root.x) / scale;
@@ -610,8 +630,21 @@ export default function TownView({
         sc.root.y = sy - wy * s;
         clampCamera();
       };
+      // The whole town at the largest scale that still leaves room above it for the district titles. Their height
+      // depends on how wide the districts are on screen, so the scale is worked out again a few times.
+      const fitScale = () => {
+        const { w, h } = view();
+        let s = Math.min(w / layout.width, h / layout.height);
+        for (let i = 0; i < 6; i++) {
+          const titles = titlesAt(s);
+          if (layout.height * s + titles.room <= h + 0.5) break;
+          s = Math.min(s, (h - titles.height - titleGap(s) - TITLE_TOP_PX) / (layout.height - (MARGIN + TITLE_BAND)));
+        }
+        wholeTown = Math.max(0.01, s);
+        return wholeTown;
+      };
       const fit = () => {
-        applyScale(minScale() / 0.9);
+        applyScale(fitScale());
         clampCamera();
       };
       const districtRect = (d: District): Rect => (d === 'control' ? layout.control : d === 'treatment' ? layout.treatment : layout.plaza);
@@ -647,15 +680,50 @@ export default function TownView({
       const lTreatment = makeLabel('town-label-start', treatmentTitle, `${layout.order.treatment.length.toLocaleString()} couples`);
       host.appendChild(labelBox);
       cleanups.push(() => labelBox.remove());
+      // A town as wide as a desktop gives each district's title as many lines as it needs, standing on the top of
+      // its district, and the camera keeps room above the districts for the tallest (titleRoom), so a title never
+      // covers a house or a ring. A phone shows one district at a time with its full name in the switch above the
+      // canvas, so there a title keeps one line, cut at its district's edge.
+      let sizedFor = '';
+      let tallest = 0;
+      const sizeLabels = (s: number) => {
+        const wrap = host.clientWidth >= PHONE_MAX_PX;
+        const wc = Math.max(120, layout.control.w * s).toFixed(0);
+        const wt = Math.max(120, layout.treatment.w * s).toFixed(0);
+        const plazaSub = layout.plaza.w * s >= 200;
+        const key = `${wrap}:${wc}:${wt}:${plazaSub}`;
+        if (key === sizedFor) return wrap;
+        sizedFor = key;
+        labelBox.classList.toggle('town-labels-wrap', wrap);
+        lControl.el.style.maxWidth = `${wc}px`;
+        lTreatment.el.style.maxWidth = `${wt}px`;
+        lPlaza.span.style.display = plazaSub ? '' : 'none';
+        tallest = wrap ? Math.max(lControl.el.offsetHeight, lTreatment.el.offsetHeight, lPlaza.el.offsetHeight) : 0;
+        return wrap;
+      };
+      titlesAt = (s: number) => {
+        const height = sizeLabels(s) ? tallest : 0;
+        return { room: height > 0 ? Math.max(0, height + titleGap(s) + TITLE_TOP_PX - (MARGIN + TITLE_BAND) * s) : 0, height };
+      };
+      titleRoom = () => titlesAt(scale).room;
       const placeLabels = () => {
-        const top = Math.max(4, sc.root.y + (MARGIN + 6) * scale);
+        const x = (wx: number) => (sc.root.x + wx * scale).toFixed(1);
+        const right = x(layout.control.x + layout.control.w);
+        const left = x(layout.treatment.x);
+        const mid = x(layout.plaza.x + layout.plaza.w / 2);
+        if (sizeLabels(scale)) {
+          // Each title stands on its district: its bottom edge sits just above the first row of houses.
+          const y = (sc.root.y + layout.control.y * scale - titleGap(scale)).toFixed(1);
+          lControl.el.style.transform = `translate(${right}px, ${y}px) translate(-100%, -100%)`;
+          lTreatment.el.style.transform = `translate(${left}px, ${y}px) translateY(-100%)`;
+          lPlaza.el.style.transform = `translate(${mid}px, ${y}px) translate(-50%, -100%)`;
+          return;
+        }
         // A long title (an arm with shocks in its name) stops at its district's edge instead of running off the canvas.
-        lControl.el.style.maxWidth = `${Math.max(120, layout.control.w * scale).toFixed(0)}px`;
-        lTreatment.el.style.maxWidth = `${Math.max(120, layout.treatment.w * scale).toFixed(0)}px`;
-        lControl.el.style.transform = `translate(${(sc.root.x + (layout.control.x + layout.control.w) * scale).toFixed(1)}px, ${top.toFixed(1)}px) translateX(-100%)`;
-        lTreatment.el.style.transform = `translate(${(sc.root.x + layout.treatment.x * scale).toFixed(1)}px, ${top.toFixed(1)}px)`;
-        lPlaza.el.style.transform = `translate(${(sc.root.x + (layout.plaza.x + layout.plaza.w / 2) * scale).toFixed(1)}px, ${top.toFixed(1)}px) translateX(-50%)`;
-        lPlaza.span.style.display = layout.plaza.w * scale < 200 ? 'none' : '';
+        const top = Math.max(4, sc.root.y + (MARGIN + 6) * scale).toFixed(1);
+        lControl.el.style.transform = `translate(${right}px, ${top}px) translateX(-100%)`;
+        lTreatment.el.style.transform = `translate(${left}px, ${top}px)`;
+        lPlaza.el.style.transform = `translate(${mid}px, ${top}px) translateX(-50%)`;
       };
 
       // The couple open in the side panel gets a ring around its lot.

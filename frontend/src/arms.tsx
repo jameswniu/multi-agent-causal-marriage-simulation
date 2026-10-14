@@ -535,9 +535,20 @@ export interface ArmContext {
   intervention: Intervention;
   catalog: Catalog | null;
   nCouples: number | null;
+  /**
+   * False while the experiment and the shock catalog the labels come from are still loading. Until then the labels
+   * are placeholders ("Control", and an intervention with nothing in it, which reads as a placebo run), so a page
+   * that shows them waits for this.
+   */
+  ready: boolean;
+  /**
+   * Why the experiment the labels come from could not load, or null. Its labels then stay placeholders for good, so
+   * a page that waits for `ready` shows this instead. A catalog that does not load only leaves the kinds' names plainer.
+   */
+  error: string | null;
 }
 
-const EMPTY: ArmContext = { labels: DEFAULT_LABELS, intervention: { memory: null, treatmentShocks: [], worldShocks: [] }, catalog: null, nCouples: null };
+const EMPTY: ArmContext = { labels: DEFAULT_LABELS, intervention: { memory: null, treatmentShocks: [], worldShocks: [] }, catalog: null, nCouples: null, ready: true, error: null };
 
 const Ctx = createContext<ArmContext>(EMPTY);
 
@@ -550,12 +561,16 @@ export function toCatalog(kinds: ShockKind[] | undefined | null): Catalog | null
   return out;
 }
 
+/**
+ * The labels of the experiment in the URL. The app mounts one per experiment, so a world switched to starts
+ * with `ready` false and placeholder labels until its own experiment and the catalog have loaded.
+ */
 export function ArmLabelsProvider({ children }: { children: ReactNode }) {
-  const { data } = useAsync(() => Promise.all([getExperiment().catch(() => null), getShocksCatalog().catch(() => null)]), []);
+  const { data, error, loading } = useAsync(() => Promise.all([getExperiment(), getShocksCatalog().catch(() => null)]), []);
   const exp = data?.[0]?.summary?.experiment;
   const catalog = toCatalog(data?.[1]?.kinds);
   const intervention = interventionOf(exp?.treatment, exp?.shocks);
-  const value: ArmContext = { labels: armLabelsFor(intervention, catalog), intervention, catalog, nCouples: exp?.n_couples ?? data?.[0]?.manifest.n_couples ?? null };
+  const value: ArmContext = { labels: armLabelsFor(intervention, catalog), intervention, catalog, nCouples: exp?.n_couples ?? data?.[0]?.manifest.n_couples ?? null, ready: !loading, error };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

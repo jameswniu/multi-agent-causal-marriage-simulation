@@ -14,7 +14,7 @@ import EventMarkers from '../components/EventMarkers';
 import DecisionTable from '../components/DecisionTable';
 import StatTile from '../components/StatTile';
 import UnderTheHood from '../components/UnderTheHood';
-import { useArmLabels } from '../arms';
+import { useArmContext } from '../arms';
 import { safeFixed } from '../format';
 
 export default function CoupleDetail() {
@@ -22,9 +22,11 @@ export default function CoupleDetail() {
   const coupleId = Number(id);
   const { data, error, loading } = useAsync(() => getCouple(coupleId), [coupleId]);
   const [metric, setMetric] = useState<'trust' | 'affect'>('trust');
-  const labels = useArmLabels();
+  // The Arm card and the agents table name the arms, so the page waits for this world's labels too.
+  const { labels, ready, error: labelsError } = useArmContext();
   if (error) return <ErrorBox message={error} />;
-  if (!data) return <Loading what={`couple ${coupleId}`} />;
+  if (labelsError) return <ErrorBox message={labelsError} />;
+  if (!data || !ready) return <Loading what={`couple ${coupleId}`} />;
   const { couple, agents, daily, events, conflicts, decisions, episodes } = data;
   const lastDay = Math.max(0, ...daily.map((d) => d.day));
   return (

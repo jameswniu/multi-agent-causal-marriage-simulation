@@ -509,6 +509,10 @@ export interface TranslateResponse {
   model: string;
   errors: string[];
   message: string | null;
+  /** True when the server answered these words from the translation it saved for them, with no model call. */
+  reused?: boolean;
+  /** When that translation was saved, like "2026-10-12T01:33:33-07:00" (servers from before reuse send none). */
+  recorded?: string | null;
 }
 
 /** A shock as a run request carries it: the target is set by its section, and a custom shock has no magnitude. */

@@ -108,6 +108,7 @@ export function resetMockState(): void {
   current = null;
   forks = {};
   forkWorlds.clear();
+  savedTranslations.clear();
   jobs = {};
   health = { ok: true, experiments: [], public: false };
 }
@@ -118,8 +119,24 @@ export const listExperiments = async () => {
 };
 export const getShocksCatalog = async () => shocksCatalog as unknown as ShocksCatalog;
 const KINDS_SENTENCE = 'LoveWorld can run these kinds of shock: job loss, financial crisis, temptation, intimacy mismatch, daily texts, anniversary, date nights and trait shift.';
-/** A stand-in for the model: a dog is unsupported, "1000" comes back out of bounds, anything else is a job loss. */
+/** When the mock server saves a translation. */
+export const MOCK_RECORDED = '2026-10-12T01:33:33-07:00';
+/** Words the mock server translated ok, by their spacing-collapsed lowercase text and run length. */
+const savedTranslations = new Map<string, TranslateResponse>();
+/**
+ * The server: words it translated ok before, for a run of the same length, come back from that saved translation
+ * with `reused` set and no model call; anything else goes to the stand-in model.
+ */
 export const translateShock = async (text: string, days: number): Promise<TranslateResponse> => {
+  const key = `${text.toLowerCase().split(/\s+/).filter(Boolean).join(' ')}|${days}`;
+  const saved = savedTranslations.get(key);
+  if (saved) return { ...saved, reused: true };
+  const answer = { ...(await translateWithModel(text, days)), reused: false, recorded: MOCK_RECORDED };
+  if (answer.status === 'ok') savedTranslations.set(key, answer);
+  return answer;
+};
+/** A stand-in for the model: a dog is unsupported, "1000" comes back out of bounds, anything else is a job loss. */
+const translateWithModel = async (text: string, days: number): Promise<TranslateResponse> => {
   await new Promise((r) => setTimeout(r, 20));
   const t = text.toLowerCase();
   const base = { rationale: 'Month three starts on day 60 and four months last 120 days.', model: 'fixture-model', errors: [] as string[], message: null as string | null };
@@ -167,17 +184,35 @@ function finishedJob(kind: 'run' | 'fork', name: string): JobResponse {
   return job;
 }
 /** Runs finish at once in the mock; the page still reads the job it gets back. */
+/** The second the mock server names a run sent without a name by, as the server does with the UTC time. */
+export const MOCK_STAMP = '20261014-121530';
+function listedNames(): Set<string> {
+  return new Set([...baseExperiments.items, ...extraExperiments].map((it) => it.name));
+}
+/** The server's name for a run sent without one: `base`, else `base-2`, `base-3` and so on. */
+function freeName(base: string): string {
+  const taken = listedNames();
+  let name = base;
+  for (let n = 2; taken.has(name); n++) name = `${base}-${n}`;
+  return name;
+}
 export const runExperiment = async (body: RunRequest): Promise<JobResponse> => {
   await new Promise((r) => setTimeout(r, 30));
-  const name = body.name ?? (health.public ? `v-0123456789ab-2026101${jobSeq}-000000` : '');
-  if (!name) throw new Error('400 name is required (/experiments/run)');
+  const name = body.name ?? (health.public ? `v-0123456789ab-2026101${jobSeq}-000000` : freeName(`exp-${MOCK_STAMP}`));
+  if (body.name && listedNames().has(body.name) && !body.overwrite) {
+    throw new ApiError(409, '/experiments/run', `409 experiment '${body.name}' exists; set overwrite to replace it (/experiments/run)`);
+  }
   addListed(name, body.n_couples ?? 1000, body.days ?? 365, null);
   return finishedJob('run', name);
 };
 /** A fork lands as a new listed world whose Overview carries a zero-difference comparison with its parent. */
 export const forkExperiment = async (body: ForkRequest): Promise<JobResponse> => {
   await new Promise((r) => setTimeout(r, 30));
-  const name = body.name ?? `${body.parent}-fork`;
+  if (body.name && listedNames().has(body.name)) {
+    throw new ApiError(409, '/experiments/fork', `409 experiment '${body.name}' exists; pick another name (/experiments/fork)`);
+  }
+  // The server adds the time to a fork's name; the mock keeps it short, as the tests that follow forks expect.
+  const name = body.name ?? freeName(`${body.parent}-fork`);
   addListed(name, 1000, 365, body.parent);
   const rows = summary.outcomes.slice(0, 3).map((o) => ({ name: o.name, mean_diff: 0, ci_low: 0, ci_high: 0, n_pairs: 1000, share_changed: 0 }));
   forks[name] = {

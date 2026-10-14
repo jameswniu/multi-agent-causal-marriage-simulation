@@ -17,6 +17,16 @@ export function openEndHint(s: ShockForm, catalog: Catalog | null, days: number)
   return end >= days - 1 ? 'to the end' : `day ${end}`;
 }
 
+/**
+ * The name the server gives a run sent without one, as of `when`: exp- and the UTC date and time to the second,
+ * such as exp-20261014-121530, or for a fork of `parent` that parent's name, -fork- and the same time. The server
+ * adds -2, -3 and so on when another run already has the name.
+ */
+export function defaultRunName(when: Date, parent?: string | null): string {
+  const stamp = when.toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-');
+  return parent ? `${parent.slice(0, 36)}-fork-${stamp}` : `exp-${stamp}`;
+}
+
 /** A new row for a catalog kind, filled with the kind's defaults. */
 export function draftFor(k: ShockKind): ShockForm {
   return {
@@ -48,8 +58,25 @@ function customRow(res: TranslateResponse, text: string): ShockForm | null {
     description: spec.description ?? null,
     effects: (spec.effects ?? []).map((e) => ({ ...e })),
   };
-  row.translation = { id: res.translation_id, text, status: res.status, rationale: res.rationale, model: res.model, errors: res.errors, asTranslated: spec, initial: rowSpec(row), confirmed: res.status !== 'invalid' };
+  row.translation = translationOf(res, text, spec, row);
   return row;
+}
+
+/** Where a row came from: the visitor's words, the server's answer, and whether it was a saved translation reused. */
+function translationOf(res: TranslateResponse, text: string, spec: ShockSpec, row: ShockForm): NonNullable<ShockForm['translation']> {
+  return {
+    id: res.translation_id,
+    text,
+    status: res.status === 'invalid' ? 'invalid' : 'ok',
+    rationale: res.rationale,
+    model: res.model,
+    errors: res.errors,
+    asTranslated: spec,
+    initial: rowSpec(row),
+    confirmed: res.status !== 'invalid',
+    reused: res.reused === true,
+    recorded: res.recorded ?? null,
+  };
 }
 
 /** A shock row filled in from a translation, keeping the kind's defaults for anything the model left out. */
@@ -69,7 +96,7 @@ export function rowFromTranslation(res: TranslateResponse, text: string, kinds: 
   };
   // Fields the model got wrong fall back to defaults above; the row remembers how it started, so an
   // invalid answer cannot run until something changes or the visitor confirms it on the card.
-  row.translation = { id: res.translation_id, text, status: res.status, rationale: res.rationale, model: res.model, errors: res.errors, asTranslated: spec, initial: rowSpec(row), confirmed: res.status !== 'invalid' };
+  row.translation = translationOf(res, text, spec, row);
   return row;
 }
 

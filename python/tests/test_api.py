@@ -705,6 +705,59 @@ def test_translate_endpoint_answers_200_400_and_503_and_caches(tmp_path: Path) -
     assert r.status_code == 503 and "Anthropic API key" in r.json()["detail"]
 
 
+def test_translate_endpoint_answers_words_it_translated_before_from_their_record(tmp_path: Path) -> None:
+    from loveworld import translate
+
+    from .test_translate import JOB_ANSWER, JOB_TEXT, FakeClient
+
+    records = tmp_path / ".translations"
+
+    def app_with(fake: FakeClient) -> TestClient:
+        tr = translate.Translator(lambda: fake, record_dir=records)
+        return TestClient(create_app(tmp_path, frontend_dist=tmp_path / "no-dist", translator=tr))
+
+    first_fake = FakeClient({"loses his job": JOB_ANSWER})
+    first = app_with(first_fake).post("/api/shocks/translate", json={"text": JOB_TEXT, "days": 365}).json()
+    assert first["reused"] is False and first["recorded"] and len(first_fake.payloads) == 1
+    # A restarted server answers the same words from the saved record: no model call and no new record.
+    fake = FakeClient({"loses his job": dict(JOB_ANSWER, start_day=10)})
+    client = app_with(fake)
+    again = client.post("/api/shocks/translate", json={"text": JOB_TEXT.lower(), "days": 365}).json()
+    assert again["reused"] is True and again["translation_id"] == first["translation_id"]
+    assert again["spec"] == first["spec"] and again["recorded"] == first["recorded"] and fake.payloads == []
+    assert len(list(records.glob("*.json"))) == 1
+    # Another run length is another translation.
+    other = client.post("/api/shocks/translate", json={"text": JOB_TEXT, "days": 300}).json()
+    assert other["reused"] is False and other["spec"]["start_day"] == 10 and len(fake.payloads) == 1
+    assert len(list(records.glob("*.json"))) == 2
+
+
+def test_the_app_answers_words_a_demo_card_shows_typed_from_the_cards_translation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from loveworld import demo, translate
+
+    from .test_translate import FakeClient
+
+    # The app's own translator, with a model that must never be asked: the root holds no translation records.
+    fake = FakeClient({}, model=translate.DEFAULT_MODEL)
+    real = translate.Translator
+    monkeypatch.setattr(translate, "Translator", lambda **kw: real(client_factory=lambda: fake, **kw))
+    client = TestClient(create_app(tmp_path, frontend_dist=tmp_path / "no-dist"))
+    typed = [d for d in demo.load_demos() if d.typed and d.translation is not None]
+    assert {d.name for d in typed} >= {"demo-mother-moves-in", "demo-layoff"}
+    for d in typed:
+        assert d.translation is not None
+        rec = d.translation["record"]
+        r = client.post("/api/shocks/translate", json={"text": d.words, "days": rec["days"]})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["reused"] is True and body["translation_id"] == rec["translation_id"], d.name
+        assert body["recorded"] == d.translation["recorded"]
+        assert translate.comparable(body["spec"]) == translate.comparable(rec["spec"])
+    assert fake.payloads == [] and not (tmp_path / ".translations").exists()
+
+
 def test_a_run_records_where_its_translated_shock_came_from(tmp_path: Path) -> None:
     from loveworld import translate
 

@@ -11,6 +11,7 @@ import { effectWords, shockWords, type Catalog } from '../arms';
 import { openEndHint, rowFromTranslation } from '../shockForm';
 import { changedSinceTranslation, isTraitKind, rowSpec, type ShockForm } from '../validation';
 import { mountTurnstile } from '../turnstile';
+import { recordedDate } from '../format';
 
 export interface ServerSetup {
   health: HealthResponse | null;
@@ -163,6 +164,15 @@ export function DescribeBox({ describe, boxRef, placeholder = 'He loses his job 
   );
 }
 
+/**
+ * What the card says when the server answered the words from the translation it saved for them: "Same words as on
+ * 12 October 2026, so the same shock, with no new model call." It shows only while the row is that shock.
+ */
+export function reusedWords(recorded: string | null | undefined): string {
+  const when = recorded ? `as on ${recordedDate(recorded)}` : 'as an earlier translation';
+  return `Same words ${when}, so the same shock, with no new model call.`;
+}
+
 /** Every shock row: the card a translation left (its words, the model's reasoning, any problem), then its fields. */
 export function ShockRows({ rows, kinds, catalog, effects, days }: { rows: ShockRowsState; kinds: ShockKind[]; catalog: Catalog | null; effects: EffectCatalog | null; days: number }) {
   const { shocks, update, updateEffect, remove } = rows;
@@ -177,6 +187,7 @@ export function ShockRows({ rows, kinds, catalog, effects, days }: { rows: Shock
             {t ? (
               <div className="translation-card" data-testid="translation-card">
                 <div className="muted">From your words: "{t.text}"</div>
+                {t.reused && !changedSinceTranslation(s) ? <div data-testid="translation-reused">{reusedWords(t.recorded)}</div> : null}
                 <div data-testid="translation-words">{shockWords(rowSpec(s), catalog)}</div>
                 {s.kind === 'custom' && s.description ? <div data-testid="translation-description">{s.description}</div> : null}
                 {t.rationale ? <div className="muted">{t.rationale}</div> : null}

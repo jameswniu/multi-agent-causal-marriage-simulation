@@ -12,7 +12,7 @@ import { useOpenNewWorld } from '../nav';
 import { ErrorBox, Loading } from '../components/Status';
 import { BotCheck, DescribeBox, HealthMissing, RunOutcome, RunProgress, ShockRows, ValidationErrors, useDescribe, useRunJob, useServerSetup, useShockRows } from '../components/ShockComposer';
 import { humanDuration, toCatalog } from '../arms';
-import { buildForkRequest, buildRequest, draftFor, replayStartDay } from '../shockForm';
+import { buildForkRequest, buildRequest, defaultRunName, draftFor, replayStartDay } from '../shockForm';
 import { validateRun, type RunForm, type RunRules } from '../validation';
 
 export default function NewExperiment() {
@@ -22,7 +22,11 @@ export default function NewExperiment() {
   const current = useAsync(() => getExperiment().catch(() => null), []);
   const server = useServerSetup();
   const controlHalfLife = current.data?.summary?.experiment.treatment.control_value ?? 14;
-  const [name, setName] = useState(() => `exp-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}`);
+  // Empty until the visitor types one: the server then names the run by the second it starts, so two runs started
+  // in the same minute never share a name. A typed name that is taken is the server's 409.
+  const [name, setName] = useState('');
+  // When the page opened, for the example name the empty field shows.
+  const [openedAt] = useState(() => new Date());
   const [nCouples, setNCouples] = useState(1000);
   const [days, setDays] = useState(365);
   const [treatmentHalfLife, setTreatmentHalfLife] = useState<number | null>(null);
@@ -75,8 +79,9 @@ export default function NewExperiment() {
     }
     setShowErrors(false);
     const from = replayStartDay(form.shocks, runDays);
+    const nameAssigned = isPublic || form.name.trim() === '';
     void job.start(
-      () => (forking ? forkExperiment(buildForkRequest(form, kinds, startFrom, { nameAssigned: isPublic })) : runExperiment(buildRequest(form, kinds, { nameAssigned: isPublic }))),
+      () => (forking ? forkExperiment(buildForkRequest(form, kinds, startFrom, { nameAssigned })) : runExperiment(buildRequest(form, kinds, { nameAssigned }))),
       (done) => openWorld(done.name, from),
     );
   };
@@ -117,7 +122,8 @@ export default function NewExperiment() {
           {isPublic ? null : (
             <label>
               Name
-              <input type="text" value={name} onChange={(e) => setName(e.target.value)} aria-label="Name" />
+              <input type="text" value={name} placeholder={defaultRunName(openedAt, forking ? startFrom : null)} onChange={(e) => setName(e.target.value)} aria-label="Name" />
+              <span className="muted">Left empty, the run is named for the time it starts, in UTC.</span>
             </label>
           )}
           {forking ? null : (
@@ -158,7 +164,7 @@ export default function NewExperiment() {
           <button type="button" onClick={() => kinds.length && rows.add(draftFor(kinds[0]))} disabled={kinds.length === 0}>
             Add shock
           </button>
-          {forking || isPublic ? null : (
+          {forking || isPublic || name.trim() === '' ? null : (
             <label>
               <input type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} /> Overwrite if the name exists
             </label>

@@ -494,7 +494,11 @@ export default function World() {
   }, [pendingReplay, world, mode, view, townReady, parentLoading]);
 
   if (error) return <ErrorBox message={error} />;
-  if (!world) return <Loading what="the world" />;
+  if (arms.error) return <ErrorBox message={arms.error} />;
+  // The framing, the scoreboard, the time strip and the town's district titles all name the arms, so the page
+  // waits for this world's labels as well as its states: shown any sooner, they read "Control" and "a placebo
+  // run" for a moment after a switch, and the town would be built twice.
+  if (!world || !arms.ready) return <Loading what="the world" />;
 
   const nInitial = groups.control.length + groups.treatment.length;
   const [controlTitle, treatmentTitle] = gridTitles(arms.labels);

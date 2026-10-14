@@ -342,6 +342,98 @@ describe('pages', () => {
     expect([...select.options].map((o) => o.textContent)).toContain('job-loss-api (job loss on day 60, everyone: date nights on day 0)');
   });
 
+  it('World never shows placeholder arm words while a world it switches to loads its labels', async () => {
+    // The labels come from the experiment and the shock catalog. Hold the catalog back so the new world's
+    // states arrive first, as they can in the browser, and watch every change the page makes meanwhile.
+    let release = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const original = mock.getShocksCatalog;
+    at('/world');
+    await waitFor(() => expect(screen.getByTestId('framing')).toHaveTextContent('On the left a fight fades from memory in 14 days.'));
+    const seen: string[] = [];
+    const observer = new MutationObserver(() => {
+      const text = document.body.textContent ?? '';
+      for (const placeholder of ['a placebo run', 'Nothing differs between the arms', '(control)', '(treatment)']) {
+        if (text.includes(placeholder)) seen.push(placeholder);
+      }
+    });
+    observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+    const spy = vi.spyOn(mock, 'getShocksCatalog').mockImplementation(async () => {
+      await gate;
+      return original();
+    });
+    const world = vi.spyOn(mock, 'getWorld');
+    fireEvent.change(screen.getByTestId('experiment-select'), { target: { value: 'job-loss-api' } });
+    await waitFor(() => expect(world).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 80));
+    // The world's states are in, but its labels are not, so the page still says it is loading.
+    expect(screen.getByText(/Loading the world/)).toBeInTheDocument();
+    expect(screen.queryByTestId('framing')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('score-divorced')).not.toBeInTheDocument();
+    release();
+    await waitFor(() => expect(screen.getByTestId('framing')).toHaveTextContent('The only difference is a shock to the treatment arm'));
+    expect(screen.getByTestId('score-divorced')).toHaveTextContent('No job loss');
+    observer.disconnect();
+    expect(seen).toEqual([]);
+    spy.mockRestore();
+    world.mockRestore();
+  });
+
+  it.each([
+    ['/overview', 'Only a shock to the treatment arm'],
+    ['/comparisons', 'Marriages surviving'],
+    // Couple 3 is a treatment couple: its Arm card and members table name the arm.
+    ['/couples/3', 'One partner loses their job on day 60 (1.5 stress)'],
+  ])('%s never shows placeholder arm words while a world it switches to loads its labels', async (page, loaded) => {
+    let release = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const original = mock.getShocksCatalog;
+    at(page);
+    await screen.findByTestId('experiment-select');
+    await waitFor(() => expect((screen.getByTestId('experiment-select') as HTMLSelectElement).options.length).toBe(3));
+    await new Promise((r) => setTimeout(r, 50));
+    const seen: string[] = [];
+    const observer = new MutationObserver(() => {
+      const text = document.body.textContent ?? '';
+      for (const placeholder of ['a placebo run', 'Control vs Treatment', 'control; treatment', 'Treatment (treatment)', 'treatment, initial couple']) if (text.includes(placeholder)) seen.push(placeholder);
+    });
+    observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+    const spy = vi.spyOn(mock, 'getShocksCatalog').mockImplementation(async () => {
+      await gate;
+      return original();
+    });
+    fireEvent.change(screen.getByTestId('experiment-select'), { target: { value: 'job-loss-api' } });
+    await new Promise((r) => setTimeout(r, 80));
+    expect(screen.getByText(/Loading/)).toBeInTheDocument();
+    release();
+    await waitFor(() => expect(document.body.textContent).toContain(loaded));
+    observer.disconnect();
+    expect(seen).toEqual([]);
+    spy.mockRestore();
+  });
+
+  it.each(['/world', '/overview', '/comparisons', '/couples/3'])('%s says why its arm labels could not load and never shows placeholder arm words', async (page) => {
+    // The experiment the labels come from fails to load, while the page's own data may still arrive.
+    const failing = vi.spyOn(mock, 'getExperiment').mockRejectedValue(new Error('503 the server is busy (/experiment)'));
+    const seen: string[] = [];
+    const observer = new MutationObserver(() => {
+      const text = document.body.textContent ?? '';
+      for (const placeholder of ['a placebo run', 'Nothing differs between the arms', 'Control vs Treatment', 'control; treatment', '(control)', '(treatment)', 'treatment, initial couple']) if (text.includes(placeholder)) seen.push(placeholder);
+    });
+    observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+    at(page);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load: 503 the server is busy (/experiment)');
+    await new Promise((r) => setTimeout(r, 80));
+    observer.disconnect();
+    expect(seen).toEqual([]);
+    expect(screen.queryByTestId('framing')).not.toBeInTheDocument();
+    failing.mockRestore();
+  });
+
   it('every link and navigation carries the experiment query', async () => {
     at('/couples?experiment=job-loss-api');
     await screen.findByText('6 couples');
@@ -545,6 +637,59 @@ describe('plain-words shocks', () => {
     expect(body.translations).toEqual([{ translation_id: 'tr-job', shock_index: 0 }]);
     expect(body.treatment.shocks?.[0]).toMatchObject({ kind: 'job_loss', member: 'random', start_day: 60, end_day: 200, magnitude: 1.5 });
     spy.mockRestore();
+  });
+
+  it('says when the server answered the same words from the translation it saved, with no new model call', async () => {
+    const spy = vi.spyOn(mock, 'runExperiment');
+    at('/new');
+    await screen.findByRole('heading', { name: 'New experiment' });
+    fireEvent.change(screen.getByLabelText('Describe what happens'), { target: { value: TEXT } });
+    fireEvent.click(screen.getByTestId('translate'));
+    const first = await screen.findByTestId('translation-card');
+    expect(within(first).queryByTestId('translation-reused')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Describe what happens'), { target: { value: `  ${TEXT.toUpperCase()} ` } });
+    fireEvent.click(screen.getByTestId('translate'));
+    await waitFor(() => expect(screen.getAllByTestId('translation-card').length).toBe(2));
+    const again = screen.getAllByTestId('translation-card')[1];
+    expect(within(again).getByTestId('translation-reused')).toHaveTextContent('Same words as on 12 October 2026, so the same shock, with no new model call.');
+    expect(within(again).getByTestId('translation-words')).toHaveTextContent(within(first).getByTestId('translation-words').textContent ?? '');
+    // The reused translation is still the one the run points at.
+    fireEvent.change(within(screen.getAllByTestId('shock-row')[0]).getByLabelText('Hits'), { target: { value: 'all' } });
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'reuse-test' } });
+    fireEvent.click(screen.getByTestId('run'));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(spy.mock.calls[0][0].translations).toEqual([
+      { translation_id: 'tr-job', shock_index: 0 },
+      { translation_id: 'tr-job', shock_index: 1 },
+    ]);
+    spy.mockRestore();
+  });
+
+  it('drops the same-shock note while the visitor has changed the reused shock', async () => {
+    at('/new');
+    await screen.findByRole('heading', { name: 'New experiment' });
+    for (const n of [1, 2]) {
+      fireEvent.change(screen.getByLabelText('Describe what happens'), { target: { value: TEXT } });
+      fireEvent.click(screen.getByTestId('translate'));
+      await waitFor(() => expect(screen.getAllByTestId('translation-card').length).toBe(n));
+    }
+    const row = screen.getAllByTestId('shock-row')[1];
+    expect(within(row).getByTestId('translation-reused')).toHaveTextContent('so the same shock');
+    const start = within(row).getByLabelText('Start day') as HTMLInputElement;
+    const translated = start.value;
+    fireEvent.change(start, { target: { value: String(Number(translated) + 30) } });
+    // The row is no longer the saved shock, so the card says it was changed and not that it is the same shock.
+    expect(within(row).queryByTestId('translation-reused')).not.toBeInTheDocument();
+    expect(within(row).getByTestId('translation-edited')).toBeInTheDocument();
+    fireEvent.change(start, { target: { value: translated } });
+    expect(within(row).getByTestId('translation-reused')).toBeInTheDocument();
+    expect(within(row).queryByTestId('translation-edited')).not.toBeInTheDocument();
+  });
+
+  it('words the reused note without a date when the server sends none', async () => {
+    const { reusedWords } = await import('../components/ShockComposer');
+    expect(reusedWords('2026-10-12T01:33:33-07:00')).toBe('Same words as on 12 October 2026, so the same shock, with no new model call.');
+    expect(reusedWords(null)).toBe('Same words as an earlier translation, so the same shock, with no new model call.');
   });
 
   it('counts a translated world shock after the treatment shocks', async () => {
@@ -797,6 +942,54 @@ describe('forked worlds and the run queue', () => {
     Object.assign(jobPolling, saved);
     run.mockRestore();
     job.mockRestore();
+  });
+
+  it('leaves an empty name to the server, so two runs started in the same second get two names', async () => {
+    const spy = vi.spyOn(mock, 'runExperiment');
+    at('/new');
+    await screen.findByRole('heading', { name: 'New experiment' });
+    const field = screen.getByLabelText('Name') as HTMLInputElement;
+    expect(field.value).toBe('');
+    expect(field.placeholder).toMatch(/^exp-\d{8}-\d{6}$/);
+    expect(screen.getByText('Left empty, the run is named for the time it starts, in UTC.')).toBeInTheDocument();
+    // Overwriting needs a name to overwrite.
+    expect(screen.queryByText(/Overwrite if the name exists/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('run'));
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect('name' in spy.mock.calls[0][0]).toBe(false);
+    expect('overwrite' in spy.mock.calls[0][0]).toBe(false);
+    await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent(`/world?experiment=exp-${mock.MOCK_STAMP}`));
+    // A second run in the same second, from the page opened again, gets a name of its own.
+    fireEvent.click(screen.getByRole('link', { name: 'New experiment' }));
+    await screen.findByRole('heading', { name: 'New experiment' });
+    fireEvent.change(screen.getByTestId('start-from'), { target: { value: '' } });
+    fireEvent.click(screen.getByTestId('run'));
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent(`/world?experiment=exp-${mock.MOCK_STAMP}-2`));
+    spy.mockRestore();
+  });
+
+  it('answers a typed name that is already taken with the clear 409', async () => {
+    at('/new');
+    await screen.findByRole('heading', { name: 'New experiment' });
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'retention-90d' } });
+    expect(screen.getByText(/Overwrite if the name exists/)).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('run'));
+    expect(await screen.findByTestId('run-error')).toHaveTextContent("409 experiment 'retention-90d' exists; set overwrite to replace it");
+    expect(screen.getByTestId('loc')).toHaveTextContent('/new');
+  });
+
+  it('forks without a typed name under the name the server gives it', async () => {
+    const spy = vi.spyOn(mock, 'forkExperiment');
+    at('/new?experiment=retention-90d');
+    await screen.findByRole('heading', { name: 'New experiment' });
+    await waitFor(() => expect((screen.getByLabelText('Name') as HTMLInputElement).placeholder).toMatch(/^retention-90d-fork-\d{8}-\d{6}$/));
+    fireEvent.click(screen.getByRole('button', { name: 'Add shock' }));
+    fireEvent.click(screen.getByTestId('run'));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect('name' in spy.mock.calls[0][0]).toBe(false);
+    await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/world?experiment=retention-90d-fork'));
+    spy.mockRestore();
   });
 
   it('in public mode hides the name and overwrite, applies the caps, and lets the server name the run', async () => {

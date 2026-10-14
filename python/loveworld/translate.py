@@ -10,6 +10,12 @@ The guard is validation, not the prompt: every answer goes through the same pars
 file goes through, and a value out of bounds comes back with its error rather than being clamped.
 The model never runs the engine, and it never sees memory, policy or arm settings, so the run it
 leads to is as reproducible as any other.
+
+The same words get the same shock. Every translation is saved as a small record, and words typed
+again for a run of the same length, with the same model, are answered from the saved record that
+came back ok, as long as its shock still passes today's parser unchanged. That answer makes no model
+call and writes no new record. The demo's cards hand their saved records in too, so words a card shows
+typed come back as the shock the card shows, dated as the card dates it.
 """
 
 from __future__ import annotations
@@ -25,8 +31,10 @@ import urllib.error
 import urllib.request
 import uuid
 from collections import OrderedDict
-from collections.abc import Callable
-from dataclasses import asdict, dataclass, field
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass, field, replace
+from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any, Protocol
@@ -656,6 +664,11 @@ def kinds_sentence() -> str:
     return ", ".join(labels) + ", and any other event in a couple's life, built from its effects"
 
 
+def recorded_now() -> str:
+    """Say when a record is written: the server's local time with its UTC offset, like 2026-10-12T01:33:33-07:00."""
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
 @dataclass
 class Translation:
     """One translated description, as returned to the browser and remembered for provenance."""
@@ -670,6 +683,18 @@ class Translation:
     days: int
     errors: list[str] = field(default_factory=list)
     message: str | None = None
+    # When the record was written (recorded_now). Records written before this field existed lack it, and are
+    # never dated from their file, whose time a copy can change; a demo card that holds one gives its date.
+    recorded: str | None = None
+    # True when this answer is a saved record served again without a model call. It describes one answer
+    # and is never written into the record.
+    reused: bool = False
+
+    def record(self) -> dict[str, Any]:
+        """Return the record saved on disk: every field but `reused`."""
+        out = asdict(self)
+        del out["reused"]
+        return out
 
     def public(self) -> dict[str, Any]:
         """Return the endpoint's response body."""
@@ -682,6 +707,8 @@ class Translation:
             "model": self.model,
             "errors": list(self.errors),
             "message": self.message,
+            "reused": self.reused,
+            "recorded": self.recorded,
         }
 
 
@@ -776,14 +803,61 @@ def check_request(text: Any, days: Any) -> tuple[str, int]:
 
 
 _ID = re.compile(r"^[0-9a-f]{32}$")
+# What makes two translations interchangeable: the words' fingerprint (text_sha256), the run length and the
+# model, everything a request gives the model besides the prompt. Today's parser stands guard for a change to
+# the parser or the catalog's bounds (`reusable`); a change to the prompt alone is not caught, so words
+# translated before it keep their saved shock.
+Key = tuple[str, int, str]
+
+
+def _recorded_at(t: Translation, path: Path | None) -> float:
+    """When a record was written, to find the newest: its `recorded` stamp, else its file's time (never its date)."""
+    if t.recorded:
+        try:
+            return datetime.fromisoformat(t.recorded).timestamp()
+        except ValueError:
+            pass
+    if path is not None:
+        try:
+            return path.stat().st_mtime
+        except OSError:
+            pass
+    return 0.0
+
+
+def reusable(t: Translation) -> bool:
+    """Whether a saved translation may answer the same words again.
+
+    It must have come back ok, and its shock must still pass today's parser, for a run of the record's length,
+    and come out unchanged, so the shock a visitor gets again is exactly the shock that was saved.
+    """
+    if t.status != "ok" or not isinstance(t.spec, dict):
+        return False
+    if isinstance(t.days, bool) or not isinstance(t.days, int) or not 1 <= t.days <= MAX_DAYS:
+        return False
+    raw = dict(t.spec)
+    target = raw.pop("target", None)
+    if target not in TRANSLATABLE_TARGETS:
+        return False
+    for optional in ("end_day", "trait", "description"):
+        if raw.get(optional) is None:
+            raw.pop(optional, None)
+    if "effects" in raw:
+        raw["effects"] = _clean_effects(raw["effects"])
+    section = "treatment" if target == "treatment" else "world"
+    try:
+        shock = parse_shock(raw, str(target), t.days, f"{section}.shocks[0]")
+    except (ExperimentError, TypeError, ValueError):
+        return False
+    return comparable(spec_of(shock)) == comparable(t.spec)
 
 
 class Translator:
-    """Translate descriptions with one model call each, caching identical ones and remembering every result.
+    """Translate descriptions with one model call each, and answer words already translated from their record.
 
     With a `record_dir`, every translation is also written there as one small JSON file (no raw text,
     only its hash), so a run can be traced to its translation after the in-memory cache has moved on
-    or the server has restarted.
+    or the server has restarted, and the same words typed again get the same shock (`reusable`).
     """
 
     def __init__(
@@ -791,15 +865,39 @@ class Translator:
         client_factory: Callable[[], Client | None] = default_client,
         cache_size: int = 256,
         record_dir: Path | None = None,
+        pinned: Iterable[Translation] = (),
     ) -> None:
-        """Build the client on first use, so a missing key only matters when someone translates."""
+        """Build the client on first use, so a missing key only matters when someone translates.
+
+        `pinned` are saved translations a demo card shows (`demo.pinned_translations`). They answer their words
+        before any record on disk, so the words a card shows typed always give the shock it shows.
+        """
         self._factory = client_factory
         self._records = record_dir
         self._client: Client | None = None
         self._lock = threading.Lock()
-        self._cache: OrderedDict[tuple[str, int, str], Translation] = OrderedDict()
+        # Translations that came back ok, by the words, run length and model they answer.
+        self._cache: OrderedDict[Key, Translation] = OrderedDict()
         self._by_id: OrderedDict[str, Translation] = OrderedDict()
         self._size = cache_size
+        # The ok records on disk by key, each as (when written, translation id), read from the record
+        # directory once and then only for files that appeared since.
+        self._index: dict[Key, list[tuple[float, str]]] = {}
+        self._indexed: set[str] = set()
+        self._index_stamp: int | None = None
+        self._index_lock = threading.Lock()
+        # One translation at a time per key, so the same words sent twice at once make one model call.
+        self._inflight: dict[Key, list[Any]] = {}
+        # Answers that did not come back ok, by key. The same words get the same answer again while the server
+        # runs, with no model call, but such an answer is kept only here: it is never indexed or reused from disk.
+        self._misses: OrderedDict[Key, Translation] = OrderedDict()
+        # The demo cards' saved translations by id, and their ids by key in the order given.
+        self._pinned: dict[str, Translation] = {}
+        self._pinned_keys: dict[Key, list[str]] = {}
+        for p in pinned:
+            if p.translation_id not in self._pinned:
+                self._pinned[p.translation_id] = replace(p, errors=list(p.errors), reused=False)
+                self._pinned_keys.setdefault((p.text_sha256, p.days, p.model), []).append(p.translation_id)
 
     def _get_client(self) -> Client:
         # A missing key is looked up again on the next request, so adding one needs no restart.
@@ -816,73 +914,193 @@ class Translator:
             )
         return client
 
-    def get(self, translation_id: str) -> Translation | None:
-        """Return a translation this server produced, from memory or from its record on disk, or None."""
-        with self._lock:
-            hit = self._by_id.get(translation_id)
-        if hit is not None or self._records is None or not _ID.fullmatch(translation_id):
-            return hit
-        path = self._records / f"{translation_id}.json"
+    def _load(self, path: Path) -> Translation | None:
         try:
             data = json.loads(path.read_text())
             return Translation(**data)
         except (OSError, ValueError, TypeError):
             return None
 
+    def get(self, translation_id: str) -> Translation | None:
+        """Return a translation this server produced or a demo card holds, from memory or its record, or None."""
+        with self._lock:
+            hit = self._by_id.get(translation_id)
+        if hit is not None:
+            return hit
+        pin = self._pinned.get(translation_id)
+        if pin is not None:
+            return replace(pin, errors=list(pin.errors))
+        if self._records is None or not _ID.fullmatch(translation_id):
+            return None
+        return self._load(self._records / f"{translation_id}.json")
+
     def _write_record(self, t: Translation) -> None:
         if self._records is None:
             return
         self._records.mkdir(parents=True, exist_ok=True)
         tmp = self._records / f".{t.translation_id}.tmp"
-        tmp.write_text(json.dumps(asdict(t), sort_keys=True))
+        tmp.write_text(json.dumps(t.record(), sort_keys=True))
         os.replace(tmp, self._records / f"{t.translation_id}.json")
 
-    def translate(self, text: Any, days: Any = 365, before_model_call: Callable[[], None] | None = None) -> Translation:
-        """Translate one description for a run of `days` days.
+    def _remember(self, key: Key, t: Translation) -> None:
+        """Keep a translation for provenance and as the answer to its words, any answer but ok only in memory."""
+        with self._lock:
+            answers = self._cache if t.status == "ok" else self._misses
+            answers[key] = t
+            answers.move_to_end(key)
+            if t.status == "ok":
+                self._misses.pop(key, None)
+            self._by_id[t.translation_id] = t
+            for kept in (self._cache, self._misses):
+                while len(kept) > self._size:
+                    kept.popitem(last=False)
+            while len(self._by_id) > 4 * self._size:
+                self._by_id.popitem(last=False)
 
-        `before_model_call` runs just before a real model call, never for a cached answer, so a
-        caller can count calls against a quota and refuse one by raising.
+    def _refresh_index(self) -> None:
+        """Read the records that appeared in the record directory since it was last read."""
+        records = self._records
+        if records is None:
+            return
+        with self._index_lock:
+            try:
+                # Taken before listing, so a record written while the directory is read is found next time.
+                stamp = records.stat().st_mtime_ns
+            except OSError:
+                return
+            if stamp == self._index_stamp:
+                return
+            try:
+                names = sorted(e.name for e in os.scandir(records) if e.name.endswith(".json"))
+            except OSError:
+                return
+            for name in names:
+                tid = name[: -len(".json")]
+                if name in self._indexed or not _ID.fullmatch(tid):
+                    continue
+                self._indexed.add(name)
+                t = self._load(records / name)
+                if t is None or t.status != "ok" or t.translation_id != tid:
+                    continue
+                key = (t.text_sha256, t.days, t.model)
+                self._index.setdefault(key, []).append((_recorded_at(t, records / name), tid))
+            self._index_stamp = stamp
+
+    def _index_record(self, key: Key, t: Translation) -> None:
+        with self._index_lock:
+            name = f"{t.translation_id}.json"
+            if name not in self._indexed:
+                self._indexed.add(name)
+                self._index.setdefault(key, []).append((_recorded_at(t, None), t.translation_id))
+
+    def _saved_answer(self, key: Key) -> Translation | None:
+        """Return the saved translation that answers `key` again, or None when there is none.
+
+        The answer kept in memory comes first, then a demo card's saved translation of the same words, then the ok
+        records on disk, newest first; the first that is still `reusable` answers. Only records written before
+        reuse existed can share a key, since no new record is written while one is reusable. Of those the newest
+        answers, as the one made with the newest prompt: by `recorded`, or for a record from before `recorded`
+        existed by its file's time, which a copy can change. A demo card's translation needs neither, which is
+        why it comes first.
         """
-        clean, n_days = check_request(text, days)
-        client = self._get_client()
-        key = (normalise(clean), n_days, client.model)
         with self._lock:
             hit = self._cache.get(key)
             if hit is not None:
                 self._cache.move_to_end(key)
                 return hit
-        if before_model_call is not None:
-            before_model_call()
-        answer = _tool_input(client.create(build_payload(clean, n_days, client.model)))
-        status, spec, errors = _validate(answer, n_days)
-        rationale = str(answer.get("rationale") or "").strip()
-        message = None
-        if status == "unsupported":
-            reason = str(answer.get("unsupported_reason") or "").strip()
-            message = (f"{reason} " if reason else "") + f"LoveWorld can run these kinds of shock: {kinds_sentence()}."
-        elif status == "invalid":
-            message = "The translation does not fit the simulation: " + "; ".join(errors)
-        result = Translation(
-            translation_id=uuid.uuid4().hex,
-            status=status,
-            spec=spec,
-            words=shock_words(spec) if spec is not None and status == "ok" else None,
-            rationale=rationale,
-            model=client.model,
-            text_sha256=text_sha256(clean),
-            days=n_days,
-            errors=errors,
-            message=message,
-        )
-        self._write_record(result)
+        for tid in self._pinned_keys.get(key, []):
+            pin = self._pinned[tid]
+            if reusable(pin):
+                assert pin.spec is not None
+                found = replace(pin, errors=list(pin.errors), words=shock_words(pin.spec))
+                self._remember(key, found)
+                return found
+        if self._records is None:
+            return None
+        self._refresh_index()
+        with self._index_lock:
+            candidates = sorted(self._index.get(key, []), reverse=True)
+        for _, tid in candidates:
+            t = self._load(self._records / f"{tid}.json")
+            if t is None or (t.text_sha256, t.days, t.model) != key or not reusable(t):
+                continue
+            assert t.spec is not None
+            # The sentence is the dashboard's for the shock, written by today's code.
+            t.words = shock_words(t.spec)
+            self._remember(key, t)
+            return t
+        return None
+
+    @contextmanager
+    def _one_at_a_time(self, key: Key) -> Iterator[None]:
         with self._lock:
-            self._cache[key] = result
-            self._by_id[result.translation_id] = result
-            while len(self._cache) > self._size:
-                self._cache.popitem(last=False)
-            while len(self._by_id) > 4 * self._size:
-                self._by_id.popitem(last=False)
-        return result
+            entry = self._inflight.get(key)
+            if entry is None:
+                entry = self._inflight[key] = [threading.Lock(), 0]
+            entry[1] += 1
+        try:
+            with entry[0]:
+                yield
+        finally:
+            with self._lock:
+                entry[1] -= 1
+                if entry[1] == 0:
+                    del self._inflight[key]
+
+    def translate(self, text: Any, days: Any = 365, before_model_call: Callable[[], None] | None = None) -> Translation:
+        """Translate one description for a run of `days` days, or answer it from its saved translation.
+
+        Words already translated for a run of the same length by the same model are answered from the saved
+        translation that came back ok, as long as it is still `reusable`: no model call, no new record, and
+        `reused` set on the answer. Words whose answer this server got back invalid or unsupported get that
+        answer again from memory, as before reuse existed: no model call, no new record and `reused` false.
+        Anything else makes one model call and saves its record, whatever its status. `before_model_call` runs
+        just before a real model call, never for an answer given again, so a caller can count calls against a
+        quota and refuse one by raising.
+        """
+        clean, n_days = check_request(text, days)
+        client = self._get_client()
+        key = (text_sha256(clean), n_days, client.model)
+        with self._one_at_a_time(key):
+            saved = self._saved_answer(key)
+            if saved is not None:
+                return replace(saved, errors=list(saved.errors), reused=True)
+            with self._lock:
+                missed = self._misses.get(key)
+                if missed is not None:
+                    self._misses.move_to_end(key)
+            if missed is not None:
+                return replace(missed, errors=list(missed.errors))
+            if before_model_call is not None:
+                before_model_call()
+            answer = _tool_input(client.create(build_payload(clean, n_days, client.model)))
+            status, spec, errors = _validate(answer, n_days)
+            rationale = str(answer.get("rationale") or "").strip()
+            message = None
+            if status == "unsupported":
+                reason = str(answer.get("unsupported_reason") or "").strip()
+                kinds = f"LoveWorld can run these kinds of shock: {kinds_sentence()}."
+                message = (f"{reason} " if reason else "") + kinds
+            elif status == "invalid":
+                message = "The translation does not fit the simulation: " + "; ".join(errors)
+            result = Translation(
+                translation_id=uuid.uuid4().hex,
+                status=status,
+                spec=spec,
+                words=shock_words(spec) if spec is not None and status == "ok" else None,
+                rationale=rationale,
+                model=client.model,
+                text_sha256=key[0],
+                days=n_days,
+                errors=errors,
+                message=message,
+                recorded=recorded_now(),
+            )
+            self._write_record(result)
+            if status == "ok":
+                self._index_record(key, result)
+            self._remember(key, result)
+            return result
 
 
 def comparable(spec: dict[str, Any] | None) -> dict[str, Any] | None:

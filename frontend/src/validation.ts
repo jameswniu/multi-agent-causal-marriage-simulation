@@ -15,6 +15,10 @@ export interface ShockTranslation {
   initial: ShockSpec;
   /** An invalid translation blocks the run until its fields change or the visitor confirms them. */
   confirmed: boolean;
+  /** The server answered these words from the translation it saved for them earlier, with no model call. */
+  reused?: boolean;
+  /** When that translation was saved, like "2026-10-12T01:33:33-07:00". */
+  recorded?: string | null;
 }
 
 export interface ShockForm {
@@ -134,7 +138,7 @@ export function changedSinceTranslation(s: ShockForm): boolean {
 
 /** How a run is checked: a fork keeps its parent's population and memory, and public mode names runs and caps them. */
 export interface RunRules {
-  /** The server names the run (public mode), so the name field is not checked. */
+  /** The server names the run (public mode, or a fork in place), so the name field is not checked. */
   nameAssigned?: boolean;
   /** Forking a world: its couples, days and memory come from the parent, and it needs at least one shock. */
   fork?: boolean;
@@ -152,7 +156,8 @@ export function validateRun(form: RunForm, kinds: ShockKind[], effects?: EffectC
   const name = form.name.trim();
   const maxCouples = rules.maxCouples ?? MAX_COUPLES;
   const maxDays = rules.maxDays ?? MAX_DAYS;
-  if (!rules.nameAssigned && !NAME_PATTERN.test(name)) errors.push('Name must start with a letter or digit and use only letters, digits, dashes and underscores (up to 64 characters).');
+  // A name left empty is the server's to give (exp- and the UTC time the run starts), so only a typed one is checked.
+  if (!rules.nameAssigned && name !== '' && !NAME_PATTERN.test(name)) errors.push('Name must start with a letter or digit and use only letters, digits, dashes and underscores (up to 64 characters).');
   if (rules.fork) {
     if (rules.parentProblem) errors.push(rules.parentProblem);
     if (form.shocks.length === 0) errors.push('Add at least one shock: a forked world differs from its parent only by the shocks you add.');

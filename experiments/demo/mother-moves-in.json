@@ -81,5 +81,5 @@
       "words": "Mother moves in (treatment arm): both partners: stress up 0.5 every day, days 90 to 150; both partners: mood down 0.03 every day, days 90 to 150"
     }
   },
-  "note": "Typed into the World page's shock box and run as the fork example-fork-20261012-013336, the world in the README's recording, which shows these words as typed. The record keeps a SHA-256 of the words lowercased with their spacing collapsed, which these words reproduce."
+  "note": "Typed into the World page's shock box on 12 October 2026 and run as the fork example-fork-20261012-013336. The README's recording typed the same words again on 14 October, and the live app answered them from this saved translation with no new model call, so the recording shows this world with these words as typed. The record keeps a SHA-256 of the words lowercased with their spacing collapsed, which these words reproduce."
 }

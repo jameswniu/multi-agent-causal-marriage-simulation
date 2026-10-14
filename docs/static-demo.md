@@ -48,7 +48,9 @@ in lowercase, as its card shows them.
 The worlds themselves are not committed. `loveworld demo` runs each file through the fork endpoint's own
 code (`forking.plan_fork`, then `forking.run_fork`, which runs the world and its twins, the same couples
 under both memory settings), with the saved record standing in for the translator, so each demo world is
-exactly what the live app makes from the same request. The model is never called.
+exactly what the live app makes from the same request. The model is never called. The live app answers a
+card's words from that card's record too, so typing them into its shock box brings back the card's shock with
+no model call, even in a fresh clone whose `results/` holds no saved translations.
 
 The engine reproduces a world bit for bit on every platform. Every exp, log, power and cosine it computes
 comes from libm, a maths library written in plain Rust and built into the engine, instead of from the

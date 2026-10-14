@@ -7,7 +7,10 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import subprocess
+import threading
+import time
 import urllib.error
 from pathlib import Path
 from typing import Any
@@ -232,8 +235,9 @@ def test_identical_text_is_cached_and_different_days_are_not() -> None:
     a = tr.translate(JOB_TEXT, 365)
     b = tr.translate("  he LOSES his   job in month three for four months ", 365)
     assert a.translation_id == b.translation_id and len(client.payloads) == 1
+    assert not a.reused and b.reused and b.recorded == a.recorded and a.recorded is not None
     c = tr.translate(JOB_TEXT, 300)
-    assert c.translation_id != a.translation_id and len(client.payloads) == 2
+    assert c.translation_id != a.translation_id and len(client.payloads) == 2 and not c.reused
     assert tr.get(a.translation_id) is a and tr.get("nope") is None
 
 
@@ -434,3 +438,247 @@ def test_custom_provenance_notices_an_edited_effect() -> None:
     assert translate.provenance(tr, t.translation_id, changed)["edited"] is True
     relabelled = dict(json.loads(json.dumps(t.spec)), description="A different sentence.")
     assert translate.provenance(tr, t.translation_id, relabelled)["edited"] is False, "the description runs nothing"
+
+
+# Same words, same shock: a saved translation that came back ok answers the same words again, with no model call.
+
+
+class SlowClient(FakeClient):
+    """A fake model that takes a moment to answer, so two requests can overlap."""
+
+    def create(self, payload: dict[str, Any]) -> dict[str, Any]:
+        time.sleep(0.2)
+        return super().create(payload)
+
+
+def _records(directory: Path) -> list[str]:
+    return sorted(p.name for p in directory.glob("*.json"))
+
+
+def _saved(directory: Path, **fields: Any) -> Path:
+    """Write a translation record by hand, as an earlier server would have left it."""
+    record = {
+        "translation_id": "0" * 32,
+        "status": "ok",
+        "spec": None,
+        "words": "old words",
+        "rationale": "An earlier translation.",
+        "model": "fake-model",
+        "text_sha256": translate.text_sha256(JOB_TEXT),
+        "days": 365,
+        "errors": [],
+        "message": None,
+        **fields,
+    }
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{record['translation_id']}.json"
+    path.write_text(json.dumps(record))
+    return path
+
+
+JOB_SPEC = {
+    "kind": "job_loss",
+    "target": "treatment",
+    "member": "random",
+    "start_day": 60,
+    "end_day": 180,
+    "magnitude": 1.5,
+    "trait": None,
+}
+
+
+def test_the_same_words_reuse_the_saved_translation_after_a_restart_without_a_model_call(tmp_path: Path) -> None:
+    records = tmp_path / ".translations"
+    first_client = FakeClient({"loses his job": JOB_ANSWER})
+    first = translate.Translator(client_factory=lambda: first_client, record_dir=records).translate(JOB_TEXT, 365)
+    assert first.status == "ok" and not first.reused and first.recorded is not None
+    on_disk = json.loads((records / f"{first.translation_id}.json").read_text())
+    assert on_disk["recorded"] == first.recorded and "reused" not in on_disk, "the flag describes an answer"
+    files = _records(records)
+
+    client = FakeClient({"loses his job": dict(JOB_ANSWER, magnitude=2.5)})
+    quota: list[int] = []
+    restarted = translate.Translator(client_factory=lambda: client, record_dir=records)
+    again = restarted.translate("  HE loses his job in month THREE for four months  ", 365, lambda: quota.append(1))
+    assert client.payloads == [] and quota == [], "no model call, and none counted against a quota"
+    assert again.reused and again.translation_id == first.translation_id and again.spec == first.spec
+    assert again.recorded == first.recorded and again.words == first.words
+    assert _records(records) == files, "no second record"
+    body = again.public()
+    assert body["reused"] is True and body["recorded"] == first.recorded
+    # The reused translation is still the one a run points at for its provenance.
+    prov = translate.provenance(restarted, again.translation_id, dict(again.spec or {}))
+    assert prov["verified"] is True and prov["edited"] is False
+
+
+def test_other_words_another_run_length_or_another_model_translate_again(tmp_path: Path) -> None:
+    records = tmp_path / ".translations"
+    client = FakeClient({"loses his job": JOB_ANSWER, "loses her job": JOB_ANSWER})
+    tr = translate.Translator(client_factory=lambda: client, record_dir=records)
+    first = tr.translate(JOB_TEXT, 365)
+    other_words = tr.translate("She loses her job in month three for four months", 365)
+    other_days = tr.translate(JOB_TEXT, 300)
+    other = FakeClient({"loses his job": JOB_ANSWER}, model="another-model")
+    other_model = translate.Translator(client_factory=lambda: other, record_dir=records).translate(JOB_TEXT, 365)
+    assert len(client.payloads) == 3 and len(other.payloads) == 1
+    for t in (other_words, other_days, other_model):
+        assert not t.reused and t.translation_id != first.translation_id
+    assert other_model.model == "another-model"
+    assert len(_records(records)) == 4
+
+
+NOT_OK_ANSWERS = {
+    "loses his job": dict(JOB_ANSWER, magnitude=7.0),
+    "dog": {"supported": False, "rationale": "Not a couple's life.", "unsupported_reason": "A pet."},
+}
+
+
+def test_an_answer_that_did_not_come_back_ok_is_given_again_from_memory_but_never_reused_from_its_record(
+    tmp_path: Path,
+) -> None:
+    records = tmp_path / ".translations"
+    client = FakeClient(NOT_OK_ANSWERS)
+    tr = translate.Translator(client_factory=lambda: client, record_dir=records)
+    quota: list[str] = []
+    invalid = [tr.translate(JOB_TEXT, 365, lambda: quota.append("job")) for _ in range(3)]
+    unsupported = [tr.translate("Their dog dies", 365, lambda: quota.append("dog")) for _ in range(3)]
+    assert [t.status for t in invalid] == ["invalid"] * 3 and [t.status for t in unsupported] == ["unsupported"] * 3
+    # As before reuse existed, the server answers the same words again from memory: one model call each.
+    assert len(client.payloads) == 2 and quota == ["job", "dog"]
+    assert len({t.translation_id for t in invalid}) == 1 and len({t.translation_id for t in unsupported}) == 1
+    assert not any(t.reused for t in invalid + unsupported), "only a saved answer that came back ok is reused"
+    assert len(_records(records)) == 2, "each answer is recorded once, for provenance"
+    # Its record never answers again: a restarted server asks the model.
+    restarted = translate.Translator(client_factory=lambda: client, record_dir=records)
+    again = restarted.translate(JOB_TEXT, 365)
+    assert not again.reused and again.translation_id != invalid[0].translation_id and len(client.payloads) == 3
+    assert len(_records(records)) == 3
+
+
+def test_the_same_words_answered_not_ok_and_sent_twice_at_once_make_one_model_call(tmp_path: Path) -> None:
+    records = tmp_path / ".translations"
+    client = SlowClient(NOT_OK_ANSWERS)
+    tr = translate.Translator(client_factory=lambda: client, record_dir=records)
+    out: list[translate.Translation] = []
+    threads = [threading.Thread(target=lambda: out.append(tr.translate("Their dog dies", 365))) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(client.payloads) == 1 and len({t.translation_id for t in out}) == 1
+    assert [t.status for t in out] == ["unsupported", "unsupported"] and len(_records(records)) == 1
+
+
+@pytest.mark.parametrize(
+    ("spec", "why"),
+    [
+        (dict(JOB_SPEC, magnitude=7.0), "out of today's bounds"),
+        (dict(JOB_SPEC, kind="layoff"), "a kind the catalog no longer has"),
+        (dict(JOB_SPEC, colour="pink"), "a field the parser does not know"),
+        (dict(JOB_SPEC, end_day=None), "parses to a different shock than the one saved"),
+        (dict(JOB_SPEC, target="control"), "a target a translation cannot have"),
+        (None, "no shock at all"),
+    ],
+)
+def test_a_saved_record_whose_shock_no_longer_runs_as_saved_is_not_reused(
+    tmp_path: Path, spec: dict[str, Any] | None, why: str
+) -> None:
+    records = tmp_path / ".translations"
+    _saved(records, spec=spec)
+    client = FakeClient({"loses his job": JOB_ANSWER})
+    out = translate.Translator(client_factory=lambda: client, record_dir=records).translate(JOB_TEXT, 365)
+    assert not out.reused and len(client.payloads) == 1, why
+    assert out.translation_id != "0" * 32 and len(_records(records)) == 2
+
+
+def test_the_newest_reusable_record_answers_and_broken_files_are_skipped(tmp_path: Path) -> None:
+    records = tmp_path / ".translations"
+    old = _saved(records, translation_id="a" * 32, spec=dict(JOB_SPEC, magnitude=1.0))
+    newer = _saved(records, translation_id="b" * 32, spec=dict(JOB_SPEC, magnitude=2.0))
+    # The newest record no longer validates, so the newest one that does answers.
+    _saved(records, translation_id="c" * 32, spec=dict(JOB_SPEC, magnitude=9.0), recorded="2026-10-13T09:00:00-07:00")
+    (records / f"{'d' * 32}.json").write_text("{not json")
+    # Records from before the stamp existed are ordered by their file's time.
+    os.utime(old, (1_700_000_000, 1_700_000_000))
+    os.utime(newer, (1_800_000_000, 1_800_000_000))
+    client = FakeClient({"loses his job": JOB_ANSWER})
+    out = translate.Translator(client_factory=lambda: client, record_dir=records).translate(JOB_TEXT, 365)
+    assert out.reused and out.translation_id == "b" * 32 and client.payloads == []
+    assert out.spec is not None and out.spec["magnitude"] == 2.0
+    assert out.recorded is None, "a copy can change a file's time, so it never dates the answer"
+    assert out.words is not None and out.words.startswith("In every treatment couple"), "today's sentence"
+
+
+def test_a_record_another_process_writes_later_is_found(tmp_path: Path) -> None:
+    records = tmp_path / ".translations"
+    client = FakeClient({"loses his job": JOB_ANSWER, "loses her job": JOB_ANSWER})
+    tr = translate.Translator(client_factory=lambda: client, record_dir=records)
+    tr.translate("She loses her job in month three for four months", 365)
+    _saved(records, translation_id="e" * 32, spec=JOB_SPEC)
+    out = tr.translate(JOB_TEXT, 365)
+    assert out.reused and out.translation_id == "e" * 32 and len(client.payloads) == 1
+
+
+def test_the_same_words_sent_twice_at_once_make_one_model_call(tmp_path: Path) -> None:
+    records = tmp_path / ".translations"
+    client = SlowClient({"loses his job": JOB_ANSWER})
+    tr = translate.Translator(client_factory=lambda: client, record_dir=records)
+    out: list[translate.Translation] = []
+    threads = [threading.Thread(target=lambda: out.append(tr.translate(JOB_TEXT, 365))) for _ in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(client.payloads) == 1 and len({t.translation_id for t in out}) == 1
+    assert sorted(t.reused for t in out) == [False, True, True] and len(_records(records)) == 1
+
+
+def _pin(**fields: Any) -> translate.Translation:
+    """A demo card's saved translation, as `demo.pinned_translations` hands it over: dated by the card."""
+    return translate.Translation(
+        **{
+            "translation_id": "f" * 32,
+            "status": "ok",
+            "spec": dict(JOB_SPEC, magnitude=3.0),
+            "words": "a card's words",
+            "rationale": "Translated for a demo card.",
+            "model": "fake-model",
+            "text_sha256": translate.text_sha256(JOB_TEXT),
+            "days": 365,
+            "recorded": "2026-10-13T21:00:01-07:00",
+            **fields,
+        }
+    )
+
+
+def test_a_demo_cards_translation_answers_its_words_before_any_record_and_keeps_the_cards_date(
+    tmp_path: Path,
+) -> None:
+    records = tmp_path / ".translations"
+    # A newer record of the same words on disk, as a copy of an old root could make look newest.
+    _saved(records, translation_id="b" * 32, spec=dict(JOB_SPEC, magnitude=2.0), recorded="2027-01-01T00:00:00-08:00")
+    files = _records(records)
+    client = FakeClient({"loses his job": JOB_ANSWER})
+    quota: list[int] = []
+    tr = translate.Translator(client_factory=lambda: client, record_dir=records, pinned=[_pin()])
+    out = tr.translate(JOB_TEXT.upper(), 365, lambda: quota.append(1))
+    assert out.reused and out.translation_id == "f" * 32 and out.recorded == "2026-10-13T21:00:01-07:00"
+    assert out.spec is not None and out.spec["magnitude"] == 3.0 and client.payloads == [] and quota == []
+    assert out.words is not None and out.words.startswith("In every treatment couple"), "today's sentence"
+    assert _records(records) == files, "no record is written for it"
+    # A restarted server still finds it for a run's provenance, though no record of it is on disk.
+    restarted = translate.Translator(client_factory=lambda: client, record_dir=records, pinned=[_pin()])
+    prov = translate.provenance(restarted, "f" * 32, dict(out.spec))
+    assert prov["verified"] is True and prov["edited"] is False and prov["text_sha256"] == out.text_sha256
+    # Other words, another run length or another model are not its words.
+    assert restarted.translate(JOB_TEXT, 300).translation_id != "f" * 32 and len(client.payloads) == 1
+
+
+def test_a_demo_cards_translation_whose_shock_no_longer_runs_as_saved_gives_way(tmp_path: Path) -> None:
+    records = tmp_path / ".translations"
+    _saved(records, translation_id="b" * 32, spec=dict(JOB_SPEC, magnitude=2.0))
+    client = FakeClient({"loses his job": JOB_ANSWER})
+    stale = _pin(spec=dict(JOB_SPEC, magnitude=9.0))
+    tr = translate.Translator(client_factory=lambda: client, record_dir=records, pinned=[stale])
+    out = tr.translate(JOB_TEXT, 365)
+    assert out.reused and out.translation_id == "b" * 32 and client.payloads == []

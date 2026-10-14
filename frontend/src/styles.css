@@ -274,6 +274,10 @@ details.tableview summary { cursor: pointer; color: var(--ink-2); font-size: 1re
 .town-label strong, .town-label span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .town-label-end { text-align: right; align-items: flex-end; }
 .town-label-mid { text-align: center; align-items: center; }
+/* A town as wide as a desktop shows each district's whole title, on as many lines as it needs, standing on its
+   district; TownView keeps room above the districts for it. A phone keeps one line and its district switch. */
+.town-labels-wrap .town-label { white-space: normal; }
+.town-labels-wrap .town-label strong { overflow: visible; text-overflow: clip; overflow-wrap: break-word; }
 
 /* World page time bar: the density strip under the scrubber. */
 .timestrip { display: grid; grid-template-columns: minmax(90px, 160px) 1fr; gap: 0.2rem 0.6rem; align-items: stretch; margin: 0.4rem 0 0.2rem; }

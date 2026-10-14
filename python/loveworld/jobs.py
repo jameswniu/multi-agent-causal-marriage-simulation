@@ -117,6 +117,11 @@ class JobQueue:
         self._line.put(job)
         return job
 
+    def busy(self, name: str) -> bool:
+        """Whether a queued or running job targets experiment `name`."""
+        with self._lock:
+            return any(j.name == name for j in self._active())
+
     def active_for(self, owner: str) -> int:
         """How many of `owner`'s jobs are queued or running."""
         with self._lock:

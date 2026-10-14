@@ -437,10 +437,21 @@ POST /api/experiments/run  -> body {"name"?, "n_couples"? (<= 2000), "days"? (<=
                               409 if the name exists and overwrite is false; 400 on validation errors; 429 when the queue is full
 ```
 
+A run sent without a name (or with an empty one) is named by the server: `exp-` and the UTC date and time to
+the second, such as `exp-20261014-121530`, with `-2`, `-3` and so on added when that name is taken. A name is
+taken while a results directory of that name, its `-twins` or `-placebo` sibling, or its lock or its twins' lock
+(`.<name>.lock`, `.<name>-twins.lock`) is on disk, or while a run for it is queued or running. The server names
+and queues every run, named or not, under one lock, so two runs started in the same second get two names. A name
+the visitor typed is never changed. It is a 409, which says why, while a run for it is queued or running, while
+its lock or its twins' lock is on disk (a run that stopped while publishing leaves its lock, and the 409 says to
+remove it if it is stale), and when its results or its twins already hold files and overwrite is not set. Its
+`-placebo` sibling is no reason, since an experiment's placebo is run before it.
+
 ### Frontend
 
 A top-bar experiment select (persisted in the URL as `?experiment=`) feeds every page. A
-"New experiment" panel (its own route) offers a name, couples, days, the memory half-life for the
+"New experiment" panel (its own route) offers a name (left empty, the server names the run as above, and the
+field shows an example of that name), couples, days, the memory half-life for the
 treatment arm (default equal to control, so a shock-only experiment is possible), a shock picker
 built from `/api/shocks/catalog` (kind, which partner, start and end day, magnitude slider, and
 whether it hits the treatment arm only or everyone), and a Run button that posts to
@@ -561,7 +572,8 @@ POST /api/shocks/translate -> body {"text" (1 to 400 characters), "days"? (1 to 
                              -> {"translation_id", "status": "ok" | "unsupported" | "invalid",
                                  "spec": {"kind", "target": "treatment" | "all", "member", "start_day", "end_day",
                                           "magnitude", "trait"} | null,
-                                 "words", "rationale", "model", "errors": [...], "message"}
+                                 "words", "rationale", "model", "errors": [...], "message",
+                                 "reused": true | false, "recorded": "2026-10-12T01:33:33-07:00" | null}
                              400 on a bad body; 503 when the server has no key or the model service is down
 ```
 
@@ -578,12 +590,36 @@ POST /api/shocks/translate -> body {"text" (1 to 400 characters), "days"? (1 to 
 - The guard is validation, not the prompt. Every answer goes through `parse_shock`, the same parser an
   experiment file uses. `ok` returns the validated spec with a finite kind's end day resolved from its
   catalog length; `invalid` returns the spec as the model proposed it with the parser's error, never
-  clamped; `unsupported` returns a message naming the kinds. Identical descriptions (lower-cased, spaces
-  collapsed) for the same run length and model are answered from an in-process cache.
+  clamped; `unsupported` returns a message naming the kinds.
 - Every translation is also written to `<results root>/.translations/<translation_id>.json` (the hash of
-  the description, never the text, plus the spec, status, rationale and model), a hidden directory the
-  experiment list never shows. A run can therefore be traced to its translation after the cache has
-  moved on and across server restarts.
+  the description, never the text, plus the spec, status, rationale, model, run length and `recorded`, the
+  server's local time with its UTC offset when the record was written), a hidden directory the experiment
+  list never shows. A run can therefore be traced to its translation after the cache has moved on and
+  across server restarts.
+- The same words get the same shock. Words translated before, with the same `text_sha256` (a SHA-256 of the
+  description lowercased with its spacing collapsed), for a run of the same length by the same model, are
+  answered from the saved record instead of the model. Those three are everything a request gives the model
+  besides the prompt. Checking the record again catches a change to the parser or to the catalog's bounds: it
+  must have come back `ok`, and its spec must still pass today's `parse_shock` for its run length and come out
+  unchanged. A change to the prompt alone is not caught, so words translated before it keep their saved shock.
+  Such an answer makes no model call, counts against no quota and writes no record. It is the saved record,
+  with its own `translation_id`, spec, rationale and model, `reused: true`, the `recorded` time it was saved
+  and `words` written again by today's `shock_words`. Other words, another run length or model, or a record
+  that came back `invalid` or `unsupported` or no longer passes the parser unchanged, make one model call as
+  before and save a new record (`reused: false`). A request field added later that changes the translation
+  joins the three.
+- Identical descriptions whose answer came back `invalid` or `unsupported` are answered again from an
+  in-process cache, as before reuse existed: the same answer with no model call, no new record and
+  `reused: false`, until the server restarts or the cache moves on. Such an answer is never reused from its
+  record, so after a restart those words go to the model again. Two requests for the same words at once make
+  one model call: the second is answered from the first's record when it came back `ok`, else from that cache.
+- The demo's cards (section 14) hand their saved records to the live app's translator, each dated by its
+  card's `translation.recorded`, and those answer their own words before any record in `.translations`, which
+  need not hold them (a fresh clone holds none). So words a card shows typed come back as the shock the card
+  shows, with the card's date, in any results root. While a reusable record exists no other is written for the
+  same words, so only records written before reuse existed can share them. Of those the newest that still
+  passes answers, by `recorded`, or for a record from before `recorded` existed by its file's modification
+  time, which a copy can change. Such a record is never dated from its file: its `recorded` is null.
 - `words` is the plain sentence the dashboard's `shockWords` writes for the same spec, for example "In every
   treatment couple, one partner picked at random loses their job on day 60, so their stress jumps by 1.5 that
   day and stays raised until day 180." Python writes it with `translate.shock_words`, a port of the dashboard's
@@ -602,14 +638,18 @@ publication as the run, from its own record:
 
 `text_sha256` hashes the normalised description (the text itself is not stored), and `edited` is
 computed on the server by comparing the shock as run with the shock as translated. A translation id
-the server has no record of, in memory or in `.translations/`, is recorded as `"verified": false`
+the server has no record of, in memory, in `.translations/` or on a demo card, is recorded as `"verified": false`
 with the shock as run, and the run still goes ahead. An entry with any other key, or a `shock_index`
 past the experiment's shocks, is a 400. The engine config, the table hashes and replay are unchanged.
 
 Dashboard: the New experiment page has a "Describe what happens" box above Add shock. Translate adds
 a shock row prefilled from the spec, with a card above its fields showing the visitor's words, the
 plain-words reading of the row as it stands (it follows every edit), the model's rationale, the model
-name, any validation error, and a note once the row has been changed. When the answer was invalid,
+name, any validation error, and a note once the row has been changed. A translation the server answered from
+its saved record says so under the visitor's words, at the card's 16px, while the row is still that shock:
+"Same words as on 12 October 2026, so the same shock, with no new model call." A record that carries no date
+says "as an earlier translation" in place of the date. Once the row is changed, the note that it was changed
+takes its place. When the answer was invalid,
 fields the model got wrong fall back to the kind's defaults, and the run stays blocked until the
 visitor changes a field or presses "These fields are right", so a wrong answer never runs unseen. An
 unsupported description shows its message and adds no row. The World page header links here with `?describe=1`,
@@ -745,9 +785,12 @@ POST /api/experiments/fork -> body {"parent": name, "name"?, "shocks": [{"kind",
                              the parent's or ending in -placebo or -twins; 409 when the name exists (forks never overwrite)
 ```
 
-`shock_index` counts the fork's `shocks` in the order sent. The default name is
-`<parent>-fork-<UTC timestamp>`. The child's results directory gains `parent.json`, written in the
-same publication as the run:
+`shock_index` counts the fork's `shocks` in the order sent. A fork sent without a name is named
+`<parent>-fork-<UTC date>-<time>` with the parent's name cut to 36 characters, such as
+`example-fork-20261014-121530`, and gets `-2`, `-3` and so on when that name is taken, by the rules and under
+the lock a run without a name follows (section 6). A typed name gets the 409s a typed run name gets (section 6),
+and a fork never overwrites. The child's results directory gains `parent.json`, written in the same publication
+as the run:
 
 ```
 {"parent", "parent_determinism_hash", "parent_engine_version", "appended_shocks": [...],
@@ -831,7 +874,8 @@ results root, not a single results directory.
   of at most 64 KB (413 above).
 - Translations keep the 400-character input cap and add a daily cap per client address
   (`LOVEWORLD_TRANSLATE_PER_IP_DAY`, default 20) and overall (`LOVEWORLD_TRANSLATE_GLOBAL_DAY`, default
-  3,000), counted only for real model calls (a cached answer is free) in
+  3,000), counted only for real model calls (an answer given again, from a saved translation or the
+  in-process cache, is free) in
   `<results root>/.public/counters.json`, keyed by an HMAC of the address and reset at UTC midnight, so
   a restart keeps the counts. Either cap answers 429.
 - With `LOVEWORLD_EDGE_SECRET` set, every POST to `/api` must carry `x-loveworld-edge` equal to it
@@ -887,6 +931,14 @@ a box for the view, and a click moves the view there. When the town is under 600
 one district at a time with a switch between control, the plaza and treatment, and on screens 640
 pixels wide or less the mini-map hides.
 
+Each district's title (its arm's label and how many couples it holds) stands on the district, at 16px. A town
+600 pixels wide or more shows the whole label, on as many lines as it needs, with its bottom edge just above the
+first row of houses and clear of any conflict sign there, and the camera keeps room above the districts for the
+tallest title: the whole town is drawn at the largest scale that leaves that room, and a town that fits the
+canvas sits no higher than the room allows. So a title never covers a house or a ring, and once the view is
+zoomed or dragged past the top of the town the titles move off with it. A narrower town keeps each title to
+one line, cut at its district's edge, since the switch above the canvas names every district in full.
+
 Clicking a house, a married person or a grid tile opens a couple panel beside the town in place of
 leaving the page, and clicking a single in the plaza still opens that agent's page. It shows the couple's state on the replay's day, both partners' trust and mood over the
 run with a marker on that day, today's grudge and warmth loads, any sealed records, the last five
@@ -913,7 +965,11 @@ When the job is done, the page switches to the new world in place: the URL's `ex
 child, and the World page replays it at ten days a second from ten days before the earliest day any
 added shock acts (a custom shock acts from its earliest effect), or from day 0 without shocks. The
 replay starts once the town is drawn and the parent world has loaded, and never waits more than eight
-seconds for them. Run on the New experiment page lands the same way.
+seconds for them. Run on the New experiment page lands the same way. The World page, the Overview, Comparisons
+and a couple's page show a world only once its arm labels, which come from its experiment and the shock catalog,
+have loaded with its own data, so a switch never shows placeholder words (an arm called Control, or "a placebo
+run") for a moment before the right ones. When its experiment cannot be loaded they say so in place of the world,
+since its labels would stay placeholders. A catalog that cannot be loaded only leaves the kinds' names plainer.
 
 A forked world's World page reads its parent's states as well (`/api/world?experiment=<parent>`) and
 compares the two worlds day by day under "Compared with the world it came from"
@@ -1021,7 +1077,9 @@ server and no model. docs/static-demo.md describes it for a reader, and this sec
 ```
 
 `typed` may be true only when `translate.text_sha256(words)` equals the record's `text_sha256`, a hash of the
-text lowercased with its spacing collapsed, which cannot check case or spacing. `hits` is
+text lowercased with its spacing collapsed, which cannot check case or spacing. A record saved since records
+carry their own `recorded` time (section 8) keeps it, and it must equal the block's `recorded`. The live app
+answers a card's words from its record, dated by the block's `recorded` (section 8). `hits` is
 `all` when any shock targets all, else `treatment`. A translated shock must be the shock as translated.
 `loveworld demo` forks each file's parent through `forking.plan_fork` and `forking.run_fork` (the fork
 endpoint's own code), writing translation.json from the saved record through `translate.translation_file`,

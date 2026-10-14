@@ -31,7 +31,9 @@ export default function Overview() {
   const arms = useArmContext();
   const listed = useExperiment().name;
   if (error) return <ErrorBox message={error} />;
-  if (!data) return <Loading what="the experiment" />;
+  if (arms.error) return <ErrorBox message={arms.error} />;
+  // "What differs", the effect table and the tiles name the arms, so the page waits for this world's labels too.
+  if (!data || !arms.ready) return <Loading what="the experiment" />;
   const { manifest, summary } = data;
   const exp = summary?.experiment;
   const divorce = summary?.outcomes.find((o) => o.name === 'divorce_rate');

@@ -8,6 +8,7 @@ import Histogram, { toRows as toHistRows } from '../components/Histogram';
 import { ErrorBox, Loading } from '../components/Status';
 import type { ArmSeries, BandSeries, Histogram as HistogramData } from '../types';
 import { safeFixed } from '../format';
+import { useArmContext } from '../arms';
 
 function ArmTable({ s, unit }: { s: ArmSeries; unit: string }) {
   const rows = toArmRows(s).filter((_, i) => i % 7 === 0);
@@ -86,8 +87,11 @@ function HistTable({ h, label }: { h: HistogramData; label: string }) {
 
 export default function Comparisons() {
   const { data, error, loading } = useAsync(() => Promise.all([getCurves(), getDistributions()]), []);
+  // Every chart's key names the arms, so the page waits for this world's labels as well as its curves.
+  const { ready, error: labelsError } = useArmContext();
   if (error) return <ErrorBox message={error} />;
-  if (!data) return <Loading what="curves" />;
+  if (labelsError) return <ErrorBox message={labelsError} />;
+  if (!data || !ready) return <Loading what="curves" />;
   const [curves, dists] = data;
   return (
     <div className={loading ? 'stale' : ''}>

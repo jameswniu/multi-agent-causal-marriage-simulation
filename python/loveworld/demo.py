@@ -53,6 +53,8 @@ RECORD_KEYS = (
     "errors",
     "message",
 )
+# Records written since the translator stamps them also carry when they were written.
+OPTIONAL_RECORD_KEYS = ("recorded",)
 HITS = ("treatment", "all")
 DEMO_PREFIX = "demo-"
 TITLE_MAX_CHARS = 60
@@ -161,8 +163,10 @@ def _check_translation(t: Any, n_shocks: int, where: str) -> None:
     if not isinstance(t["recorded"], str) or not _RECORDED.fullmatch(t["recorded"]):
         raise DemoError(f"{where}: translation.recorded must be a timestamp like 2026-10-12T01:33:33-07:00")
     rec = t["record"]
-    if not isinstance(rec, dict) or set(rec) != set(RECORD_KEYS):
+    if not isinstance(rec, dict) or set(rec) - set(OPTIONAL_RECORD_KEYS) != set(RECORD_KEYS):
         raise DemoError(f"{where}: translation.record must be a saved translation record ({', '.join(RECORD_KEYS)})")
+    if "recorded" in rec and rec["recorded"] != t["recorded"]:
+        raise DemoError(f"{where}: translation.recorded must be the time the record itself gives, {rec['recorded']!r}")
     if not isinstance(rec["translation_id"], str) or not _ID.fullmatch(rec["translation_id"]):
         raise DemoError(f"{where}: translation.record.translation_id must be 32 hex characters")
     if not isinstance(rec["text_sha256"], str) or not _SHA.fullmatch(rec["text_sha256"]):
@@ -184,6 +188,26 @@ def load_demos(directory: Path = DEMO_DIR) -> list[Demo]:
                 raise DemoError(f"{d.path.name} and {seen[value]} share the {attr} {value!r}")
             seen[value] = d.path.name
     return sorted(demos, key=lambda d: (d.order, d.name))
+
+
+def pinned_translations(directory: Path = DEMO_DIR) -> list[translate.Translation]:
+    """Return the saved translation each demo card holds, dated as the card dates it, for the live app's translator.
+
+    The translator answers a card's words from these before any record on disk (`translate.Translator`), so words
+    a card shows typed come back as the shock it shows, in any results root and in a fresh clone whose
+    `.translations` holds no record of them. A card that does not load is left out; `loveworld demo` reports it.
+    """
+    cards = []
+    for path in sorted(Path(directory).glob("*.json")):
+        try:
+            cards.append(load_demo(path))
+        except DemoError:
+            continue
+    return [
+        translate.Translation(**{**d.translation["record"], "recorded": d.translation["recorded"]})
+        for d in sorted(cards, key=lambda d: (d.order, d.name))
+        if d.translation is not None
+    ]
 
 
 def hits_of(shocks: list[Shock]) -> str:
