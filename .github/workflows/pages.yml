@@ -6,6 +6,21 @@ name: pages
 on:
   push:
     branches: [main]
+    # A push that changes only these files leaves the site as it is, so it does not rebuild it. Nothing the
+    # build below runs reads them: the README, the docs and the README's recordings, the licence files, the
+    # Fly, Docker and Cloudflare deployment of the full app, and the test workflow. A push that changes
+    # anything else rebuilds the whole site, and workflow_dispatch always does.
+    paths-ignore:
+      - README.md
+      - docs/**
+      - assets/**
+      - LICENSE
+      - NOTICE
+      - fly.toml
+      - deploy/**
+      - Dockerfile
+      - .dockerignore
+      - .github/workflows/ci.yml
   workflow_dispatch:
 permissions:
   contents: read
@@ -17,16 +32,27 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # The Python package is installed without its dev tools, and UV_NO_DEV keeps every uv run below from adding
+    # them back, so each build proves the export needs none of them (docs/static-demo.md).
+    env:
+      UV_NO_DEV: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release
       - uses: astral-sh/setup-uv@v5
-      - run: cd python && uv sync
+        with:
+          enable-cache: true
+          cache-dependency-glob: python/uv.lock
+          # setup-uv prunes the cache before saving it, which drops every downloaded wheel and leaves it empty.
+          prune-cache: false
+      - run: cd python && uv sync --no-dev
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - run: cd frontend && npm ci
       - id: pages
         uses: actions/configure-pages@v6
@@ -39,13 +65,13 @@ jobs:
           uv run loveworld demo "$GITHUB_WORKSPACE/results"
       - name: Export what every page reads, gzipped
         run: cd python && uv run loveworld static "$GITHUB_WORKSPACE/results" --site "$GITHUB_WORKSPACE/site"
-      - name: Build the dashboard in static mode under the site's path, with a page per route and 404.html for deep links
+      - name: Build the dashboard in static mode under the site's path, with a page per route, couple and agent
         env:
           BASE_PATH: ${{ steps.pages.outputs.base_path }}
         run: make static-frontend PAGES_BASE="${BASE_PATH%/}/"
       - name: Check the site
         run: |
-          for f in site/index.html site/404.html site/world.html site/data/index.json.gz; do
+          for f in site/index.html site/404.html site/world.html site/couples/0.html site/agents/0.html site/data/index.json.gz; do
             test -f "$f" || { echo "The site has no $f"; exit 1; }
           done
           du -sh site

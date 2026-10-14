@@ -1,11 +1,13 @@
 """Export the free, read-only demo: the example town and its pre-run shocks as files GitHub Pages can serve.
 
 LoveWorld's dashboard normally reads a FastAPI server. The demo on GitHub Pages has no server, so this module
-asks the very same app (fastapi's TestClient over `create_app`, on a results root that holds only the worlds the
-demo shows) for every response the read-only pages make, and writes each one gzipped under `<site>/data`. The
-dashboard's static mode (frontend/src/staticApi.ts) maps each request to its file, inflates it with
-DecompressionStream, and does the one thing a file cannot: /api/couples's filters, stable sort and paging, by
-the server's rules. Nothing here calls a model, and nothing written holds a key or a secret.
+asks the very same app (`create_app`, on a results root that holds only the worlds the demo shows) for every
+response the read-only pages make, and writes each one gzipped under `<site>/data`. It asks inside this process,
+through loveworld.asgi_reader, which talks to the app the way the uvicorn server does and returns the very bytes
+the live server sends, with no port and no package beyond the app's own. The dashboard's static mode
+(frontend/src/staticApi.ts) maps each request to its file, inflates it with DecompressionStream, and does the one
+thing a file cannot: /api/couples's filters, stable sort and paging, by the server's rules. Nothing here calls a
+model, and nothing written holds a key or a secret.
 
 Every file is gzipped, and JSON unless it ends in .bin:
 
@@ -27,7 +29,6 @@ import json
 import os
 import shutil
 import tempfile
-import warnings
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -39,6 +40,7 @@ from loveworld import public as pubmod
 from loveworld import runner, translate
 from loveworld.analysis import sibling_dir
 from loveworld.api import create_app, experiment_names
+from loveworld.asgi_reader import AppReader, Reply
 from loveworld.engine import REPO_ROOT
 
 SITE_FORMAT = 1
@@ -245,13 +247,13 @@ def export_site(
         )
         store = app.state.store
         store.preferred_default = default
-        client = _test_client(app)
-        writer = _Writer(tmp, report)
-        try:
-            index = _export(client, store, worlds, items, writer, log)
-            writer.write("index.json.gz", json.dumps(index, separators=(",", ":"), sort_keys=True).encode())
-        finally:
-            writer.close()
+        with AppReader(app) as client:
+            writer = _Writer(tmp, report)
+            try:
+                index = _export(client, store, worlds, items, writer, log)
+                writer.write("index.json.gz", json.dumps(index, separators=(",", ":"), sort_keys=True).encode())
+            finally:
+                writer.close()
         for name in worlds:
             log(f"{name}: {report.per_world.get(name, 0) / 1e6:.1f} MB")
         log(f"Static site data: {report.files:,} files, {report.megabytes:.1f} MB gzipped")
@@ -272,21 +274,7 @@ def export_site(
     return report
 
 
-def _test_client(app: Any) -> Any:
-    """Return fastapi's TestClient over the app: what the live server answers, without a server or a port."""
-    try:
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", message="Using `httpx` with `starlette.testclient` is deprecated")
-            from fastapi.testclient import TestClient
-    except ImportError as e:
-        raise StaticExportError(
-            "the exporter reads the API through fastapi's TestClient, which needs httpx: "
-            "run uv sync, whose dev group installs it"
-        ) from e
-    return TestClient(app)
-
-
-def _get(client: Any, path: str, params: dict[str, Any] | None = None) -> Any:
+def _get(client: AppReader, path: str, params: dict[str, Any] | None = None) -> Reply:
     """GET one API path and return the response, which must be a 200."""
     r = client.get(path, params=params)
     if r.status_code != 200:
@@ -295,7 +283,7 @@ def _get(client: Any, path: str, params: dict[str, Any] | None = None) -> Any:
 
 
 def _export(
-    client: Any,
+    client: AppReader,
     store: Any,
     worlds: list[str],
     items: list[demos.Demo],
@@ -346,7 +334,7 @@ def _export(
             lr = client.get(f"/api/lens/{lens}", params=q)
             if lr.status_code == 200:
                 headers = {
-                    h: lr.headers[h]
+                    h: lr.header(h)
                     for h in ("X-Lens-Days", "X-Lens-Couples", "X-Lens-Lo", "X-Lens-Hi", "X-Lens-Worse-High")
                 }
                 lenses[lens] = {"headers": headers}

@@ -11,10 +11,13 @@ SITE ?= $(abspath site)
 PAGES_BASE ?= /multi-agent-causal-marriage-simulation/
 STATIC_PORT ?= 8790
 # The dashboard's pages. Each gets its own copy of index.html, which GitHub Pages serves for a link to that page
-# with status 200; a link to one couple or agent reaches the app through 404.html instead.
+# with status 200. So does every couple and agent of the published worlds, as couples/<id>.html and agents/<id>.html,
+# which GitHub Pages serves for /couples/<id> and /agents/<id>. Any other path reaches the app through 404.html.
 STATIC_PAGES := world overview comparisons couples agents policy governance new
+# The pages with a copy per id. The ids are the files the exporter wrote for every world, site/data/w/<world>/<page>/.
+STATIC_DETAILS := couples agents
 
-.PHONY: help engine engine-test python-sync python-test python-lint frontend-install frontend-test frontend-lint frontend-build test lint build example placebo twins replay serve dashboard figures figures-check clean demo static static-frontend serve-static
+.PHONY: help engine engine-test python-sync python-test python-lint frontend-install frontend-test frontend-lint frontend-build test lint build example placebo twins replay serve dashboard figures figures-check clean demo static static-frontend static-pages serve-static
 
 help:
 	@grep -E '^[a-z-]+:.*?## ' Makefile | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'
@@ -81,13 +84,26 @@ demo: engine ## Run the read-only demo's shocks (experiments/demo/) on the examp
 static: ## Export the example and demo worlds as gzipped files for the read-only demo, into site/data
 	$(PY) loveworld static "$(abspath results)" --site "$(SITE)"
 
-static-frontend: ## Build the dashboard in read-only static mode into site/, with a page per route and 404.html for deep links
+static-frontend: ## Build the dashboard in read-only static mode into site/, with a page per route, couple and agent; run static first
+	@test -f "$(SITE)/data/index.json.gz" || { echo "$(SITE)/data holds no exported data; run make static first"; exit 1; }
 	cd frontend && VITE_STATIC=1 VITE_BASE=$(PAGES_BASE) npm run build -- --outDir dist-static --emptyOutDir
-	rm -rf "$(SITE)/assets" "$(SITE)/index.html" "$(SITE)/404.html" $(foreach page,$(STATIC_PAGES),"$(SITE)/$(page).html")
-	mkdir -p "$(SITE)"
+	rm -rf "$(SITE)/assets" "$(SITE)/index.html"
 	cp -R frontend/dist-static/. "$(SITE)/"
+	$(MAKE) --no-print-directory static-pages SITE="$(SITE)"
+
+static-pages: ## Copy site/index.html to 404.html and to a page per route, per couple and per agent of site/data
+	@test -f "$(SITE)/data/index.json.gz" || { echo "$(SITE)/data holds no exported data; run make static first"; exit 1; }
+	@test -f "$(SITE)/index.html" || { echo "$(SITE) has no index.html; run make static-frontend"; exit 1; }
+	rm -rf "$(SITE)/404.html" $(foreach page,$(STATIC_PAGES),"$(SITE)/$(page).html") $(foreach d,$(STATIC_DETAILS),"$(SITE)/$(d)")
 	cp "$(SITE)/index.html" "$(SITE)/404.html"
 	for page in $(STATIC_PAGES); do cp "$(SITE)/index.html" "$(SITE)/$$page.html"; done
+	set -e; cd "$(SITE)"; for d in $(STATIC_DETAILS); do \
+	  mkdir "$$d"; \
+	  for id in $$(find data/w -path "data/w/*/$$d/*.json.gz" -type f | sed -e 's|.*/||' -e 's|[.]json[.]gz$$||' | sort -un); do \
+	    cp index.html "$$d/$$id.html"; \
+	  done; \
+	  echo "$$(ls "$$d" | wc -l | tr -d ' ') pages in $(SITE)/$$d"; \
+	done
 
 serve-static: ## Serve site/ the way GitHub Pages does, on port 8790 under the repository's path
 	python3 tools/serve_static.py "$(SITE)" --port $(STATIC_PORT) --base $(PAGES_BASE)

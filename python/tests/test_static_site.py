@@ -1,4 +1,8 @@
-"""The read-only demo's exporter: every file it writes, inflated, is exactly what the API answers."""
+"""The read-only demo's exporter: every file it writes, inflated, is exactly what the API answers.
+
+The exporter asks the API inside its own process through loveworld.asgi_reader, which needs no dev package. These
+tests compare what it wrote, and what the reader answers, with fastapi's TestClient, a dev-only tool, byte for byte.
+"""
 
 from __future__ import annotations
 
@@ -12,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from loveworld import demo, runner, static_site
 from loveworld.api import create_app
+from loveworld.asgi_reader import AppReader
 from loveworld.experiment import load_experiment
 
 from .conftest import EXPERIMENTS
@@ -106,6 +111,49 @@ def test_every_file_inflated_is_the_api_response_byte_for_byte(built: dict[str, 
             assert headers == {h: r.headers[h] for h in headers}
         checked += 1
     assert checked == len(files) - 1
+
+
+def _one_of_every_read(data: Path, index: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    """One request of every kind the exporter makes, for each world it exported, and answers that are not a 200."""
+    reads: list[tuple[str, dict[str, Any]]] = [(path, {}) for path in static_site.GLOBAL_READS.values()]
+    for w in index["worlds"]:
+        q = {"experiment": w["name"]}
+        couples = [c["couple_id"] for c in json.loads(_inflate(data / "w" / w["name"] / "couples.json.gz"))["items"]]
+        agents = sorted(int(p.name.split(".")[0]) for p in (data / "w" / w["name"] / "agents").iterdir())
+        reads += [(path, q) for path in static_site.WORLD_READS.values()]
+        reads.append(("/api/couples", {**q, "limit": static_site.COUPLES_PAGE, "offset": 0}))
+        reads += [(f"/api/couples/{cid}", q) for cid in (couples[0], couples[-1])]
+        reads += [(f"/api/agents/{aid}", q) for aid in (agents[0], agents[-1])]
+        reads += [("/api/events", {**q, "day": day}) for day in (0, w["days"] - 1)]
+        reads += [(f"/api/lens/{lens}", q) for lens in w["lenses"]]
+    q = {"experiment": index["default"]}
+    reads += [
+        ("/api/couples/99999", q),
+        ("/api/agents/99999", q),
+        ("/api/lens/no-such-lens", q),
+        ("/api/couples", {**q, "limit": 0}),
+        ("/api/couples", {**q, "sort": "no_such_column"}),
+        ("/api/experiment", {"experiment": "no-such-world"}),
+    ]
+    return reads
+
+
+def test_the_reader_answers_every_kind_of_read_as_test_client_does_byte_for_byte(built: dict[str, Any]) -> None:
+    data = built["site"] / "data"
+    index = json.loads(_inflate(data / "index.json.gz"))
+    reads = _one_of_every_read(data, index)
+    client = _client(built)
+    statuses = set()
+    with AppReader(client.app) as reader:
+        for path, params in reads:
+            ours, theirs = reader.get(path, params), client.get(path, params=params)
+            assert ours.status_code == theirs.status_code, (path, params)
+            assert ours.content == theirs.content, (path, params)
+            raw = [(k.decode("latin-1").lower(), v.decode("latin-1")) for k, v in theirs.headers.raw]
+            assert list(ours.headers) == raw, (path, params)
+            statuses.add(ours.status_code)
+    assert statuses == {200, 400, 404, 422}
+    assert len(reads) > 40
 
 
 def test_the_site_holds_every_couple_agent_day_and_lens_of_each_world(built: dict[str, Any]) -> None:

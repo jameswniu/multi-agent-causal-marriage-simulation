@@ -2,11 +2,14 @@
 """Serve the read-only demo's site folder the way GitHub Pages serves it, for checks on this machine.
 
 LoveWorld's free demo is a static site: the dashboard built in static mode plus the gzipped data files the
-exporter writes (make static, make static-frontend). GitHub Pages serves a project site under /<repository>/,
-answers a path with no extension from the .html file of that name when there is one (each page of the
-dashboard has its copy of index.html), answers any other path it has no file for with 404.html and status
-404 (which is how a link to one couple reaches the single-page app), and hands .gz files over as plain
-bytes with no Content-Encoding, so the page inflates them itself. This server does the same, and nothing more:
+exporter writes (make static, make static-frontend). GitHub Pages serves a project site under /<repository>/.
+It answers a path with no trailing slash from the .html file of that name when there is one, even beside a
+folder of the same name, which is how /couples serves couples.html and /couples/12 serves couples/12.html
+(each page of the dashboard, and each couple and agent, has its copy of index.html). A folder with no .html
+file of its name redirects to the path with a slash, keeping the query, and a path with a slash serves the
+folder's index.html. Any other path it has no file for gets 404.html with status 404, which is how a link to
+an unknown couple still reaches the single-page app. It hands .gz files over as plain bytes with no
+Content-Encoding, so the page inflates them itself. This server does the same, and nothing more:
 
     python3 tools/serve_static.py site --port 8790 --base /multi-agent-causal-marriage-simulation/
 
@@ -46,17 +49,20 @@ def content_type(path: Path) -> str:
     return TYPES.get(path.suffix.lower(), "application/octet-stream")
 
 
-def resolve(root: Path, base: str, url_path: str) -> tuple[str, Path | None]:
-    """Map a request path to ("file", path), ("redirect", None), or ("missing", None), like GitHub Pages.
+def resolve(root: Path, base: str, url_path: str) -> tuple[str, Path | str | None]:
+    """Map a request to ("file", path), ("redirect", location) or ("missing", None), as GitHub Pages does.
 
-    A path outside the base or outside the folder, or one with no file, is missing; the folder's own
-    path without its trailing slash redirects to it; a directory serves its index.html; and a path with
-    no file of its own and no trailing slash serves the .html file of the same name, as /world serves
-    world.html and /world/ is missing.
+    A path outside the base or outside the folder is missing. The base without its slash redirects to the
+    base. A path ending in a slash serves its folder's index.html. Any other path serves its file, else the
+    .html file of the same name, which comes before a folder of that name (/couples serves couples.html
+    beside couples/, and /couples/12 serves couples/12.html), else redirects a folder to its path with a
+    slash. Redirects keep the query. Everything else is missing, as /world/ is beside world.html.
     """
-    path = unquote(urlsplit(url_path).path)
+    parts = urlsplit(url_path)
+    query = f"?{parts.query}" if parts.query else ""
+    path = unquote(parts.path)
     if path == base.rstrip("/"):
-        return "redirect", None
+        return "redirect", base + query
     if not path.startswith(base):
         return "missing", None
     rel = posixpath.normpath(path[len(base) :] or ".")
@@ -65,11 +71,17 @@ def resolve(root: Path, base: str, url_path: str) -> tuple[str, Path | None]:
     target = (root / rel).resolve()
     if target != root and root not in target.parents:
         return "missing", None
+    if path.endswith("/") or target == root:
+        index = target / "index.html"
+        return ("file", index) if target.is_dir() and index.is_file() else ("missing", None)
+    if target.is_file():
+        return "file", target
+    page = target.with_name(target.name + ".html")
+    if page.is_file():
+        return "file", page
     if target.is_dir():
-        target = target / "index.html"
-    elif not target.is_file() and target != root and not path.endswith("/"):
-        target = target.with_name(target.name + ".html")
-    return ("file", target) if target.is_file() else ("missing", None)
+        return "redirect", parts.path + "/" + query
+    return "missing", None
 
 
 def make_handler(root: Path, base: str) -> type[BaseHTTPRequestHandler]:
@@ -91,9 +103,9 @@ def make_handler(root: Path, base: str) -> type[BaseHTTPRequestHandler]:
 
         def _serve(self) -> None:
             kind, target = resolve(root, base, self.path)
-            if kind == "redirect":
-                self._send(HTTPStatus.MOVED_PERMANENTLY, b"", "text/plain", {"Location": base})
-            elif kind == "file" and target is not None:
+            if kind == "redirect" and isinstance(target, str):
+                self._send(HTTPStatus.MOVED_PERMANENTLY, b"", "text/plain", {"Location": target})
+            elif kind == "file" and isinstance(target, Path):
                 self._send(HTTPStatus.OK, target.read_bytes(), content_type(target))
             else:
                 page = root / "404.html"
