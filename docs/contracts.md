@@ -574,7 +574,8 @@ POST /api/shocks/translate -> body {"text" (1 to 400 characters), "days"? (1 to 
                                           "magnitude", "trait"} | null,
                                  "words", "rationale", "model", "errors": [...], "message",
                                  "reused": true | false, "recorded": "2026-10-12T01:33:33-07:00" | null}
-                             400 on a bad body; 503 when the server has no key or the model service is down
+                             400 on a bad body; 503 when the words need the model and the server has no key,
+                             or the model service is down
 ```
 
 - The call: the Anthropic Messages API, model `LOVEWORLD_TRANSLATE_MODEL` (default `claude-haiku-5-5`),
@@ -586,7 +587,9 @@ POST /api/shocks/translate -> body {"text" (1 to 400 characters), "days"? (1 to 
   `LOVEWORLD_KEYCHAIN_SERVICES` (default `loveworld-anthropic`) that holds one. To name another service, put
   `LOVEWORLD_KEYCHAIN_SERVICES=...` in an untracked `.env` file at the repository root, which only `make serve`
   reads; the port is a make variable (`make serve PORT=...`), not a `.env` setting. It is
-  looked up again on the next request when missing, so adding a key needs no restart.
+  looked up again on the next request when missing, so adding a key needs no restart. A server with no key
+  still answers words it has a saved translation for (below), by the model it is set to use, and answers 503
+  only for words that need the model.
 - The guard is validation, not the prompt. Every answer goes through `parse_shock`, the same parser an
   experiment file uses. `ok` returns the validated spec with a finite kind's end day resolved from its
   catalog length; `invalid` returns the spec as the model proposed it with the parser's error, never
@@ -616,10 +619,11 @@ POST /api/shocks/translate -> body {"text" (1 to 400 characters), "days"? (1 to 
 - The demo's cards (section 14) hand their saved records to the live app's translator, each dated by its
   card's `translation.recorded`, and those answer their own words before any record in `.translations`, which
   need not hold them (a fresh clone holds none). So words a card shows typed come back as the shock the card
-  shows, with the card's date, in any results root. While a reusable record exists no other is written for the
-  same words, so only records written before reuse existed can share them. Of those the newest that still
-  passes answers, by `recorded`, or for a record from before `recorded` existed by its file's modification
-  time, which a copy can change. Such a record is never dated from its file: its `recorded` is null.
+  shows, with the card's date, in any results root and with or without a key. While a reusable record exists
+  no other is written for the same words, so only records written before reuse existed can share them. Of
+  those the newest that still passes answers, by `recorded`, or for a record from before `recorded` existed by
+  its file's modification time, which a copy can change. Such a record is never dated from its file: its
+  `recorded` is null.
 - `words` is the plain sentence the dashboard's `shockWords` writes for the same spec, for example "In every
   treatment couple, one partner picked at random loses their job on day 60, so their stress jumps by 1.5 that
   day and stays raised until day 180." Python writes it with `translate.shock_words`, a port of the dashboard's

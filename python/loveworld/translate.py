@@ -149,12 +149,17 @@ class AnthropicClient:
             raise TranslatorUnavailable("the translator service returned something that is not JSON") from None
 
 
+def configured_model() -> str:
+    """Return the model the server translates with: LOVEWORLD_TRANSLATE_MODEL, else DEFAULT_MODEL. It needs no key."""
+    return os.environ.get("LOVEWORLD_TRANSLATE_MODEL", "").strip() or DEFAULT_MODEL
+
+
 def default_client() -> Client | None:
     """Build the real client from the key and the LOVEWORLD_TRANSLATE_* settings, or None without a key."""
     key = find_key()
     if not key:
         return None
-    model = os.environ.get("LOVEWORLD_TRANSLATE_MODEL", "").strip() or DEFAULT_MODEL
+    model = configured_model()
     try:
         timeout = float(os.environ.get("LOVEWORLD_TRANSLATE_TIMEOUT", DEFAULT_TIMEOUT_S))
     except ValueError:
@@ -1056,11 +1061,18 @@ class Translator:
         answer again from memory, as before reuse existed: no model call, no new record and `reused` false.
         Anything else makes one model call and saves its record, whatever its status. `before_model_call` runs
         just before a real model call, never for an answer given again, so a caller can count calls against a
-        quota and refuse one by raising.
+        quota and refuse one by raising. A server with no key still answers words it has a saved translation
+        for, by the model it is set to use (`configured_model`), and raises TranslatorUnavailable only for
+        words that need the model.
         """
         clean, n_days = check_request(text, days)
-        client = self._get_client()
-        key = (text_sha256(clean), n_days, client.model)
+        client: Client | None
+        no_key: TranslatorUnavailable | None = None
+        try:
+            client = self._get_client()
+        except TranslatorUnavailable as e:
+            client, no_key = None, e
+        key = (text_sha256(clean), n_days, client.model if client is not None else configured_model())
         with self._one_at_a_time(key):
             saved = self._saved_answer(key)
             if saved is not None:
@@ -1071,6 +1083,9 @@ class Translator:
                     self._misses.move_to_end(key)
             if missed is not None:
                 return replace(missed, errors=list(missed.errors))
+            if client is None:
+                assert no_key is not None
+                raise no_key
             if before_model_call is not None:
                 before_model_call()
             answer = _tool_input(client.create(build_payload(clean, n_days, client.model)))

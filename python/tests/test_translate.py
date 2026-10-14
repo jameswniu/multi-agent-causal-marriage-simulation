@@ -682,3 +682,24 @@ def test_a_demo_cards_translation_whose_shock_no_longer_runs_as_saved_gives_way(
     tr = translate.Translator(client_factory=lambda: client, record_dir=records, pinned=[stale])
     out = tr.translate(JOB_TEXT, 365)
     assert out.reused and out.translation_id == "b" * 32 and client.payloads == []
+
+
+def test_a_server_with_no_key_still_answers_words_it_has_a_saved_translation_for(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("LOVEWORLD_TRANSLATE_MODEL", raising=False)
+    records = tmp_path / ".translations"
+    # Saved for the model the server is set to use, on disk and on a demo card.
+    _saved(records, spec=JOB_SPEC, model=translate.DEFAULT_MODEL)
+    card = _pin(model=translate.DEFAULT_MODEL, text_sha256=translate.text_sha256("his mother moves in"))
+    keyless = translate.Translator(client_factory=lambda: None, record_dir=records, pinned=[card])
+    out = keyless.translate(JOB_TEXT, 365)
+    assert out.reused and out.translation_id == "0" * 32 and out.model == translate.DEFAULT_MODEL
+    assert keyless.translate("His mother moves in", 365).translation_id == "f" * 32
+    # Words that need the model, or words saved only for another model, still meet the missing key.
+    with pytest.raises(translate.TranslatorUnavailable, match="needs an Anthropic API key"):
+        keyless.translate("Nothing anyone has typed before", 365)
+    monkeypatch.setenv("LOVEWORLD_TRANSLATE_MODEL", "another-model")
+    with pytest.raises(translate.TranslatorUnavailable, match="needs an Anthropic API key"):
+        keyless.translate(JOB_TEXT, 365)
+    assert _records(records) == ["0" * 32 + ".json"]

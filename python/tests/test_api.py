@@ -758,6 +758,25 @@ def test_the_app_answers_words_a_demo_card_shows_typed_from_the_cards_translatio
     assert fake.payloads == [] and not (tmp_path / ".translations").exists()
 
 
+def test_an_app_with_no_key_answers_typed_demo_words_and_503_for_words_that_need_the_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from loveworld import demo, translate
+
+    monkeypatch.delenv("LOVEWORLD_TRANSLATE_MODEL", raising=False)
+    real = translate.Translator
+    monkeypatch.setattr(translate, "Translator", lambda **kw: real(client_factory=lambda: None, **kw))
+    client = TestClient(create_app(tmp_path, frontend_dist=tmp_path / "no-dist"))
+    mother = next(d for d in demo.load_demos() if d.name == "demo-mother-moves-in")
+    assert mother.translation is not None
+    rec = mother.translation["record"]
+    r = client.post("/api/shocks/translate", json={"text": mother.words, "days": rec["days"]})
+    assert r.status_code == 200, r.text
+    assert r.json()["reused"] is True and r.json()["translation_id"] == rec["translation_id"]
+    other = client.post("/api/shocks/translate", json={"text": "He wins the lottery on day 10", "days": 365})
+    assert other.status_code == 503 and "Anthropic API key" in other.json()["detail"]
+
+
 def test_a_run_records_where_its_translated_shock_came_from(tmp_path: Path) -> None:
     from loveworld import translate
 
