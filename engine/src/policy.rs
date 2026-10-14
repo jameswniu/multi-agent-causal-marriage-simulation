@@ -423,7 +423,7 @@ mod tests {
             let base = view(&p, &q, ctx);
             for m in [0.1, 0.5, 2.0, 10.0] {
                 let boosted = AgentView {
-                    repair_bias: f64::ln(m),
+                    repair_bias: libm::log(m),
                     ..base
                 };
                 let d0 = decide(&base, &w, &mut rng::stream(5, "t", 4));

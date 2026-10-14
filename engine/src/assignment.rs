@@ -121,7 +121,8 @@ pub fn risk_scores(cfg: &SimConfig, pop: &Population) -> Vec<f64> {
     let mut score = vec![0.0; rows.len()];
     for (k, &wk) in w.iter().enumerate() {
         let mean = rows.iter().map(|r| r[k]).sum::<f64>() / n;
-        let sd = (rows.iter().map(|r| (r[k] - mean).powi(2)).sum::<f64>() / n).sqrt();
+        let squares: f64 = rows.iter().map(|r| (r[k] - mean) * (r[k] - mean)).sum();
+        let sd = (squares / n).sqrt();
         if sd > 0.0 {
             for (s, r) in score.iter_mut().zip(&rows) {
                 *s += wk * (r[k] - mean) / sd;

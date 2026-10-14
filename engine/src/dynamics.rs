@@ -8,7 +8,7 @@ use crate::memory::Loads;
 use crate::rng::{self, Rng};
 
 pub fn sigmoid(x: f64) -> f64 {
-    1.0 / (1.0 + (-x).exp())
+    1.0 / (1.0 + libm::exp(-x))
 }
 
 /// Daily stress: geometric decay plus an occasional shock, nudged up by neuroticism.

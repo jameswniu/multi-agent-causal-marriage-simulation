@@ -495,7 +495,13 @@ def curves(t: Tables) -> dict[str, Any]:
         if len(sub):
             g = sub.groupby("day")
             mean = g["trust"].mean()
-            se = g["trust"].std(ddof=1).fillna(0.0) / np.sqrt(g["trust"].count().clip(lower=1))
+            # The standard deviation in two passes, from each day's sum of squared deviations. pandas' own
+            # groupby std is compiled code whose last bit differs between macOS and Linux. Here every step is
+            # plain arithmetic or a square root, which round the same on every machine, so summary.json does too.
+            n = g["trust"].count()
+            dev = sub["trust"] - sub["day"].map(mean)
+            sd = np.sqrt((dev * dev).groupby(sub["day"]).sum() / (n - 1).clip(lower=1)).where(n > 1, 0.0)
+            se = sd / np.sqrt(n.clip(lower=1))
             trust[f"{arm}_mean"] = _series(mean, days)
             trust[f"{arm}_lo"] = _series(mean - 1.96 * se, days)
             trust[f"{arm}_hi"] = _series(mean + 1.96 * se, days)

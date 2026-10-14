@@ -4,7 +4,10 @@
 # docs/deploy.md has the Fly.io and Cloudflare steps; nothing here creates a cloud resource.
 # Only the paths named below are copied, and .dockerignore keeps every .env file out of the build context.
 
-# 1. The engine, built with the toolchain the repository pins.
+# 1. The engine. rust-toolchain.toml names the stable channel, so rustup in this image installs the current
+#    stable Rust and builds with it, as CI and a local build do. The image's own Rust 1.98.1 supplies rustup and
+#    the base system. Which Rust builds it does not change the engine's maths: every exp, log, power and cosine
+#    it computes comes from the pinned libm crate, never the platform's maths library (docs/contracts.md section 1).
 FROM rust:1.98.1-slim-bookworm AS engine
 WORKDIR /src
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./

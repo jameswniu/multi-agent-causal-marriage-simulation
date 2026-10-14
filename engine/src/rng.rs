@@ -35,7 +35,7 @@ pub fn normal(rng: &mut Rng, mean: f64, sd: f64) -> f64 {
     use rand::RngExt;
     let u1: f64 = rng.random::<f64>().max(1e-12);
     let u2: f64 = rng.random::<f64>();
-    let z = (-2.0 * u1.ln()).sqrt() * (std::f64::consts::TAU * u2).cos();
+    let z = (-2.0 * libm::log(u1)).sqrt() * libm::cos(std::f64::consts::TAU * u2);
     mean + sd * z
 }
 
@@ -93,7 +93,7 @@ pub fn softmax_choice(rng: &mut Rng, utilities: &[f64], temperature: f64) -> (us
     let max = clean.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
     let n = clean.len().max(1) as f64;
     let weights: Vec<f64> = if max.is_finite() {
-        clean.iter().map(|u| ((u - max) / t).exp()).collect()
+        clean.iter().map(|u| libm::exp((u - max) / t)).collect()
     } else {
         vec![1.0 / n; clean.len()]
     };
@@ -141,7 +141,7 @@ mod tests {
         let n = 20_000;
         let xs: Vec<f64> = (0..n).map(|_| normal(&mut r, 2.0, 0.5)).collect();
         let mean = xs.iter().sum::<f64>() / n as f64;
-        let var = xs.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n as f64;
+        let var = xs.iter().map(|x| (x - mean) * (x - mean)).sum::<f64>() / n as f64;
         assert!((mean - 2.0).abs() < 0.02, "mean {mean}");
         assert!((var.sqrt() - 0.5).abs() < 0.02, "sd {}", var.sqrt());
     }

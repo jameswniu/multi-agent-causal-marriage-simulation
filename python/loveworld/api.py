@@ -934,7 +934,7 @@ def create_app(
         store.public_default_only = True
         pub.start_sweeper(on_removed=store.invalidate)
     runs = queue if queue is not None else jobq.JobQueue(error_mapper=lambda e: job_error(e, store.results_root))
-    app = FastAPI(title="LoveWorld results", version="0.3.0")
+    app = FastAPI(title="LoveWorld results", version="0.3.1")
     app.state.store = store
     app.state.jobs = runs
     app.state.public = pub

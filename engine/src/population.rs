@@ -43,7 +43,8 @@ pub struct AgentSpec {
     pub prefs: Preferences,
     pub history: History,
     pub base_trust: f64,
-    /// MADAM style per-agent threshold relaxation rate.
+    /// How fast this agent lowers the compatibility it asks of a new partner, as a share per day spent
+    /// single, as in Hills and Todd's MADAM marriage-market model (see market.rs).
     pub relax_rate: f64,
     pub initial_episodes: Vec<Episode>,
 }
@@ -380,7 +381,7 @@ mod tests {
             .map(|a| a.personality.neuroticism)
             .collect();
         let mean = xs.iter().sum::<f64>() / xs.len() as f64;
-        let var = xs.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / xs.len() as f64;
+        let var = xs.iter().map(|x| (x - mean) * (x - mean)).sum::<f64>() / xs.len() as f64;
         assert!(var > 0.01, "variance {var}");
         for a in &pop.agents {
             for t in trait_vector(&a.personality, &a.prefs) {

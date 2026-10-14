@@ -178,11 +178,12 @@ impl Memory {
         }
     }
 
-    /// Current strength of one episode: full for the plateau, then halving every half-life.
+    /// Current strength of one episode: full for the plateau, then halving every half-life. The halving
+    /// is libm's `exp2(-t)`, the same quantity as `0.5^t`. libm's general `pow` ran the example twice as slow.
     pub fn strength(&self, ep: &Episode, today: i32) -> f64 {
         let age = (self.clock(ep, today) - ep.day).max(0) as f64;
         let decaying = (age - self.plateau_days).max(0.0);
-        ep.intensity * 0.5f64.powf(decaying / self.half_life(ep.kind.class()))
+        ep.intensity * libm::exp2(-(decaying / self.half_life(ep.kind.class())))
     }
 
     /// Hold every episode about `partner` at today's strength until `unfreeze`.
@@ -257,7 +258,7 @@ impl Memory {
             }
             let kind = EpisodeKind::standing(class);
             let decaying = ((today - latest) as f64 - self.plateau_days).max(0.0);
-            let intensity = load / 0.5f64.powf(decaying / self.half_life(class));
+            let intensity = load / libm::exp2(-(decaying / self.half_life(class)));
             let merged = Episode {
                 day: latest,
                 kind,
@@ -299,8 +300,8 @@ impl Memory {
         let raw = self.raw_loads(today, partner);
         let s = self.params.load_saturation;
         Loads {
-            negative: s * (1.0 - (-raw.negative / s).exp()),
-            positive: s * (1.0 - (-raw.positive / s).exp()),
+            negative: s * (1.0 - libm::exp(-raw.negative / s)),
+            positive: s * (1.0 - libm::exp(-raw.positive / s)),
         }
     }
 

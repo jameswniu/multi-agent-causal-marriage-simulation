@@ -95,7 +95,7 @@ impl Modifiers {
         self.repair_mult
             .iter()
             .filter(|(_, until)| day <= *until)
-            .map(|(m, _)| m.ln())
+            .map(|(m, _)| libm::log(*m))
             .sum()
     }
 

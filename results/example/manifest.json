@@ -231,38 +231,38 @@
     "shocks": []
   },
   "days": 365,
-  "determinism_hash": "674eee5aea999b52518f779b648866d0d408086357eda2d9c5d20550bdb5a8dc",
+  "determinism_hash": "79957a7a62ffce9825c19273d08aad12b84c05ad1e6c70ef5073de3e3a290f4d",
   "engine": "loveworld-engine",
-  "engine_version": "0.3.0",
+  "engine_version": "0.3.1",
   "evidence_class": "simulation",
   "files": {
     "agents.parquet": {
       "rows": 2000,
-      "sha256": "c493c2e09116f59dd62c94795acd19fc4db888e49ed0d5aab171124ad94e9009"
+      "sha256": "89bd182217a95c2a9e3669ba67f84fdd2fbd3e3307e822179137d2c9190bbe4c"
     },
     "conflicts.parquet": {
       "rows": 9710,
-      "sha256": "559fe274bdc4a4beebca2a010edc295d56b8122d6c0898d369662b1c100922cc"
+      "sha256": "8987dec36ae7692b888b3f9d962bef466782025989ea4acafdf1e40f97eb1520"
     },
     "couples.parquet": {
       "rows": 1124,
-      "sha256": "b3e0ce3acf381398d169d4ab972daad1cb4831dd060ef555889b6da2e0004845"
+      "sha256": "0f1d6f749d1ab99e62f94069b4fe86131c9a9db3244fc836167b69c58023490a"
     },
     "daily.parquet": {
       "rows": 351322,
-      "sha256": "5a5530de83521ef24dac01cd45f6d3b2bfd1ca8a79567c4361cd0feecdacd3c8"
+      "sha256": "3ab26e40e3a5997c0b720b26804137fb2e03abf900db89c3b07547e4ab1ad814"
     },
     "decisions.parquet": {
       "rows": 242168,
-      "sha256": "b6c876c53fbd94adfa33c1e2347532a3adcb68f279a9d5a0ecddf0a840220a51"
+      "sha256": "dfaa2b15b4e84b0a6d4f4c4188d4a4d284800209b6ac7fe4bd0601349a10a3b3"
     },
     "episodes.parquet": {
       "rows": 596429,
-      "sha256": "d1dc87b3d1fe29520ee2bf654cf2a54005a58034c3a9d2e0158384db92fdcad6"
+      "sha256": "b1a79b4961cb5e47914a7fa54b94a7e05fbb6f1d29f6114514d059f2da631706"
     },
     "events.parquet": {
       "rows": 223187,
-      "sha256": "1cf5d36d4a71f241e247056d3f6e42a9ee31ea144067e6935daccc7d688f3120"
+      "sha256": "eadf991c112dc59270f9139ad12afb095434150d7f41c30921b2d311e456979b"
     },
     "interventions.parquet": {
       "rows": 8000,
@@ -270,10 +270,10 @@
     },
     "legacies.parquet": {
       "rows": 180,
-      "sha256": "6a299b4cb490dbbbc9dd24115ec19385febffcab62a973f0a113fbac499459e2"
+      "sha256": "17097819927c0a82f0dc629d7df0fc075cdfc303414459da72bb59423aef9ecc"
     }
   },
-  "generated_at_unix": 1791852357,
+  "generated_at_unix": 1791950142,
   "n_couples": 1000,
   "name": "retention-90d",
   "policy_spec": {
