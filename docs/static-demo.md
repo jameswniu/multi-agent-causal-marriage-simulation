@@ -41,7 +41,7 @@ in lowercase, as its card shows them.
 
 | World | Shock | Where it came from |
 |---|---|---|
-| `demo-mother-moves-in` | "his mother moves in for two months starting in month four", run as stress up 0.5 a day and mood down 0.03 a day for both partners, days 90 to 150, treatment arm | Typed into the World page's shock box, as the README's recording shows, and translated by claude-haiku-5-5 on 12 October 2026. The recording now in the README typed the same words again on 14 October, and that translation lowered mood by 0.05 a day |
+| `demo-mother-moves-in` | "his mother moves in for two months starting in month four", run as stress up 0.5 a day and mood down 0.03 a day for both partners, days 90 to 150, treatment arm | Typed into the World page's shock box and translated by claude-haiku-5-5 on 12 October 2026. The README's recording and this card share that one saved translation: typed again into the live app on 14 October, the same words were answered from it with no new model call, so the recording shows this very world |
 | `demo-layoff` | "one partner is laid off on day 60 and stays out of work for three months", run as one partner losing their job, days 60 to 150, magnitude 1.5, treatment arm | Typed into the live app's shock box and translated by claude-haiku-5-5 on 13 October 2026, into the same shock as the first translation on 11 October, whose record had kept only a hash of the words |
 | `demo-date-nights` | Weekly date nights from day 30 to the end of the year, for every couple in both arms | Built from the catalog's date nights kind by hand, with no model |
 
