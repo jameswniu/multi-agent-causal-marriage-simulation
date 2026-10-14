@@ -53,9 +53,15 @@ def test_the_committed_demo_shocks_are_valid_for_the_example_and_show_range() ->
     # which is taken over the text lowercased with its spacing collapsed, so the hash alone cannot check case.
     assert mother.typed and mother.words == "his mother moves in for two months starting in month four"
     assert mother.record is not None and translate.text_sha256(mother.words) == mother.record["text_sha256"]
-    for d in items:
-        if not d.typed and d.record is not None:
-            assert translate.text_sha256(d.words) != d.record["text_sha256"]
+    # Typed once into the live app's shock box, in lowercase as the card shows it, and translated into the same
+    # job loss the first translation gave.
+    layoff = next(d for d in items if d.name == "demo-layoff")
+    assert layoff.typed and layoff.words == "one partner is laid off on day 60 and stays out of work for three months"
+    assert layoff.record is not None and translate.text_sha256(layoff.words) == layoff.record["text_sha256"]
+    job_loss = {"kind": "job_loss", "target": "treatment", "member": "random", "start_day": 60, "end_day": 150}
+    assert layoff.shocks == [{**job_loss, "magnitude": 1.5}]
+    # Every translated card quotes words someone typed; only the card built by hand has no translation.
+    assert all(d.typed for d in items if d.record is not None)
 
 
 @pytest.mark.parametrize(

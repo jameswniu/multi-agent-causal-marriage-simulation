@@ -2,8 +2,8 @@
   "name": "demo-layoff",
   "order": 2,
   "title": "One partner is laid off",
-  "words": "One partner is laid off on day 60 and stays out of work for three months",
-  "typed": false,
+  "words": "one partner is laid off on day 60 and stays out of work for three months",
+  "typed": true,
   "parent": "example",
   "hits": "treatment",
   "shocks": [
@@ -18,13 +18,13 @@
   ],
   "translation": {
     "shock_index": 0,
-    "recorded": "2026-10-11T20:28:58-07:00",
+    "recorded": "2026-10-13T21:00:01-07:00",
     "record": {
       "days": 365,
       "errors": [],
       "message": null,
       "model": "claude-haiku-5-5",
-      "rationale": "A layoff affecting one partner in month two maps to job_loss starting day 60, with three months of duration giving end day 150 and the default stress magnitude of 1.5; the partner has no gender so member is random.",
+      "rationale": "A partner is laid off on day 60 for three months (90 days), so the job loss runs from day 60 to day 150 at the default stress magnitude, applied to one unspecified partner.",
       "spec": {
         "end_day": 150,
         "kind": "job_loss",
@@ -35,10 +35,10 @@
         "trait": null
       },
       "status": "ok",
-      "text_sha256": "0905801bc972afc7d4b6017426c2a9cccc1cc4b8af3a129b4350ae217c527b19",
-      "translation_id": "b7b5e0ed4278465383aa7e7dcf36925d",
+      "text_sha256": "a4052e36364c83699e053038b4661cbbb99dc8d52dd4dd941474bf33833c257b",
+      "translation_id": "145db2abb8dc48f1a719425e95fb739f",
       "words": "One partner loses their job (a random partner, treatment arm), days 60 to 150, magnitude 1.5 (stress)"
     }
   },
-  "note": "Translated on 11 October 2026. The record keeps only a SHA-256 of the words that were sent, not the words, so the words above were written for this demo from the shock as translated."
+  "note": "Typed into the World page's shock box of the live app on 13 October 2026, in lowercase as the card shows it, and translated into the same job loss as the first translation of 11 October. The record keeps a SHA-256 of the words lowercased with their spacing collapsed, which these words reproduce."
 }
