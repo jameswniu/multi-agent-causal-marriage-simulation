@@ -39,7 +39,7 @@ Every decision is logged and every run replays exactly, so each effect traces ba
 The World page plays the year back as a town, one house for each couple.
 
 <p align="center">
-  <img src="assets/town-playback-v1.gif" alt="The World page playing the example year at ten days a second. Couples who forget a fight in two weeks live on the left under blue roofs, and couples who hold onto it for three months live on the right under orange roofs. As the days pass the right side fills with couples standing outside in a fight, divorced people gather in the plaza between the two sides, and the scoreboard above counts far more divorces and fights on the right while its trust falls." width="100%">
+  <img src="assets/town-playback-v2.gif" alt="The World page playing the example year at ten days a second. Couples who forget a fight in two weeks live on the left under blue roofs, and couples who hold onto it for three months live on the right under orange roofs. As the days pass the right side fills with couples standing outside in a fight, divorced people gather in the plaza between the two sides, and the scoreboard above counts far more divorces and fights on the right while its trust falls." width="100%">
 </p>
 
 - Couples on the left forget a fight in two weeks, and couples on the right hold onto it for three months.
@@ -47,8 +47,8 @@ The World page plays the year back as a town, one house for each couple.
 - Lenses recolour every house by trust, stress, grudge or warmth, and a click opens that couple's year.
 
 <p align="center">
-  <img src="assets/grudge-lens-v1.png" alt="The town on day 300 under the grudge lens, which colours each house by how much negative memory its couple carries. Houses on the left, where fights fade in two weeks, are mostly green, and houses on the right, where fights are held for three months, are mostly red, an average grudge of 0.30 against 1.31." width="65%">
-  <img src="assets/couple-panel-v1.png" alt="The panel for couple 3 on day 300, a couple that holds onto fights for three months, on the second day of a fight. Both partners' trust lines have sunk to 0.10 and 0.22, their mood sits at the floor, both grudge bars are full at 1.50, and the latest events read conflict started, repair attempted, repair rejected and withdrew." width="31%">
+  <img src="assets/grudge-lens-v2.png" alt="The town on day 300 under the grudge lens, which colours each house by how much negative memory its couple carries. Houses on the left, where fights fade in two weeks, are mostly green, and houses on the right, where fights are held for three months, are mostly red, an average grudge of 0.30 against 1.31." width="65%">
+  <img src="assets/couple-panel-v2.png" alt="The panel for couple 3 on day 300, a couple that holds onto fights for three months, on the second day of a fight. Both partners' trust lines have sunk to 0.10 and 0.22, their mood sits at the floor, both grudge bars are full at 1.50, and the latest events read conflict started, repair attempted, repair rejected and withdrew." width="31%">
 </p>
 
 ## Try a shock
@@ -56,7 +56,7 @@ The World page plays the year back as a town, one house for each couple.
 Describe a life event in plain words, and the town runs it again right where you watch.
 
 <p align="center">
-  <img src="assets/shock-in-place-v1.gif" width="100%" alt="The World page of the example town. Shock this world opens a box above the town, the sentence his mother moves in for two months starting in month four goes in, and Translate turns it into a shock card that raises stress and lowers mood for both partners from day 90 to day 150 in the treatment arm. Run waits its turn and runs, then the page switches to the new world and replays it from day 80 at ten days a second. From day 90, pink rings light up around the houses on the right, the couples who hold onto fights, and the counter above the town climbs to about 290 of 1,000 couples that differ from the original that day.">
+  <img src="assets/shock-in-place-v2.gif" width="100%" alt="The World page of the example town. Shock this world opens a box above the town, the sentence his mother moves in for two months starting in month four goes in, and Translate turns it into a shock card that raises stress and lowers mood for both partners from day 90 to day 150 in the treatment arm. Run waits its turn and runs, then the page switches to the new world and replays it from day 80 at ten days a second. From day 90, pink rings light up around the houses on the right, the couples who hold onto fights, and the counter above the town climbs to about 290 of 1,000 couples that differ from the original that day.">
 </p>
 
 - An LLM (a large language model, here Claude Haiku) turns the sentence into a shock card you can read and edit before anything runs.

@@ -14,9 +14,12 @@ this repository creates an account, a secret or a paid resource, so the steps be
 ## The free read-only demo
 
 A static copy of the dashboard on GitHub Pages costs nothing to keep up. It shows the example town and a
-few shocks run in advance, with no server, no model and no typing, and CI rebuilds it on every push to
-main. [static-demo.md](static-demo.md) says what it is, what is frozen, how CI rebuilds it and how to
-build it locally. Everything below is about the full app.
+few shocks run in advance, with no server, no model and no typing. CI rebuilds it on every push to main
+except one that changes only the README, the docs, the recordings, the licence files, the test workflow or
+the deployment files on this page, which leaves it as it is, and a link to any page, couple or agent of it
+opens with status 200. Exporting it needs no dev tools, so `uv sync --no-dev` is enough.
+[static-demo.md](static-demo.md) says what it is, what is frozen, how CI rebuilds it and how to build it
+locally. Everything below is about the full app.
 
 ## What runs where
 

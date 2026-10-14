@@ -284,11 +284,17 @@ each partner remembered and how their trust and affect moved.
 
 ## Reproducibility
 
-Every random draw comes from a keyed stream, every system iterates entities in id order, and every
-table is sorted before writing. The manifest records a SHA-256 per table and a determinism hash
-over them. `loveworld-engine replay` re-runs the manifest's config and checks every hash. Replay is
-bit-exact on the same platform and toolchain; floating-point library differences across platforms
-could change low bits, which the hash would catch rather than hide.
+Every random draw comes from a keyed stream, every system iterates entities in id order, and every table
+is sorted before writing. The manifest records a SHA-256 per table and a determinism hash over them.
+`loveworld-engine replay` re-runs the manifest's config and checks every hash. Replay is bit-exact on
+every platform. Every exp, log, power and cosine comes from the libm crate, a maths library written in
+plain Rust and pinned to one version, never from the platform's own maths library, whose last bit
+differs between macOS and Linux, and the rest of the float work is arithmetic that IEEE 754 rounds the
+same way on every machine. Clippy refuses the float methods that would call the platform library, a test
+pins the bits of the functions the engine uses, and CI replays the committed example on Linux before it
+regenerates anything, then fails if the rebuilt example differs from the committed one in any byte. A
+world built on a Mac is therefore the same bytes as one built on Linux, on Arm or on x86, apart from the
+time its manifest records (`generated_at_unix`), and so is its `summary.json` (contracts, section 1).
 
 ## Governance
 

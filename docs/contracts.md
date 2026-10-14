@@ -11,7 +11,7 @@ Change this file before changing a consumer.
 Binary: `target/release/loveworld-engine` (built by `cargo build --release`).
 
 ```
-loveworld-engine run --config <json|-> --out <dir> [--overwrite] [--arm-override control|treatment] [--name X]
+loveworld-engine run --config <json|-> --out <dir> [--overwrite] [--arm-override control|treatment] [--name X] [--published <dir>]
 loveworld-engine replay --manifest <dir>/manifest.json [--out <dir>]      # exit 0 iff every table hash matches
 loveworld-engine policy-spec [--config <json>]                              # weights + formulas, JSON
 loveworld-engine assign --config <json>                                     # ["control","treatment",...] by couple id
@@ -27,17 +27,47 @@ stages the whole output in a hidden sibling `.<dir>.tmp-<pid>-<n>` and publishes
 file is written. An existing `--out` is replaced only when it is empty or holds a `manifest.json`, and it
 survives any failure: it is renamed to `.<dir>.old-<pid>-<n>` carrying a `.loveworld-swap.json` marker and
 removed only once the new run is in place. The lock, marker and names are the Python runner's, so either
-side recovers what the other left behind.
+side recovers what the other left behind. A run published over the same world, the same config with the same
+hash for every table, keeps the published `generated_at_unix`, so publishing an unchanged world again rewrites
+none of its bytes and `make example` run twice leaves git clean. The engine compares with the run in `--out`,
+or in `--published <dir>` when a caller stages the run and publishes it itself (the Python runner, section 2).
 Config JSON may be partial; missing fields take defaults. Unknown keys are rejected at every level,
 with the key named in the error, so a misspelt field can never quietly fall back to its default
 (engine 0.2.1). Seeds: `seeds.population`, `seeds.assignment`, `seeds.dynamics`. Treatment arm memory
 params: `memory.treatment`.
 
+### The same bytes on every platform
+
+One config writes the same bytes on every platform, so its table hashes and determinism hash are the same on
+macOS and Linux, on Arm and on x86. Every exp, log, power and cosine the engine computes comes from the libm
+crate, a maths library written in plain Rust and pinned at 0.2.16 with its few hardware routines turned off
+(`force-soft-floats`), never from the platform's own maths library, which rounds some results differently in
+the last bit. Everything else the engine does with floats (arithmetic, square roots, rounding to whole numbers
+and comparisons) gives the same bits on every machine, since IEEE 754 requires arithmetic and square roots to
+be correctly rounded and the rest to be exact, and it happens in a fixed order. Three checks keep it so.
+`clippy.toml` refuses the standard float methods that would call the platform library (exp, ln, powf, cos and
+the others, and powi), `engine/tests/maths.rs` pins the exact bits those functions give for inputs the engine
+uses, and CI replays the committed example on Linux x86_64 before it regenerates anything, then rebuilds it
+from scratch and fails if any committed file of it changed or went missing, `summary.json` and the manifest's
+`generated_at_unix` included, or if a new file appeared. The only platform maths left in the binary belongs to the Parquet writer's
+decimal columns and bloom filters, and the engine writes neither. On macOS (Apple silicon), linux/arm64 and
+linux/amd64 (run under emulation), the example, its placebo, its twins and the three demo worlds (section 14)
+came out as the same bytes, `config.json` and `summary.json` included, apart from each manifest's
+`generated_at_unix`.
+
+A release that can change what a config writes bumps the engine version (`engine_version` in every manifest),
+and this file says which version made the change and which earlier runs it no longer replays. Engine 0.3.1
+moved the maths to libm. That moves the table hashes of every run, so runs written by 0.3.0 or earlier do
+not replay on 0.3.1. They replay on the earlier engines, as sections 6 and 9 say, and only on the platform
+that wrote them. What the runs say did not change: on the example and the three demo worlds every column that
+is not a float came out as under 0.3.0 on macOS, and no float moved by more than 3e-14.
+
 ### Output directory
 
 `manifest.json` (one per run): engine_version, evidence_class="simulation", name, n_couples, days,
 seeds, arm_override, config (full), policy_spec, files{name:{rows,sha256}}, determinism_hash,
-summary, generated_at_unix, and `pairs` in a pairs-mode run only (section 13).
+summary, generated_at_unix (when this world was first published, kept when the same world is published
+again), and `pairs` in a pairs-mode run only (section 13).
 
 `config.json`: the full effective config.
 
@@ -148,7 +178,9 @@ stopped run's staging directory and lock are removed and an `EngineError` names 
 (`.<name>.lock`, reported rather than stolen when stale). A run that dies between its two publication
 renames leaves `.<name>.old-<pid>` carrying a `.loveworld-swap.json` marker; the next run of any
 experiment in that root, and `serve` at startup in root mode, restores it (target missing) or removes
-it (target present again). Nothing without that marker is ever deleted.
+it (target present again). Nothing without that marker is ever deleted. The runner names its target to the
+engine with `--published`, so a run, a placebo, a twins half or a run the API publishes with its twins keeps
+the published `generated_at_unix` when it is the same world as the one in place (section 1).
 
 Experiment YAML (`experiments/example.yaml`):
 
@@ -206,6 +238,11 @@ conflict_rate (conflicts per couple-year), escalations_per_conflict (conditional
 reconciliation_rate (share of conflicts reconciled; conditional), recovery_days (mean duration of
 reconciled conflicts; conditional), remarriage_rate (agent level among divorced agents; conditional).
 Conditional outcomes carry `conditional_on_post_treatment: true`.
+
+`curves.trust` is each day's mean trust by arm with a band of 1.96 standard errors around it. Its standard
+deviation is taken in two passes, from the sum of squared deviations from the day's mean, because pandas'
+one-pass groupby std rounds its last bit differently on macOS and Linux. So `summary.json` is the same bytes on
+every platform too.
 
 Placebo and twins runs write their own results dir and `summary.json`; `analyze` on the main run
 links them under `governance` when present at `<results_dir>/../<name>-placebo` and `-twins`.
@@ -547,8 +584,11 @@ POST /api/shocks/translate -> body {"text" (1 to 400 characters), "days"? (1 to 
   the description, never the text, plus the spec, status, rationale and model), a hidden directory the
   experiment list never shows. A run can therefore be traced to its translation after the cache has
   moved on and across server restarts.
-- `words` follows the dashboard's `shockWords` exactly, for example "One partner loses their job (a random
-  partner, treatment arm), days 60 to 180, magnitude 1.5 (stress)".
+- `words` is the plain sentence the dashboard's `shockWords` writes for the same spec, for example "In every
+  treatment couple, one partner picked at random loses their job on day 60, so their stress jumps by 1.5 that
+  day and stays raised until day 180." Python writes it with `translate.shock_words`, a port of the dashboard's
+  code, and `frontend/src/fixtures/shockWords.json` holds shocks of every kind with their sentences, which a
+  Python test and a frontend test both require, so the two cannot drift apart.
 
 The run body may add `"translations": [{"translation_id", "shock_index"}]` (at most 32), where
 `shock_index` counts the experiment's shocks in parse order, treatment shocks first and then world
@@ -674,8 +714,8 @@ that fits no named kind becomes a custom shock. Only text that is not about a co
 is unsupported. A custom answer goes through the same parser and bounds, an amount out of range
 comes back as a visible error and is never clamped, and `edited` in `translation.json` compares the
 label and every effect but not the description. The New experiment card lists each effect in plain
-words ("both partners: stress up 0.4 every day, days 30 to 90"), and the amount, how often and whom
-it hits stay editable before Run.
+words ("Stress goes up 0.4 every day for both partners from day 30 to day 90."), and the amount, how often
+and whom it hits stay editable before Run.
 
 Runs written by engine 0.2.1 replay identically on 0.3.0, since `replay` reruns the recorded config
 and compares table hashes. That was checked table by table for all eight kinds at their default
@@ -899,9 +939,11 @@ compared, matched by couple id, since a remarriage can pair different people und
 - The couple-by-couple table over the whole year stays on the child's Overview, under Versus its
   parent, and the panel links to it.
 
-The town opens on the whole town, or on one district at a time on a phone. Plus and minus zoom, drag
-pans, the wheel zooms about the pointer, and Whole town returns to the opening view. There is no
-separate plaza view. Switching between the child and its parent keeps the camera where it was.
+The town opens on the whole town, or on one district at a time on a phone. On a phone, a world whose added
+shocks all reach only the treatment arm opens on that district, where its rings are, and the town keeps the
+district when it draws the parent. Plus and minus zoom, drag pans, the wheel zooms about the pointer, and Whole
+town returns to the opening view. There is no separate plaza view. Switching between the child and its parent
+keeps the camera where it was.
 
 A run with no intervention (equal memory in both arms and no shock aimed at one arm alone) says so where
 the gap between the arms shows, in a box on the World page that stays through the replay and in a
@@ -983,12 +1025,19 @@ text lowercased with its spacing collapsed, which cannot check case or spacing. 
 `all` when any shock targets all, else `treatment`. A translated shock must be the shock as translated.
 `loveworld demo` forks each file's parent through `forking.plan_fork` and `forking.run_fork` (the fork
 endpoint's own code), writing translation.json from the saved record through `translate.translation_file`,
-and replaces an earlier build of the same world. It never calls a model.
+and replaces an earlier build of the same world. It never calls a model. The engine writes the same bytes on
+every platform (section 1), so the demo worlds CI builds on Linux are the worlds a Mac builds from these files,
+determinism hashes included.
 
 `loveworld static` stages a results root of the default world and the demo worlds (hard links, with their
-placebo and twins siblings), asks `create_app` on it for every read below through fastapi's TestClient, and
-writes each response body gzipped (level 9, no timestamp) under `<site>/data`, refusing a demo world whose
-parent.json no longer matches the parent on disk. It fails above 900 MB and says when the data passes 400 MB.
+placebo and twins siblings), asks `create_app` on it for every read below, and writes each response body
+gzipped (level 9, no timestamp) under `<site>/data`, refusing a demo world whose parent.json no longer matches
+the parent on disk. It fails above 900 MB and says when the data passes 400 MB. It asks in its own process
+through `loveworld.asgi_reader`, which speaks ASGI to the app as uvicorn does: the app's lifespan runs around
+the reads (an app without one is read without one), each GET gets a server's scope, and the reply's status,
+headers and body come back exactly as the app sent them. It needs no package outside the app's own
+dependencies, so `uv sync --no-dev` is enough to export. A dev-only test compares it with fastapi's TestClient
+byte for byte on every kind of read the export makes.
 
 ```
 index.json.gz                     {"format": 1, "default", "event_chunk_days": 10, "couples_page": 10000, "quickstart",
@@ -1008,17 +1057,35 @@ w/<world>/lens/<name>.bin.gz      GET /api/lens/<name>
 ```
 
 The dashboard built with `VITE_STATIC=1` (and `VITE_BASE`, the site's path) answers every `api.ts` read from
-these files (`frontend/src/staticApi.ts`) and never requests `/api`. `make static-frontend` puts it in `<site>`
-with a copy of `index.html` per page (`world.html`, `overview.html`, `comparisons.html`, `couples.html`,
-`agents.html`, `policy.html`, `governance.html`, `new.html`), which GitHub Pages serves for a link to that page
-with status 200, and `404.html`, through which a link to one couple or agent loads. `/api/couples` keeps rows
+these files (`frontend/src/staticApi.ts`) and never requests `/api`. `make static-frontend`, which needs the
+data first, puts it in `<site>` with a copy of `index.html` per page (`world.html`, `overview.html`,
+`comparisons.html`, `couples.html`, `agents.html`, `policy.html`, `governance.html`, `new.html`) and, through
+`make static-pages`, per couple and agent id that has a file under `<site>/data/w/<world>/couples/` or
+`agents/` in any world (`couples/<id>.html`, `agents/<id>.html`). GitHub Pages serves each for a link to that
+page, couple or agent with status 200, since a path without a trailing slash takes the `.html` file of its name
+before a folder of that name. `404.html` is the copy through which any other link loads, with status 404.
+`tools/serve_static.py` serves `<site>` by the same rules. `/api/couples` keeps rows
 equal to `arm`, `state` (final state) and `origin` when given, stable-sorts by `sort` (a couples column,
 missing values last), then pages by `offset` and `limit` (1 to 10,000), with the server's 400 and 422 answers.
 A detail id with no file is the server's 404 (`couple N not found`). Every POST, and `/api/jobs`, is refused
 with a 405 and a plain message. The World page offers "Try a shock" in place of "Shock this world", with one
 card per demo, and picking one opens that world as a finished run opens (section 12). The New experiment route
-is a one-line note, and a banner on every page says what LoveWorld is and that the site is read-only. A shocked
-world's Governance page points to its parent's placebo. On a phone the town opens a world whose added shocks
-all target the treatment arm on that district, and a world the demo ran on everyone is described in its card's
-words. The shell carries the class `static-demo`, under which every text the live app sets under 16px is 16px,
-and chart text is 16px. Off, the live app is unchanged.
+is a one-line note, the top bar has no link to it, and a banner on every page says what LoveWorld is and that
+the site is read-only. A shocked world's Governance page points to its parent's placebo, and the Overview heads
+each world with the name the demo lists it by, adding its run name when the two differ.
+
+Everything else is the live app's. On a phone, a world whose added shocks all reach only the treatment arm
+opens on that district in both builds (section 12). Each shock is said in its own plain sentence (`shockWords`
+in `frontend/src/arms.tsx`) in both builds. No text in either build is under 16px, chart text included. Apart
+from reading these files under the site's path, only what being read-only needs differs: the banner, Try a
+shock, the one-line New experiment page with no link to it, the Governance placebo pointer and the Overview
+heading under the name the world is listed by.
+
+`.github/workflows/pages.yml` builds and publishes the site when run by hand and on every push to main except
+a push that changes only `README.md`, `docs/**`, `assets/**`, `LICENSE`, `NOTICE`, `fly.toml`, `deploy/**`,
+`Dockerfile`, `.dockerignore` or `.github/workflows/ci.yml`. The build reads none of them, and a file on that
+list must leave it before the build may read it. The workflow caches the Rust build, the uv packages (keyed on
+`python/uv.lock`, with setup-uv's pruning off, since pruning drops every downloaded wheel) and the npm
+packages (keyed on `frontend/package-lock.json`). It installs the Python package without the dev tools, with
+`uv sync --no-dev` and with `UV_NO_DEV` set so that no `uv run` adds them back, so every build proves the
+export needs none.
