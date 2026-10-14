@@ -437,6 +437,63 @@ fn an_interrupted_publication_is_repaired_by_the_next_run() {
     assert!(hidden.is_empty(), "{hidden:?}");
 }
 
+/// Republishing the same world keeps its publication time, so its manifest comes out byte for byte as it
+/// was, while a run of another config gets a time of its own. A runner that stages a run in another
+/// directory names its target with --published and gets the same rule.
+#[test]
+fn republishing_the_same_world_keeps_its_publication_time() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("r");
+    sim::run_to_dir(&small("same"), &out, false).unwrap();
+    // Age the published time, so a kept time cannot be the clock reading the same second twice.
+    let text = std::fs::read_to_string(out.join("manifest.json")).unwrap();
+    let first: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let now = first["generated_at_unix"].as_u64().unwrap();
+    let aged = text.replace(
+        &format!("\"generated_at_unix\": {now}"),
+        "\"generated_at_unix\": 1000",
+    );
+    assert_ne!(aged, text);
+    std::fs::write(out.join("manifest.json"), &aged).unwrap();
+
+    let again = sim::run_to_dir(&small("same"), &out, true).unwrap();
+    assert_eq!(again["generated_at_unix"], 1000);
+    assert_eq!(
+        std::fs::read_to_string(out.join("manifest.json")).unwrap(),
+        aged
+    );
+
+    let cfg_path = dir.path().join("same.json");
+    std::fs::write(&cfg_path, serde_json::to_string(&small("same")).unwrap()).unwrap();
+    let staged = dir.path().join("staged");
+    let st = Command::new(bin())
+        .args([
+            "run",
+            "--config",
+            cfg_path.to_str().unwrap(),
+            "--out",
+            staged.to_str().unwrap(),
+            "--published",
+            out.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        st.status.success(),
+        "{}",
+        String::from_utf8_lossy(&st.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(staged.join("manifest.json")).unwrap(),
+        aged
+    );
+
+    let mut other = small("same");
+    other.seeds.dynamics += 1;
+    let moved = sim::run_to_dir(&other, &out, true).unwrap();
+    assert!(moved["generated_at_unix"].as_u64().unwrap() >= now);
+}
+
 #[test]
 fn a_held_lock_refuses_a_second_run_on_the_same_target() {
     let dir = tempfile::tempdir().unwrap();

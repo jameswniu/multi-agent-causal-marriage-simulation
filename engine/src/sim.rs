@@ -400,6 +400,19 @@ pub fn pairs_manifest(cfg: &SimConfig, res: &SimResult) -> Option<serde_json::Va
 /// full disk, a serialization error, a crash) therefore never destroys previous results and never
 /// leaves a half-written run in their place. See `crate::publish`.
 pub fn run_to_dir(cfg: &SimConfig, out_dir: &Path, overwrite: bool) -> Result<serde_json::Value> {
+    run_to_dir_over(cfg, out_dir, overwrite, out_dir)
+}
+
+/// `run_to_dir` for a run that will later be published over `published` rather than over `out_dir`:
+/// the Python runner stages the engine's output and publishes it itself, and names its target here. When
+/// `published` holds a run with the same config and the same table hashes, the new manifest keeps that
+/// run's `generated_at_unix`, so republishing an unchanged world changes none of its bytes.
+pub fn run_to_dir_over(
+    cfg: &SimConfig,
+    out_dir: &Path,
+    overwrite: bool,
+    published: &Path,
+) -> Result<serde_json::Value> {
     let (parent, name) = publish::split(out_dir)?;
     let _lock = publish::TargetLock::acquire(&parent, &name)?;
     publish::recover(&parent, &name)?;
@@ -437,6 +450,12 @@ pub fn run_to_dir(cfg: &SimConfig, out_dir: &Path, overwrite: bool) -> Result<se
     );
     if let Some(pairs) = pairs_manifest(cfg, &res) {
         manifest["pairs"] = pairs;
+    }
+    // Compared as written, so the published manifest and this one go through the same JSON parser.
+    let written: serde_json::Value =
+        serde_json::from_str(&serde_json::to_string_pretty(&manifest)?)?;
+    if let Some(time) = publish::published_time(published, &written) {
+        manifest["generated_at_unix"] = time.into();
     }
     std::fs::write(
         staging.path.join("manifest.json"),

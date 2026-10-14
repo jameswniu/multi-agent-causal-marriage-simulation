@@ -10,8 +10,14 @@
 //!   directory back when its target is missing and removes it when the target exists again.
 //!
 //! Nothing without the marker is ever deleted.
+//!
+//! A run published over the same world, the same engine config with the same hash for every table, keeps
+//! the published `generated_at_unix` (`published_time`), so republishing an unchanged world rewrites none
+//! of its bytes. The engine applies the rule when it writes a manifest, against `--out` or, for a run the
+//! Python runner stages and publishes itself, against the target the runner names with `--published`.
 
 use anyhow::Result;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// Marker file written into a results directory just before it is renamed aside.
@@ -67,6 +73,33 @@ impl Drop for TargetLock {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);
     }
+}
+
+/// The `generated_at_unix` of the run published in `dir`, when that run is the same world as `manifest`:
+/// the same engine config and the same SHA-256 for every table. A run published over it keeps that time,
+/// so republishing an unchanged world leaves its manifest byte for byte as it was. None when `dir` holds no
+/// readable manifest, or when the config or any table differs. `manifest` should be read back from the
+/// JSON text it will be written as, so both sides of the comparison went through the same parser.
+pub fn published_time(dir: &Path, manifest: &serde_json::Value) -> Option<u64> {
+    let text = std::fs::read_to_string(dir.join("manifest.json")).ok()?;
+    let published: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let time = published.get("generated_at_unix")?.as_u64()?;
+    let config = published.get("config")?;
+    let same = Some(config) == manifest.get("config")
+        && table_hashes(&published).is_some_and(|h| Some(h) == table_hashes(manifest));
+    same.then_some(time)
+}
+
+/// Every table's SHA-256 in a manifest's `files`, by table name. None when `files` is missing or empty.
+fn table_hashes(manifest: &serde_json::Value) -> Option<BTreeMap<&str, &str>> {
+    let files = manifest.get("files")?.as_object()?;
+    if files.is_empty() {
+        return None;
+    }
+    files
+        .iter()
+        .map(|(name, f)| Some((name.as_str(), f.get("sha256")?.as_str()?)))
+        .collect()
 }
 
 /// Reconcile every `.<name>.old-*` leftover of an interrupted publication next to `parent/name`;
@@ -287,6 +320,42 @@ mod tests {
             std::fs::write(staging.path.join("partial.parquet"), "x").unwrap();
         }
         assert!(hidden(dir.path()).is_empty());
+    }
+
+    fn manifest(time: u64, seed: u64, hash: &str) -> serde_json::Value {
+        serde_json::json!({
+            "config": {"name": "r", "seeds": {"dynamics": seed}},
+            "files": {"agents.parquet": {"rows": 2, "sha256": hash}, "daily.parquet": {"rows": 9, "sha256": "d"}},
+            "generated_at_unix": time,
+        })
+    }
+
+    #[test]
+    fn published_time_is_kept_only_for_the_same_config_and_tables() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(published_time(dir.path(), &manifest(9, 1, "a")), None);
+        let published = manifest(1_000, 1, "a");
+        std::fs::write(dir.path().join("manifest.json"), published.to_string()).unwrap();
+        assert_eq!(
+            published_time(dir.path(), &manifest(2_000, 1, "a")),
+            Some(1_000)
+        );
+        // Another config, another table hash, a missing table or no tables at all is a new world.
+        assert_eq!(published_time(dir.path(), &manifest(2_000, 2, "a")), None);
+        assert_eq!(published_time(dir.path(), &manifest(2_000, 1, "b")), None);
+        let mut fewer = manifest(2_000, 1, "a");
+        fewer["files"]
+            .as_object_mut()
+            .unwrap()
+            .remove("daily.parquet");
+        assert_eq!(published_time(dir.path(), &fewer), None);
+        let mut none = manifest(2_000, 1, "a");
+        none["files"] = serde_json::json!({});
+        std::fs::write(dir.path().join("manifest.json"), none.to_string()).unwrap();
+        assert_eq!(published_time(dir.path(), &none), None);
+        // An unreadable published manifest keeps nothing.
+        std::fs::write(dir.path().join("manifest.json"), "{not json").unwrap();
+        assert_eq!(published_time(dir.path(), &manifest(2_000, 1, "a")), None);
     }
 
     #[test]

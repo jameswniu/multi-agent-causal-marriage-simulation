@@ -3,7 +3,9 @@
 Every run first repairs any swap an earlier run left interrupted next to its target, then
 validates the target: it must be missing, empty, or an existing LoveWorld results directory
 (then `overwrite` must be true). The engine runs into a sibling temporary directory and the
-result is swapped into place only on success, under a per-target lock.
+result is swapped into place only on success, under a per-target lock. The engine is told the
+target it will replace, so a run of the same world as the one in place keeps that run's
+`generated_at_unix` and publishing it again rewrites none of its bytes.
 """
 
 from __future__ import annotations
@@ -325,7 +327,7 @@ def run_config(
         staging = _staging_dir(target)
         try:
             run_dir = staging / "run"
-            eng.run_engine(cfg, run_dir, overwrite=True)
+            eng.run_engine(cfg, run_dir, overwrite=True, published=target)
             summary = analysis.write_summary(run_dir, settings, link_from=target)
             _write_extra_files(run_dir, extra_files, extra_from_run)
             _swap_in(run_dir, target)
@@ -363,7 +365,8 @@ def run_twins(exp: Experiment, target: Path, overwrite: bool = False) -> dict[st
         try:
             run_dir = staging / "run"
             for arm in ("control", "treatment"):
-                eng.run_engine(cfg, run_dir / arm, overwrite=True, arm_override=arm, name=f"{exp.name}-twins-{arm}")
+                half = f"{exp.name}-twins-{arm}"
+                eng.run_engine(cfg, run_dir / arm, overwrite=True, arm_override=arm, name=half, published=target / arm)
             summary = analysis.twins_summary(run_dir, exp.analysis)
             _swap_in(run_dir, target)
         finally:
@@ -411,10 +414,11 @@ def run_with_twins(
         try:
             twins_dir = staging / "twins"
             for arm in ("control", "treatment"):
-                eng.run_engine(cfg, twins_dir / arm, overwrite=True, arm_override=arm, name=f"{name}-twins-{arm}")
+                half = f"{name}-twins-{arm}"
+                eng.run_engine(cfg, twins_dir / arm, overwrite=True, arm_override=arm, name=half, published=twins / arm)
             twins_summary = analysis.twins_summary(twins_dir, settings)
             run_dir = staging / "run"
-            eng.run_engine(cfg, run_dir, overwrite=True)
+            eng.run_engine(cfg, run_dir, overwrite=True, published=target)
             summary = analysis.write_summary(run_dir, settings, link_from=target)
             # The twins are not in place yet, so the summary links these ones, not whatever sits there now.
             summary["governance"]["twins"] = _twins_link(twins.name, twins_summary)

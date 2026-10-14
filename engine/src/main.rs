@@ -49,6 +49,11 @@ enum Cmd {
         /// Override the experiment name recorded in the manifest.
         #[arg(long)]
         name: Option<String>,
+        /// The results directory this run will be published over when that is not --out (a runner that
+        /// stages the output and publishes it itself). A run there with the same config and the same table
+        /// hashes keeps its generated_at_unix. Default: --out.
+        #[arg(long)]
+        published: Option<PathBuf>,
     },
     /// Re-run the config in a manifest and verify every table hash matches.
     Replay {
@@ -96,6 +101,7 @@ fn main() -> Result<()> {
             overwrite,
             arm_override,
             name,
+            published,
         } => {
             let mut cfg = load_config(&config)?;
             if let Some(a) = arm_override {
@@ -105,7 +111,8 @@ fn main() -> Result<()> {
                 cfg.name = n;
             }
             let started = std::time::Instant::now();
-            let manifest = sim::run_to_dir(&cfg, &out, overwrite)?;
+            let published = published.unwrap_or_else(|| out.clone());
+            let manifest = sim::run_to_dir_over(&cfg, &out, overwrite, &published)?;
             eprintln!(
                 "wrote {} ({} couples x {} days) in {:.2}s; determinism_hash {}",
                 out.display(),

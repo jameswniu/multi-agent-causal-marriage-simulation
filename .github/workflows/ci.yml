@@ -1,3 +1,6 @@
+# Continuous integration for LoveWorld. On every push to main and every pull request it builds and tests
+# the Rust engine, the Python package and the dashboard, checks the README's figures, and replays the
+# committed example on Linux to prove the engine writes the same bytes here as on the machine that made it.
 name: ci
 on:
   push:
@@ -49,9 +52,12 @@ jobs:
       - uses: actions/checkout@v4
       - run: python3 tools/figures.py --check
   claims:
-    # The README's badges and figures quote the example run. Rerun it from scratch on this runner,
-    # with its placebo and twins first so its summary links them, replay it, and fail if any badge
-    # or figure no longer matches what the fresh run says.
+    # The README's badges and figures quote the example run. First replay the committed example as it
+    # is: this Linux x86_64 runner must rebuild every table with the committed hashes, whichever platform
+    # wrote them, since the engine computes its maths with the libm crate and not the platform's library.
+    # Then rerun it from scratch, with its placebo and twins first so its summary links them, replay it,
+    # fail if any committed file of it changed, and fail if any badge or figure no longer matches what the
+    # fresh run says.
     needs: engine
     runs-on: ubuntu-latest
     steps:
@@ -61,6 +67,8 @@ jobs:
           name: engine
           path: target/release
       - run: chmod +x target/release/loveworld-engine
+      - name: Replay the committed example before anything is regenerated
+        run: target/release/loveworld-engine replay --manifest results/example/manifest.json --out "$RUNNER_TEMP/committed-example"
       - uses: astral-sh/setup-uv@v5
       - run: cd python && uv sync
       - name: Rerun the placebo, the twins, the example and its replay
@@ -70,5 +78,19 @@ jobs:
           uv run loveworld twins "$GITHUB_WORKSPACE/experiments/example.yaml" --overwrite
           uv run loveworld run "$GITHUB_WORKSPACE/experiments/example.yaml" --out "$GITHUB_WORKSPACE/results/example" --overwrite
           uv run loveworld replay "$GITHUB_WORKSPACE/results/example"
+      - name: Check the rebuilt example is the committed one, byte for byte
+        # The committed files of results/example (the manifest, config.json, summary.json and the committed
+        # tables) must come back unchanged: the same bytes on this Linux runner as on the machine that wrote
+        # them, the published generated_at_unix kept, and no engine change committed without its example. No
+        # file may go missing or appear either; the big tables .gitignore leaves out are checked by their hashes
+        # in the manifest instead.
+        run: |
+          changed=$(git status --porcelain --untracked-files=all -- results/example)
+          if [ -n "$changed" ]; then
+            echo "results/example differs from the committed example:"
+            echo "$changed"
+            git diff results/example/manifest.json results/example/summary.json | head -200
+            exit 1
+          fi
       - name: Check every badge and figure against the fresh run
         run: python3 tools/figures.py --check

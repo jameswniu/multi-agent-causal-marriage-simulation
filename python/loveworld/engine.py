@@ -152,8 +152,14 @@ def run_engine(
     arm_override: str | None = None,
     name: str | None = None,
     timeout: float | None = None,
+    published: Path | None = None,
 ) -> dict[str, Any]:
-    """Run one simulation and return its manifest; the run is stopped after `timeout` seconds."""
+    """Run one simulation and return its manifest; the run is stopped after `timeout` seconds.
+
+    `published` is the results directory the caller will publish this run over, when that is not `out_dir`.
+    A run there with the same config and the same table hashes keeps its `generated_at_unix`, so publishing
+    an unchanged world again rewrites none of its bytes (docs/contracts.md, section 1).
+    """
     args = ["run", "--config", "-", "--out", str(out_dir)]
     if overwrite:
         args.append("--overwrite")
@@ -161,6 +167,8 @@ def run_engine(
         args += ["--arm-override", arm_override]
     if name:
         args += ["--name", name]
+    if published is not None:
+        args += ["--published", str(published)]
     _run(args, stdin=json.dumps(config), timeout=timeout, out_dir=Path(out_dir))
     return dict(json.loads((Path(out_dir) / "manifest.json").read_text()))
 
