@@ -48,13 +48,21 @@ def outcomes(run: Path) -> pd.DataFrame:
     daily = pd.read_parquet(run / "daily.parquet")
     daily["trust"] = (daily.trust_a + daily.trust_b) / 2
     out["mean_trust"] = daily.groupby("couple_id").trust.mean()
-    # A couple's mean trust is only comparable to its twin's if both were written for the same
-    # days. A truncated or half-written file still averages to a finite number, so count the days
-    # each couple has and hand them back for the two arms to be checked against each other.
-    out["days_seen"] = daily.groupby("couple_id").day.nunique()
-    out["days_written"] = daily.groupby("couple_id").day.size()
-    span = daily.groupby("couple_id").day.agg(["min", "max"])
-    out["day_span"] = span["max"] - span["min"] + 1
+    # A couple's mean trust is only comparable to its twin's if both were averaged over the same
+    # days, and a truncated or half-written file still averages to a finite number that looks like
+    # an answer. Describe each couple's record by its first day, its last day, how many distinct
+    # days it holds and how many rows it holds, which is everything the one check below needs.
+    if not pd.api.types.is_integer_dtype(daily.day):
+        raise ValueError(
+            f"{run}/daily.parquet numbers its days as {daily.day.dtype} rather than whole "
+            f"numbers, so a day between two days could sit unnoticed inside a record that "
+            f"otherwise looks complete"
+        )
+    by_couple = daily.groupby("couple_id").day
+    out["first_day"] = by_couple.min()
+    out["last_day"] = by_couple.max()
+    out["distinct_days"] = by_couple.nunique()
+    out["rows"] = by_couple.size()
     return out
 
 
@@ -91,28 +99,32 @@ def main(argv: list[str]) -> int:
     # A couple is written every day until it divorces, so a full record runs to its ending day,
     # or to the last day of the run if it never ends. Anything shorter is a truncated file, and a
     # mean taken over it would still look like a number.
+    # One check, not three. A couple's days must be exactly 0 through its own last day, which
+    # pins the start, the end, the gaps and the duplicates at once. Counting rows alone let two
+    # twins pass while one ran days 0 to 90 and the other days 1 to 91, averaging their trust
+    # over different periods, and anchoring only the length would let that back in.
+    # The days are whole numbers, checked when they are read, so a record that starts at 0, ends
+    # at its last day and holds that many distinct rows can only be every day in between.
     for arm, frame in (("control", control), ("treatment", treatment)):
-        # Days are numbered from 0, so a couple that ends on day 117 is written on days 0 to 117,
+        # Days are numbered from 0, so a couple ending on day 117 is written on days 0 to 117,
         # which is 118 rows, while a couple that never ends is written on every day of the run.
-        ended = frame.divorced.astype(bool)
-        want = frame.days_married.astype(int) + ended.astype(int)
-        short = frame[frame.days_seen != want]
-        if len(short):
-            first = short.index[0]
+        want_last = frame.days_married.astype(int) - (~frame.divorced.astype(bool)).astype(int)
+        wrong = frame[
+            (frame.first_day != 0)
+            | (frame.last_day != want_last)
+            | (frame.distinct_days != want_last + 1)
+            | (frame.rows != frame.distinct_days)
+        ]
+        if len(wrong):
+            first = wrong.index[0]
+            row = wrong.loc[first]
             print(
-                f"{len(short)} couples in {arm} have daily rows for a different span than they "
-                f"were together, the first being couple {int(first)} with "
-                f"{int(short.days_seen.iloc[0])} days of rows against {int(want.loc[first])}",
+                f"{len(wrong)} couples in {arm} do not have one row for every day they were "
+                f"together, the first being couple {int(first)}, which should hold days 0 to "
+                f"{int(want_last.loc[first])} and instead holds {int(row.rows)} rows covering "
+                f"days {int(row.first_day)} to {int(row.last_day)}",
                 file=sys.stderr,
             )
-            return 2
-        dup = frame[frame.days_written != frame.days_seen]
-        if len(dup):
-            print(f"{len(dup)} couples in {arm} have duplicate daily rows", file=sys.stderr)
-            return 2
-        gaps = frame[frame.days_seen != frame.day_span]
-        if len(gaps):
-            print(f"{len(gaps)} couples in {arm} have gaps in their daily rows", file=sys.stderr)
             return 2
 
     pair = control.join(treatment, lsuffix="_c", rsuffix="_t", how="inner")
