@@ -114,7 +114,11 @@ Then `make serve` hosts the dashboard on http://127.0.0.1:8765. The shock box ne
 
 [docs/prior-art.md](docs/prior-art.md) checks eighteen marriage and divorce simulations against their sources, and none pairs decaying agent memory with a randomized trial inside one population.
 
-A fair question is why not NetLogo or Mesa, which several of those eighteen use. They sweep a parameter for the whole population and compare runs. This runs a trial inside one population, with the same couples living both arms on the same draws. Replay checks every table's fingerprint. None of those priors verifies that its runs are bit-identical, and two say outright that theirs are not.
+**Why not NetLogo or Mesa?** Several of the eighteen use them.
+
+- They change one setting for the whole town, then compare two separate runs of different couples.
+- This keeps the couples fixed and runs each one both ways, so a difference is the setting, not luck.
+- It also reruns the year and checks that every output file comes back identical, which none of the eighteen does.
 
 ## License
 
