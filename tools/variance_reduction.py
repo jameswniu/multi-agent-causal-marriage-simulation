@@ -25,11 +25,16 @@ import pandas as pd
 DEFAULT = Path(__file__).resolve().parent.parent / "results" / "retention-90d-twins"
 
 
+def config(run: Path) -> dict:
+    """The settings the arm actually ran under."""
+    return json.loads((run / "config.json").read_text())
+
+
 def study_days(run: Path) -> int:
     """The run's own length. A couple still married on the last day is censored there, and the
     fill has to be this fixed number: filling with the latest divorce actually seen would let one
     couple's failure day decide another couple's recorded outcome, and differently in each arm."""
-    return int(json.loads((run / "config.json").read_text())["days"])
+    return int(config(run)["days"])
 
 
 def outcomes(run: Path) -> pd.DataFrame:
@@ -43,6 +48,13 @@ def outcomes(run: Path) -> pd.DataFrame:
     daily = pd.read_parquet(run / "daily.parquet")
     daily["trust"] = (daily.trust_a + daily.trust_b) / 2
     out["mean_trust"] = daily.groupby("couple_id").trust.mean()
+    # A couple's mean trust is only comparable to its twin's if both were written for the same
+    # days. A truncated or half-written file still averages to a finite number, so count the days
+    # each couple has and hand them back for the two arms to be checked against each other.
+    out["days_seen"] = daily.groupby("couple_id").day.nunique()
+    out["days_written"] = daily.groupby("couple_id").day.size()
+    span = daily.groupby("couple_id").day.agg(["min", "max"])
+    out["day_span"] = span["max"] - span["min"] + 1
     return out
 
 
@@ -63,9 +75,45 @@ def main(argv: list[str]) -> int:
             file=sys.stderr,
         )
         return 2
-    if study_days(base / "control") != study_days(base / "treatment"):
-        print("the two arms ran for different lengths, so they are not twins", file=sys.stderr)
-        return 2
+    # Matching couple ids are not proof of a paired design. Two arms are twins only if they were
+    # run from the same seeds for the same length; otherwise the correlation below is between
+    # unrelated draws and every saving it reports is imaginary.
+    c_cfg, t_cfg = config(base / "control"), config(base / "treatment")
+    for field in ("seeds", "days", "n_couples"):
+        if c_cfg.get(field) != t_cfg.get(field):
+            print(
+                f"the two arms differ in {field} ({c_cfg.get(field)} against {t_cfg.get(field)}), "
+                f"so they are not twins and nothing here would mean anything",
+                file=sys.stderr,
+            )
+            return 2
+
+    # A couple is written every day until it divorces, so a full record runs to its ending day,
+    # or to the last day of the run if it never ends. Anything shorter is a truncated file, and a
+    # mean taken over it would still look like a number.
+    for arm, frame in (("control", control), ("treatment", treatment)):
+        # Days are numbered from 0, so a couple that ends on day 117 is written on days 0 to 117,
+        # which is 118 rows, while a couple that never ends is written on every day of the run.
+        ended = frame.divorced.astype(bool)
+        want = frame.days_married.astype(int) + ended.astype(int)
+        short = frame[frame.days_seen != want]
+        if len(short):
+            first = short.index[0]
+            print(
+                f"{len(short)} couples in {arm} have daily rows for a different span than they "
+                f"were together, the first being couple {int(first)} with "
+                f"{int(short.days_seen.iloc[0])} days of rows against {int(want.loc[first])}",
+                file=sys.stderr,
+            )
+            return 2
+        dup = frame[frame.days_written != frame.days_seen]
+        if len(dup):
+            print(f"{len(dup)} couples in {arm} have duplicate daily rows", file=sys.stderr)
+            return 2
+        gaps = frame[frame.days_seen != frame.day_span]
+        if len(gaps):
+            print(f"{len(gaps)} couples in {arm} have gaps in their daily rows", file=sys.stderr)
+            return 2
 
     pair = control.join(treatment, lsuffix="_c", rsuffix="_t", how="inner")
     n = len(pair)
