@@ -22,8 +22,12 @@ rand_chacha = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 clap = { version = "4.6", features = ["derive"] }
-arrow = { version = "60", default-features = false }
-parquet = { version = "60", default-features = false, features = ["arrow", "snap"] }
+# The determinism hash is taken over the Parquet files' own bytes, so the writer is as much an input to it as
+# the maths below. A new arrow or parquet release may lay out pages, dictionaries or statistics differently and
+# move every hash while no number changes, so both are pinned exactly: change them only with an engine version
+# bump and a regenerated example, the same rule libm follows.
+arrow = { version = "=60.0.0", default-features = false }
+parquet = { version = "=60.0.0", default-features = false, features = ["arrow", "snap"] }
 sha2 = "0.11"
 anyhow = "1.0"
 thiserror = "2.0"
