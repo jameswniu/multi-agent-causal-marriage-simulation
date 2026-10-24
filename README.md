@@ -114,11 +114,48 @@ Then `make serve` hosts the dashboard on http://127.0.0.1:8765. The shock box ne
 
 [docs/prior-art.md](docs/prior-art.md) checks eighteen marriage and divorce simulations against their sources, and none pairs decaying agent memory with a randomized trial inside one population.
 
-**Why not NetLogo or Mesa?** Several of the eighteen use them.
+## Questions people ask
 
-- They change one setting for the whole town, then compare two separate runs of different couples.
-- This keeps the couples fixed and runs each one both ways, so a difference is the setting, not luck.
-- It also reruns the year and checks that every output file comes back identical, which none of the eighteen does.
+<details>
+<summary><b>Why not NetLogo or Mesa?</b></summary>
+
+Several of the eighteen use them. They change one setting for the whole town, then compare two separate runs of different couples. This keeps the couples fixed and runs each one both ways, so a difference is the setting and not luck. It also reruns the year and checks that every output file comes back identical, which none of the eighteen does.
+
+</details>
+
+<details>
+<summary><b>Does this say anything about real marriages?</b></summary>
+
+No. The rules are hand-set and fitted to no data, and no human study measures how long people hold onto a fight, so the two memory lengths are design choices. The numbers describe this world only.
+
+</details>
+
+<details>
+<summary><b>Why must the placebo match byte for byte?</b></summary>
+
+Give both halves of the town identical settings and the two sets of output files have to come out identical. If they differ by a single byte, something leaked between them, so the test catches a whole class of bug that a statistical check would miss.
+
+</details>
+
+<details>
+<summary><b>Would this work on my own simulation?</b></summary>
+
+Only if all five of these hold.
+
+- Your engine is a closed function of its seeds and settings, with no clock, network, file reads or model calls.
+- Your units do not affect each other, since treating one must not change another's world.
+- Every random draw is addressed by unit, purpose and step, rather than pulled off one shared stream.
+- Your runner never lets the group label touch seeds, file order, filenames or column names.
+- Your maths does not vary by platform, and your table writer is pinned to one version.
+
+</details>
+
+<details>
+<summary><b>What is actually new here?</b></summary>
+
+Not the idea of reusing random draws across conditions, which is a forty-year-old technique in simulation. What is unusual is running it inside a multi-agent engine and then proving it held, by fingerprinting every output table and requiring the rerun to match on two operating systems and two chip architectures.
+
+</details>
 
 ## License
 
