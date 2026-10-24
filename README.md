@@ -114,6 +114,8 @@ Then `make serve` hosts the dashboard on http://127.0.0.1:8765. The shock box ne
 
 [docs/prior-art.md](docs/prior-art.md) checks eighteen marriage and divorce simulations against their sources, and none pairs decaying agent memory with a randomized trial inside one population.
 
+A fair question is why not NetLogo or Mesa, which several of those eighteen use. They sweep a parameter for the whole population and compare runs. This runs a trial inside one population, with the same couples living both arms on the same draws. Replay checks every table's fingerprint. None of those priors verifies that its runs are bit-identical, and two say outright that theirs are not.
+
 ## License
 
 Apache 2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE). The town art is Kenney's public-domain tile sets, credited in [CREDITS.md](frontend/public/assets/kenney/CREDITS.md).
