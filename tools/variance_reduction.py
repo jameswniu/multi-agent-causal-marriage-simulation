@@ -118,11 +118,18 @@ def main(argv: list[str]) -> int:
         if len(wrong):
             first = wrong.index[0]
             row = wrong.loc[first]
+            # A couple with no daily rows at all has no first or last day to print, and that is
+            # the plainest version of the very failure being reported, so say so rather than
+            # turning a clear refusal into a crash.
+            held = (
+                "no rows at all"
+                if not np.isfinite(row.first_day) or not np.isfinite(row.last_day)
+                else f"{int(row.rows)} rows covering days {int(row.first_day)} to {int(row.last_day)}"
+            )
             print(
                 f"{len(wrong)} couples in {arm} do not have one row for every day they were "
                 f"together, the first being couple {int(first)}, which should hold days 0 to "
-                f"{int(want_last.loc[first])} and instead holds {int(row.rows)} rows covering "
-                f"days {int(row.first_day)} to {int(row.last_day)}",
+                f"{int(want_last.loc[first])} and instead holds {held}",
                 file=sys.stderr,
             )
             return 2
