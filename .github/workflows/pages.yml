@@ -31,7 +31,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The Python package is installed without its dev tools, and UV_NO_DEV keeps every uv run below from adding
     # them back, so each build proves the export needs none of them (docs/static-demo.md).
     env:
@@ -85,7 +85,7 @@ jobs:
           path: site
   deploy:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
